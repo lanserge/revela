@@ -1,0 +1,78 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "revela"
+version = "0.1.0"
+description = "An image signal processing pipeline written in NumPy, from which synthesisable Verilog is generated"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0 WITH SHL-2.1"
+license-files = ["LICENSE", "LICENSE-APACHE", "NOTICE"]
+authors = [{ name = "Serge Rabyking" }]
+keywords = ["isp", "image-signal-processor", "fpga", "verilog", "hls", "numpy", "camera"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Image Processing",
+    "Topic :: Software Development :: Embedded Systems",
+]
+
+dependencies = [
+    "numpy>=1.24",
+    "jsonschema>=4.0",
+    # np2hw is the generator; revela is its flagship proof case. Depended on,
+    # never vendored -- a fork here would let the two drift, and the whole claim
+    # is that one NumPy model drives both. From PyPI, so the dependency is
+    # pinnable, hashable and scannable; co-development installs it editable
+    # over the top (pip install -e ../np2hw).
+    "np2hw>=0.3.0",
+]
+
+[project.optional-dependencies]
+# Verification needs a simulator too: Verilator, installed by the platform's
+# package manager rather than by pip. See .github/workflows/ci.yml.
+dev = [
+    "pytest>=7.0",
+    "cocotb>=2.0",
+    # Elaborates the emitted SystemRDL and compares it against the JSON map;
+    # MIT, unlike the PeakRDL exporters, which are tools an integrator runs.
+    "systemrdl-compiler>=1.29",
+]
+
+[project.scripts]
+revela-fusesoc = "revela.fusesoc:main"
+
+[project.urls]
+Homepage = "https://github.com/lanserge/revela"
+Source = "https://github.com/lanserge/revela"
+
+[tool.hatch.build.targets.wheel]
+packages = ["revela"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/revela",
+    "/tests",
+    "/docs",
+    "/examples",
+    "/LICENSE",
+    "/LICENSE-APACHE",
+    "/NOTICE",
+    # Travels with the source distribution because it has effect for a
+    # recipient: it states that the licence covers the code and not the name.
+    "/TRADEMARK.md",
+    "/README.md",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# experiments/ may use float freely and is never a dependency of the library,
+# so it is not collected.
+norecursedirs = ["experiments", "build", ".venv", "boards"]
+markers = [
+    "verilog: needs Verilator and cocotb (the bit-exact model-versus-RTL tests)",
+]
+filterwarnings = ["error::DeprecationWarning"]

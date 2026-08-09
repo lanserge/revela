@@ -1,0 +1,97 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Testing and tooling
+.pytest_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+.cache
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+
+# Simulation and generated output
+obj_dir/
+sim_build/
+*.vcd
+*.fst
+*.ghw
+results.xml
+*.result.xml
+verilator.log
+dump.vcd
+
+# Generated Verilog and register maps. The NumPy model is the source; a
+# generated file checked in is a second source of truth waiting to go stale.
+/build/
+pipelines/*/*/*/build/
+*.v.bak
+
+# Image and capture data. Raw frames are large, are usually somebody's camera
+# calibration, and are not the specification -- reference images for pipeline-
+# level quality checks are fetched or generated, not committed.
+#
+# The licensing half matters more than the size half, and is why the rendered
+# formats are here too: the standard demosaic reference sets are distributed as
+# PNG (Kodak) and TIFF (McMaster) under terms that do not permit redistribution.
+# One of those committed by accident is in the history permanently, and it is
+# the first thing a partner's open-source review will find.
+*.raw
+*.dng
+*.npy
+*.npz
+*.png
+*.jpg
+*.jpeg
+*.tif
+*.tiff
+*.bmp
+*.pgm
+*.ppm
+*.pfm
+*.exr
+*.webp
+*.mp4
+*.mov
+*.y4m
+# Documentation illustrations are the exception: committed deliberately, by
+# path, so that adding one is a visible decision rather than a slip.
+!docs/images/*.png
+!docs/images/*.svg
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
