@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "name": "imx219_stereo_default",
+  "description": "Baseline tuning for both eyes. The black level offsets come from the sensor description and are keyed by BLOCK name, so one entry configures both instances; an instance-path key would override just one eye, which is how a difference between the two camera modules gets corrected.",
+  "pipeline": "../pipeline.json",
+  "sensor": {
+    "name": "imx219",
+    "mode": "binned_2x2"
+  },
+  "values": {
+    "stats": {
+      "zones_x": 8,
+      "zones_y": 8,
+      "zone_width": 205,
+      "zone_height": 154
+    }
+  },
+  "control": {
+    "ae": {
+      "target_q8": 46
+    },
+    "awb": {
+      "grey_world_fallback": true
+    }
+  }
+}

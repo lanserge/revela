@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "name": "revela_stereo_imx219_basic",
+  "description": "Two eyes running the SAME chain, described once as a subsystem and instantiated twice. Every block inside still gets its own instance path and its own base address -- left.blacklevel and right.blacklevel are independent registers -- so the register map is byte-identical to spelling the graph out twice. What changes is the emitted RTL: one blacklevel module instantiated per eye, instead of two identical copies.",
+  "sensor": {
+    "name": "imx219",
+    "mode": "binned_2x2"
+  },
+  "stream": {
+    "bit_depth": 10,
+    "channels": 1
+  },
+  "geometry": {
+    "width": 1640,
+    "height": 1232
+  },
+  "inputs": [
+    {
+      "name": "left_sensor"
+    },
+    {
+      "name": "right_sensor"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "left_video"
+    },
+    {
+      "name": "right_video"
+    }
+  ],
+  "nodes": [
+    {
+      "instance": "left",
+      "subsystem": "eye"
+    },
+    {
+      "instance": "right",
+      "subsystem": "eye"
+    }
+  ],
+  "connections": [
+    {
+      "from": "left_sensor",
+      "to": "left.sensor"
+    },
+    {
+      "from": "left.video",
+      "to": "left_video"
+    },
+    {
+      "from": "right_sensor",
+      "to": "right.sensor"
+    },
+    {
+      "from": "right.video",
+      "to": "right_video"
+    }
+  ],
+  "subsystems": [
+    {
+      "name": "eye",
+      "description": "One eye: remove the pedestal, balance the illuminant, and tap the pre-balance stream for metering.",
+      "inputs": [
+        {
+          "name": "sensor",
+          "description": "Raw Bayer from this eye's sensor."
+        }
+      ],
+      "outputs": [
+        {
+          "name": "video",
+          "description": "Corrected Bayer for this eye."
+        }
+      ],
+      "nodes": [
+        {
+          "instance": "blacklevel",
+          "block": "blacklevel"
+        },
+        {
+          "instance": "whitebalance",
+          "block": "whitebalance",
+          "description": "Per-eye white balance: the eyes may not see the same illuminant (windows, mixed light)."
+        },
+        {
+          "instance": "gamma",
+          "block": "gamma",
+          "registers": {
+            "knots": {
+              "bits": 11
+            }
+          }
+        },
+        {
+          "instance": "stats",
+          "block": "stats"
+        }
+      ],
+      "connections": [
+        {
+          "from": "sensor",
+          "to": "blacklevel.in"
+        },
+        {
+          "from": "blacklevel.out",
+          "to": "whitebalance.in"
+        },
+        {
+          "from": "whitebalance.out",
+          "to": "gamma.in"
+        },
+        {
+          "from": "gamma.out",
+          "to": "video"
+        },
+        {
+          "from": "blacklevel.out",
+          "to": "stats.in",
+          "description": "A TAP: statistics meter the pedestal-corrected signal and produce no pixels, so the image path runs straight through."
+        }
+      ]
+    }
+  ]
+}

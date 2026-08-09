@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/lanserge/revela/revela/profiles/schema.json",
+  "title": "revela pipeline profile",
+  "description": "Parameter VALUES for a pipeline, plus the sensor they were tuned for. A profile is what lets ONE pipeline description serve several sensors and several tunings: the structure stays fixed and only the numbers change.\n\nThree files, three jobs, and they must not blur together:\n\n  pipeline description   structure  -- which blocks, in what order\n  profile (this file)    values     -- what to write into their registers\n  register map           addresses  -- generated output, never hand-written\n\nA profile carries no structure and no addresses. It cannot add a block, cannot reorder the datapath, and cannot say where a register lives. It can only set values for registers that the pipeline's blocks already declare, and every value is checked against the declared width, signedness and range when the profile is resolved -- so a bad number fails at load rather than on hardware.",
+  "type": "object",
+  "required": ["schema_version", "name", "sensor"],
+  "additionalProperties": false,
+
+  "properties": {
+    "schema_version": {
+      "description": "Version of THIS schema the profile was written against.",
+      "type": "integer",
+      "const": 1
+    },
+
+    "name": {
+      "description": "Profile name, e.g. 'imx219_indoor'.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+
+    "description": {
+      "description": "Free text: what this tuning is for, and how it was arrived at.",
+      "type": "string"
+    },
+
+    "pipeline": {
+      "description": "Path to the pipeline description this profile tunes, relative to the profile file. Optional: a profile may instead be applied to a pipeline built in Python. When present, it is what makes 'the same pipeline on a different sensor' a matter of two profiles pointing at one description.",
+      "type": "string"
+    },
+
+    "sensor": {
+      "description": "The sensor this profile was tuned for. Values derived from it -- the black level pedestal, the Bayer phase, the frame geometry -- are filled in automatically unless derive_from_sensor is false.",
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+        "mode": { "type": "string" }
+      }
+    },
+
+    "derive_from_sensor": {
+      "description": "Whether to fill in the values the sensor description implies before applying this profile's explicit values. Default true. Setting it false means every register comes from its declared reset value or from this file, which is occasionally what a bring-up or a bug hunt wants.",
+      "type": "boolean",
+      "default": true
+    },
+
+    "values": {
+      "description": "Register values, keyed by block INSTANCE PATH ('left.blacklevel') or by BLOCK NAME ('blacklevel'). A block-name key applies to every instance of that block, which is how a stereo pipeline shares one tuning between two eyes; an instance-path key overrides it for that instance, which is how one eye is corrected for a difference in its optics. Values are raw register integers -- what the hardware actually holds -- so a profile is exactly reproducible and diffable. The Q format for each register is in the generated register map documentation.",
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)?$" },
+      "additionalProperties": {
+        "type": "object",
+        "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" },
+        "additionalProperties": { "type": "integer" }
+      }
+    },
+
+    "control": {
+      "description": "Tuning for the 3A loops. These run in software at frame rate and are not hardware registers, but they are part of what makes a camera look the way it looks, so they belong in the same file as the register values rather than in someone's script.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ae": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "target_q8": {
+              "description": "Metering target as a Q8.8 fraction of full scale. 46 is about 18%, the reflectance of a grey card.",
+              "type": "integer", "minimum": 1, "maximum": 255
+            },
+            "max_exposure_ns": {
+              "description": "Motion-blur ceiling. The frame rate imposes its own ceiling regardless; this is the tighter one, when there is a reason for it.",
+              "type": "integer", "minimum": 1
+            }
+          }
+        },
+        "awb": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "grey_world_fallback": {
+              "description": "Whether to fall back to plain grey world when no zone is neutral enough to be evidence about the illuminant. False holds the previous gains instead, which is more defensible and looks more like a freeze.",
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+
+    "addresses": {
+      "description": "Deliberately not allowed, for the same reason as in a pipeline description: addresses are allocated from block-local offsets at composition time, never declared.",
+      "not": {}
+    },
+
+    "blocks": {
+      "description": "Deliberately not allowed. A profile tunes an existing pipeline; it cannot add, remove or reorder blocks. That is the pipeline description's job, and blurring the two would mean a tuning file could silently change the hardware.",
+      "not": {}
+    }
+  }
+}

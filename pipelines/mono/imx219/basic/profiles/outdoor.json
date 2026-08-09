@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "name": "imx219_outdoor",
+  "description": "The SAME pipeline and the SAME sensor mode as imx219_indoor, tuned for daylight instead. Only the numbers differ. Exposure is capped hard against motion blur, the metering target sits at the grey-card value, and grey-world fallback is off: outdoor scenes are often genuinely dominated by one colour -- foliage, sky, sand -- and falling back to grey world on those is how a lawn turns grey.",
+  "pipeline": "../pipeline.json",
+  "sensor": {
+    "name": "imx219",
+    "mode": "binned_2x2"
+  },
+  "values": {
+    "stats": {
+      "zones_x": 16,
+      "zones_y": 16
+    }
+  },
+  "control": {
+    "ae": {
+      "target_q8": 46,
+      "max_exposure_ns": 8000000
+    },
+    "awb": {
+      "grey_world_fallback": false
+    }
+  }
+}

@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "name": "revela_mono_imx219_basic",
+  "description": "Single-sensor Bayer-domain pipeline: remove the pedestal, balance the illuminant, apply the display curve, and meter the frame. Note that stats TAPS the datapath rather than sitting in it -- it consumes the corrected stream and produces no pixels, so the image path is blacklevel straight through to the output. The baseline every other mono variant is a change against.",
+  "sensor": {
+    "name": "imx219",
+    "mode": "binned_2x2"
+  },
+  "stream": {
+    "bit_depth": 10,
+    "channels": 1
+  },
+  "geometry": {
+    "width": 1640,
+    "height": 1232
+  },
+  "inputs": [
+    {
+      "name": "sensor",
+      "description": "Raw Bayer from the sensor receiver."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "video",
+      "description": "Corrected Bayer, ready for demosaic."
+    }
+  ],
+  "nodes": [
+    {
+      "instance": "blacklevel",
+      "block": "blacklevel",
+      "description": "Remove the sensor pedestal per CFA colour, before anything multiplies the signal."
+    },
+    {
+      "instance": "whitebalance",
+      "block": "whitebalance",
+      "description": "Per-CFA-colour gain, written by the AWB loop at frame rate. After blacklevel -- a gain on top of a pedestal scales the pedestal -- and before demosaic."
+    },
+    {
+      "instance": "gamma",
+      "block": "gamma",
+      "registers": {
+        "knots": {
+          "bits": 11
+        }
+      },
+      "description": "Display tone curve. knots bits = bit_depth + 1 (10-bit sensor path), the build-override mechanism doing exactly the job it exists for."
+    },
+    {
+      "instance": "stats",
+      "block": "stats",
+      "description": "Per-zone colour and luminance accumulators for AE and AWB."
+    }
+  ],
+  "connections": [
+    {
+      "from": "sensor",
+      "to": "blacklevel.in"
+    },
+    {
+      "from": "blacklevel.out",
+      "to": "whitebalance.in"
+    },
+    {
+      "from": "whitebalance.out",
+      "to": "gamma.in"
+    },
+    {
+      "from": "gamma.out",
+      "to": "video"
+    },
+    {
+      "from": "blacklevel.out",
+      "to": "stats.in",
+      "description": "A TAP, deliberately PRE-whitebalance: AWB must meter the illuminant's cast, and a loop that meters its own correction chases its tail. It produces no pixels and never stalls the datapath."
+    }
+  ]
+}

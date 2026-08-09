@@ -1,0 +1,431 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/lanserge/revela/revela/pipelines/schema.json",
+  "title": "revela pipeline description",
+  "description": "A pipeline's STRUCTURE, as a netlist: named block instances and the connections between their ports. This file is an INPUT -- hand-written, or authored by a pipeline builder. It is not the register map, which is an OUTPUT generated from it.\n\nA netlist rather than a list, because a real ISP is not a chain. Statistics TAP the datapath and produce no pixels. A preview path FORKS off the main one at a different resolution. Luma and chroma SPLIT after colour conversion and only luma is sharpened. HDR MERGES two exposures. None of that is expressible as an ordered list, and forcing it into one puts blocks in the datapath that are only watching it.\n\nIt deliberately cannot contain an address. Blocks declare local offsets only and revela assigns each block INSTANCE a base at composition time; letting a description pin an address would put a second, editable copy of the address map in the world, which is exactly what rule 2 exists to prevent.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "name",
+    "stream",
+    "geometry",
+    "nodes",
+    "connections"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "description": "Version of THIS schema the description was written against. Bumped when the structure changes incompatibly, so an old description fails loudly rather than being half-understood.",
+      "type": "integer",
+      "const": 1
+    },
+    "name": {
+      "description": "Pipeline name. Becomes the top Verilog module name and the register map's name. By convention `revela_<topology>_<sensor>_<variant>`, matching the design's directory, so module names stay unique when several variants are built side by side.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "description": {
+      "type": "string"
+    },
+    "sensor": {
+      "description": "Sensor description to take BUILD-TIME parameters from. Only two are taken: bit depth (datapath width) and image width (line buffer sizing). Everything else the sensor implies -- Bayer phase above all -- is a runtime register, so one bitstream serves every sensor.",
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "mode": {
+          "type": "string"
+        }
+      }
+    },
+    "stream": {
+      "description": "The pixel stream entering the pipeline.",
+      "type": "object",
+      "required": [
+        "bit_depth"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "bit_depth": {
+          "description": "Bits per component. The datapath width, baked at build time.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32
+        },
+        "channels": {
+          "description": "Components per pixel. 1 in the Bayer domain, 3 after demosaic.",
+          "type": "integer",
+          "minimum": 1,
+          "default": 1
+        },
+        "signed": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "geometry": {
+      "description": "Frame size the generated cores are built around. Runtime resolutions BELOW this come from the pipeline context registers without a rebuild; this is the maximum, because it sizes the line buffers.",
+      "type": "object",
+      "required": [
+        "width",
+        "height"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "width": {
+          "type": "integer",
+          "minimum": 2,
+          "multipleOf": 2
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 2,
+          "multipleOf": 2
+        }
+      }
+    },
+    "regions": {
+      "description": "Where the two address regions start. Region BASES are a platform choice and may be set here; individual block and register addresses are allocated by revela and may not.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "config_base": {
+          "type": "integer",
+          "minimum": 0,
+          "multipleOf": 256
+        },
+        "stats_base": {
+          "type": "integer",
+          "minimum": 0,
+          "multipleOf": 256
+        }
+      }
+    },
+    "inputs": {
+      "description": "Pipeline-level stream inputs, by name. Each becomes a set of pixel ports on the generated top module. Defaults to a single input called `in`.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "outputs": {
+      "description": "Pipeline-level stream outputs, by name. A pipeline may have several -- a full-resolution capture path and a downscaled preview, say. Defaults to a single output called `out`.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "nodes": {
+      "description": "Block instances. The order here is not the datapath order -- `connections` decides that, and generation walks the graph in topological order.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "instance"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "instance": {
+            "description": "Instance name, unique within the pipeline. Dotted paths group instances: `left.blacklevel` and `right.blacklevel` are two instances of one block, reachable from the host as `dev.left.blacklevel` and `dev.right.blacklevel`.",
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+          },
+          "block": {
+            "description": "Block name, matching the ParamSet the block module declares. Declared stubs have no ParamSet and cannot be named here.",
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "description": {
+            "type": "string"
+          },
+          "subsystem": {
+            "description": "Instantiate a named subsystem here instead of a block. The instance name becomes the path prefix for everything inside it: a `blacklevel` inside subsystem instance `left` is the instance `left.blacklevel`, addressed and reachable from the host exactly as if it had been declared at the top level.",
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "registers": {
+            "description": "Build-time overrides of DECLARED register attributes, per register: {\"gain\": {\"frac\": 12}}. Only attributes the block's declaration lists as configurable are accepted -- the block, not this schema, is the authority, so an unknown register or a refused attribute fails at build with a message naming what IS allowed. These are structural choices baked into the bitstream; the register map records them and every derived fact (q_format, reset values, the model's own arithmetic) follows the overridden declaration. Never addresses.",
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "bits": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 32
+                },
+                "frac": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 32
+                },
+                "default": {
+                  "type": "integer"
+                },
+                "shape": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "minItems": 1,
+                  "maxItems": 2
+                }
+              }
+            }
+          }
+        },
+        "oneOf": [
+          {
+            "required": [
+              "block"
+            ]
+          },
+          {
+            "required": [
+              "subsystem"
+            ]
+          }
+        ]
+      }
+    },
+    "connections": {
+      "description": "Directed edges between ports. An endpoint is either `instance.port` or the bare name of a pipeline input or output.\n\nEvery block input and every pipeline output must be driven exactly once -- an undriven input is a stream that never arrives, and two drivers is a short. An output port MAY drive several sinks: that is a fork, and it is how statistics tap the datapath.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "from",
+          "to"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "description": "Source: `instance.port` of a block output, or a pipeline input name.",
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+          },
+          "to": {
+            "description": "Sink: `instance.port` of a block input, or a pipeline output name.",
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "addresses": {
+      "description": "Deliberately not allowed. Addresses are ALLOCATED, not declared: blocks carry local offsets and revela assigns each instance a base at composition time. A description that could pin an address would be a second copy of the address map, free to disagree with the hardware. Read the generated register map JSON instead.",
+      "not": {}
+    },
+    "subsystems": {
+      "description": "Reusable sub-graphs, composed ONCE and instantiated by name. A stereo camera is two eyes running the same chain: describing it as a subsystem emits one module instantiated twice, rather than the same graph copied into the top level. Addresses are still allocated per INSTANCE, so each eye's registers stay independent -- the register map is identical either way, only the emitted structure changes.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "nodes",
+          "connections"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "description": {
+            "type": "string"
+          },
+          "inputs": {
+            "description": "Stream inputs of the subsystem. Defaults to a single `in`.",
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": [
+                "name"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_]*$"
+                },
+                "description": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "outputs": {
+            "description": "Stream outputs of the subsystem. Defaults to a single `out`.",
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": [
+                "name"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_]*$"
+                },
+                "description": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "nodes": {
+            "description": "Block instances. The order here is not the datapath order -- `connections` decides that, and generation walks the graph in topological order.",
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": [
+                "instance"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "instance": {
+                  "description": "Instance name, unique within the pipeline. Dotted paths group instances: `left.blacklevel` and `right.blacklevel` are two instances of one block, reachable from the host as `dev.left.blacklevel` and `dev.right.blacklevel`.",
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+                },
+                "block": {
+                  "description": "Block name, matching the ParamSet the block module declares. Declared stubs have no ParamSet and cannot be named here.",
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_]*$"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "subsystem": {
+                  "description": "Instantiate a named subsystem here instead of a block. The instance name becomes the path prefix for everything inside it: a `blacklevel` inside subsystem instance `left` is the instance `left.blacklevel`, addressed and reachable from the host exactly as if it had been declared at the top level.",
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_]*$"
+                },
+                "registers": {
+                  "description": "Build-time overrides of DECLARED register attributes, per register: {\"gain\": {\"frac\": 12}}. Only attributes the block's declaration lists as configurable are accepted -- the block, not this schema, is the authority, so an unknown register or a refused attribute fails at build with a message naming what IS allowed. These are structural choices baked into the bitstream; the register map records them and every derived fact (q_format, reset values, the model's own arithmetic) follows the overridden declaration. Never addresses.",
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "bits": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 32
+                      },
+                      "frac": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 32
+                      },
+                      "default": {
+                        "type": "integer"
+                      },
+                      "shape": {
+                        "type": "array",
+                        "items": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "minItems": 1,
+                        "maxItems": 2
+                      }
+                    }
+                  }
+                }
+              },
+              "oneOf": [
+                {
+                  "required": [
+                    "block"
+                  ]
+                },
+                {
+                  "required": [
+                    "subsystem"
+                  ]
+                }
+              ]
+            }
+          },
+          "connections": {
+            "description": "Directed edges between ports. An endpoint is either `instance.port` or the bare name of a pipeline input or output.\n\nEvery block input and every pipeline output must be driven exactly once -- an undriven input is a stream that never arrives, and two drivers is a short. An output port MAY drive several sinks: that is a fork, and it is how statistics tap the datapath.",
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": [
+                "from",
+                "to"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "from": {
+                  "description": "Source: `instance.port` of a block output, or a pipeline input name.",
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+                },
+                "to": {
+                  "description": "Sink: `instance.port` of a block input, or a pipeline output name.",
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+                },
+                "description": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
