@@ -1,0 +1,332 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/lanserge/revela/revela/sensors/schema.json",
+  "title": "revela sensor description",
+  "description": "Everything true of EVERY part of one sensor model. Per-unit calibration (this camera's CCM, its lens shading mesh, its defect map) is a calibration OUTPUT, loaded at runtime, and must not appear here -- see the 'calibration' key, which exists only to reject it with a useful message.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "name",
+    "vendor",
+    "provenance",
+    "cfa",
+    "format",
+    "black_level",
+    "gain",
+    "exposure",
+    "timing",
+    "modes"
+  ],
+  "additionalProperties": false,
+
+  "properties": {
+    "schema_version": {
+      "description": "Version of THIS schema the file was written against. Bumped when the structure changes incompatibly, so a description written for an older revela fails loudly instead of being half-understood.",
+      "type": "integer",
+      "const": 1
+    },
+
+    "name": {
+      "description": "Directory name and lookup key, lower case, e.g. 'imx219'.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "vendor": { "type": "string", "minLength": 1 },
+    "part_number": { "type": "string" },
+    "description": { "type": "string" },
+
+    "provenance": {
+      "description": "Where these numbers came from. Required, and checked in review: register tables from the Linux kernel media drivers are GPL-2.0 and are incompatible with this project's licence, so they must not be transcribed here. Derive from the datasheet, or reference a driver without copying it.",
+      "type": "object",
+      "required": ["derived_from"],
+      "additionalProperties": false,
+      "properties": {
+        "derived_from": {
+          "description": "Documents these values were derived from.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["kind", "reference"],
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": ["datasheet", "vendor_documentation", "measurement", "vendor_application_note"]
+              },
+              "reference": { "type": "string", "minLength": 1 },
+              "revision": { "type": "string" },
+              "notes": { "type": "string" }
+            }
+          }
+        },
+        "gpl_driver_transcribed": {
+          "description": "Must be false. Present so a contributor has to state it explicitly rather than leave it ambiguous.",
+          "type": "boolean",
+          "const": false
+        },
+        "notes": { "type": "string" }
+      }
+    },
+
+    "cfa": {
+      "description": "Colour filter array. The ORDER here becomes the two-bit bayer_phase pipeline context register, not a build option: one bitstream serves every orientation.",
+      "type": "object",
+      "required": ["order"],
+      "additionalProperties": false,
+      "properties": {
+        "order": {
+          "description": "CFA order at the sensor's default (unflipped, unmirrored) readout, named as datasheets name it.",
+          "type": "string",
+          "enum": ["RGGB", "GRBG", "GBRG", "BGGR"]
+        },
+        "flip_changes_order": {
+          "description": "True if vertical/horizontal flip shifts the CFA phase, as it does on most parts. Software recomputes bayer_phase; the gateware does not change.",
+          "type": "boolean"
+        }
+      }
+    },
+
+    "format": {
+      "description": "Pixel format on the wire. bit_depth is one of only TWO things revela takes from a sensor description at build time (it sets the datapath width); the other is image width, which sizes line buffers.",
+      "type": "object",
+      "required": ["bit_depth", "packing"],
+      "additionalProperties": false,
+      "properties": {
+        "bit_depth": { "type": "integer", "minimum": 8, "maximum": 16 },
+        "packing": {
+          "description": "How pixels are packed on the link. MIPI CSI-2 RAW10/RAW12 pack 4 or 2 pixels plus a shared low-bits byte.",
+          "type": "string",
+          "enum": ["unpacked16", "mipi_raw8", "mipi_raw10", "mipi_raw12", "mipi_raw14"]
+        },
+        "csi_data_type": {
+          "description": "MIPI CSI-2 data type code, if the part is a CSI-2 sensor.",
+          "type": "integer", "minimum": 0, "maximum": 63
+        }
+      }
+    },
+
+    "black_level": {
+      "description": "The pedestal the sensor deliberately adds so read noise stays representable instead of clipping at zero. Stated as a POSITIVE number, the way the datasheet states it; revela's black level register holds a signed offset that is ADDED, so software negates this exactly once (blacklevel.offsets_from_sensor).",
+      "type": "object",
+      "required": ["pedestal"],
+      "additionalProperties": false,
+      "properties": {
+        "pedestal": {
+          "description": "Pedestal in sensor LSBs at the part's native bit depth.",
+          "type": "integer", "minimum": 0
+        },
+        "per_colour": {
+          "description": "Per-CFA-colour pedestal, when the datasheet gives one. A MODEL-level fact only; the residual difference between individual units is calibration and does not belong in this repo.",
+          "type": "object",
+          "required": ["r", "gr", "gb", "b"],
+          "additionalProperties": false,
+          "properties": {
+            "r": { "type": "integer", "minimum": 0 },
+            "gr": { "type": "integer", "minimum": 0 },
+            "gb": { "type": "integer", "minimum": 0 },
+            "b": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "register": { "type": "string" }
+      }
+    },
+
+    "gain": {
+      "description": "Gain code mapping, consumed by software at runtime: the AE loop converts a desired gain into a register code. Never generated into hardware.",
+      "type": "object",
+      "required": ["analogue"],
+      "additionalProperties": false,
+      "properties": {
+        "analogue": { "$ref": "#/$defs/gain_channel" },
+        "digital": { "$ref": "#/$defs/gain_channel" }
+      }
+    },
+
+    "exposure": {
+      "description": "How an exposure TIME becomes integration registers. The 3A loop reads this and computes the writes; nothing here is generated into hardware.",
+      "type": "object",
+      "required": ["unit", "coarse"],
+      "additionalProperties": false,
+      "properties": {
+        "unit": {
+          "description": "'lines' means coarse integration is counted in line times, which is how essentially every rolling-shutter part works.",
+          "type": "string",
+          "enum": ["lines"]
+        },
+        "coarse": {
+          "type": "object",
+          "required": ["register", "bits", "min"],
+          "additionalProperties": false,
+          "properties": {
+            "register": { "type": "string", "minLength": 1 },
+            "bits": { "type": "integer", "minimum": 1, "maximum": 32 },
+            "min": { "type": "integer", "minimum": 0 },
+            "max_margin": {
+              "description": "Lines that must remain between coarse integration and frame_length_lines. Exceeding it corrupts the frame, so the clamp belongs in the description rather than in each caller.",
+              "type": "integer", "minimum": 0
+            }
+          }
+        },
+        "fine": {
+          "description": "Sub-line-time integration, where the part supports it.",
+          "type": "object",
+          "required": ["supported"],
+          "additionalProperties": false,
+          "properties": {
+            "supported": { "type": "boolean" },
+            "register": { "type": "string" },
+            "bits": { "type": "integer", "minimum": 1, "maximum": 32 },
+            "unit": { "type": "string", "enum": ["pixel_clocks"] }
+          }
+        }
+      }
+    },
+
+    "timing": {
+      "description": "Frame timing at the part's default mode. Per-mode overrides live in each mode entry.",
+      "type": "object",
+      "required": ["line_length_pck", "frame_length_lines", "pixel_rate_hz"],
+      "additionalProperties": false,
+      "properties": {
+        "line_length_pck": {
+          "description": "Total line length in pixel clocks, including horizontal blanking. Sets the line time, which sets the exposure quantum.",
+          "type": "integer", "minimum": 1
+        },
+        "frame_length_lines": {
+          "description": "Total frame height in lines, including vertical blanking. Sets the frame rate and bounds coarse integration.",
+          "type": "integer", "minimum": 1
+        },
+        "pixel_rate_hz": { "type": "integer", "minimum": 1 },
+        "line_time_ns": {
+          "description": "Optional; derivable as line_length_pck / pixel_rate_hz. Stated when the datasheet states it, and cross-checked against the derivation by the schema test.",
+          "type": "number", "exclusiveMinimum": 0
+        }
+      }
+    },
+
+    "modes": {
+      "description": "Readout modes. Only width (line buffer sizing) and bit depth are build-time; everything else is selected at runtime.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "width", "height"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+          "width": { "type": "integer", "minimum": 2, "multipleOf": 2 },
+          "height": { "type": "integer", "minimum": 2, "multipleOf": 2 },
+          "binning": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "x": { "type": "integer", "minimum": 1 },
+              "y": { "type": "integer", "minimum": 1 },
+              "mode": { "type": "string", "enum": ["none", "average", "sum", "skip"] }
+            }
+          },
+          "crop": {
+            "type": "object",
+            "required": ["x0", "y0", "x1", "y1"],
+            "additionalProperties": false,
+            "properties": {
+              "x0": { "type": "integer", "minimum": 0 },
+              "y0": { "type": "integer", "minimum": 0 },
+              "x1": { "type": "integer", "minimum": 1 },
+              "y1": { "type": "integer", "minimum": 1 }
+            }
+          },
+          "line_length_pck": { "type": "integer", "minimum": 1 },
+          "frame_length_lines": { "type": "integer", "minimum": 1 },
+          "pixel_rate_hz": { "type": "integer", "minimum": 1 },
+          "register_sequence": {
+            "description": "Name of the entry in register_sequences that selects this mode.",
+            "type": "string"
+          }
+        }
+      }
+    },
+
+    "register_sequences": {
+      "description": "Named I2C register write sequences. Consumed by software at runtime, and -- in the ONE case where sensor data becomes gateware -- compiled into a ROM plus a state machine for headless targets with no CPU. Every value must be datasheet-derived; see provenance.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["writes"],
+        "additionalProperties": false,
+        "properties": {
+          "description": { "type": "string" },
+          "writes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["address", "value"],
+              "additionalProperties": false,
+              "properties": {
+                "address": { "type": "integer", "minimum": 0, "maximum": 65535 },
+                "value": { "type": "integer", "minimum": 0, "maximum": 255 },
+                "comment": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "i2c": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "addresses": {
+          "type": "array", "minItems": 1,
+          "items": { "type": "integer", "minimum": 0, "maximum": 127 }
+        },
+        "address_bytes": { "type": "integer", "enum": [1, 2] },
+        "value_bytes": { "type": "integer", "enum": [1, 2] },
+        "chip_id": {
+          "type": "object",
+          "required": ["register", "value"],
+          "additionalProperties": false,
+          "properties": {
+            "register": { "type": "integer", "minimum": 0, "maximum": 65535 },
+            "value": { "type": "integer", "minimum": 0, "maximum": 65535 },
+            "bytes": { "type": "integer", "enum": [1, 2] }
+          }
+        }
+      }
+    },
+
+    "calibration": {
+      "description": "Deliberately not allowed. A CCM, a lens shading mesh and a defect map are properties of ONE physical camera, produced by calibrating it, and they change per unit, per lens and per illuminant. Committing them here would ship one unit's measurements as if they described the model. Load them at runtime from wherever your calibration process writes them.",
+      "not": {}
+    }
+  },
+
+  "$defs": {
+    "gain_channel": {
+      "type": "object",
+      "required": ["model", "register", "code_min", "code_max"],
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "description": "How a code becomes a gain. 'sony_inverse' is gain = 256 / (256 - code), the mapping Sony parts use for analogue gain. 'linear_q8' is gain = code / 256.",
+          "type": "string",
+          "enum": ["sony_inverse", "linear_q8", "db_per_step"]
+        },
+        "register": { "type": "string", "minLength": 1 },
+        "bits": { "type": "integer", "minimum": 1, "maximum": 32 },
+        "code_min": { "type": "integer", "minimum": 0 },
+        "code_max": { "type": "integer", "minimum": 0 },
+        "step_millidb": {
+          "description": "Only for model 'db_per_step'.",
+          "type": "integer", "minimum": 1
+        },
+        "max_gain_q8": {
+          "description": "Largest achievable gain in Q8.8 (256 = 1.0), so the AE loop can clamp without evaluating the model at its singularity.",
+          "type": "integer", "minimum": 256
+        }
+      }
+    }
+  }
+}

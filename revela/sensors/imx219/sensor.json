@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "name": "imx219",
+  "vendor": "Sony",
+  "part_number": "IMX219PQH5-C",
+  "description": "1/4-inch 8.08 Mpixel CMOS sensor, 3280x2464, 10-bit, MIPI CSI-2. The sensor on the Raspberry Pi Camera Module v2. STUB: the structural fields are complete and the timing figures are the datasheet's defaults, but register_sequences is deliberately empty -- see provenance.",
+
+  "provenance": {
+    "derived_from": [
+      {
+        "kind": "datasheet",
+        "reference": "Sony IMX219PQH5-C Product Specification",
+        "notes": "Structural facts only: array geometry, bit depth, CFA order, pedestal, default line/frame length, and the analogue gain mapping."
+      }
+    ],
+    "gpl_driver_transcribed": false,
+    "notes": "The Linux kernel driver drivers/media/i2c/imx219.c is GPL-2.0. Its register tables are NOT transcribed here and must not be: that licence is incompatible with this project's. It may be consulted as a cross-reference for behaviour, and cited, but values must be derived from the datasheet. register_sequences is left empty rather than filled in from a driver, because an empty sequence fails honestly at bring-up whereas a copied one fails in a licence review."
+  },
+
+  "cfa": {
+    "order": "RGGB",
+    "flip_changes_order": true
+  },
+
+  "format": {
+    "bit_depth": 10,
+    "packing": "mipi_raw10",
+    "csi_data_type": 43
+  },
+
+  "black_level": {
+    "pedestal": 64,
+    "register": "black_level_setting"
+  },
+
+  "gain": {
+    "analogue": {
+      "model": "sony_inverse",
+      "register": "analogue_gain_code_global",
+      "bits": 8,
+      "code_min": 0,
+      "code_max": 232,
+      "max_gain_q8": 2730
+    },
+    "digital": {
+      "model": "linear_q8",
+      "register": "digital_gain_global",
+      "bits": 12,
+      "code_min": 256,
+      "code_max": 4095,
+      "max_gain_q8": 4095
+    }
+  },
+
+  "exposure": {
+    "unit": "lines",
+    "coarse": {
+      "register": "coarse_integration_time",
+      "bits": 16,
+      "min": 1,
+      "max_margin": 4
+    },
+    "fine": {
+      "supported": false
+    }
+  },
+
+  "timing": {
+    "line_length_pck": 3448,
+    "frame_length_lines": 2482,
+    "pixel_rate_hz": 182400000
+  },
+
+  "modes": [
+    {
+      "name": "full",
+      "width": 3280,
+      "height": 2464,
+      "binning": { "x": 1, "y": 1, "mode": "none" },
+      "line_length_pck": 3448,
+      "frame_length_lines": 2482,
+      "pixel_rate_hz": 182400000
+    },
+    {
+      "name": "binned_2x2",
+      "width": 1640,
+      "height": 1232,
+      "binning": { "x": 2, "y": 2, "mode": "average" },
+      "line_length_pck": 3448,
+      "frame_length_lines": 1258,
+      "pixel_rate_hz": 182400000
+    },
+    {
+      "name": "cropped_1080p",
+      "width": 1920,
+      "height": 1080,
+      "binning": { "x": 1, "y": 1, "mode": "none" },
+      "crop": { "x0": 680, "y0": 692, "x1": 2600, "y1": 1772 },
+      "line_length_pck": 3448,
+      "frame_length_lines": 1116,
+      "pixel_rate_hz": 182400000
+    }
+  ],
+
+  "register_sequences": {},
+
+  "i2c": {
+    "addresses": [16],
+    "address_bytes": 2,
+    "value_bytes": 1,
+    "chip_id": {
+      "register": 0,
+      "value": 553,
+      "bytes": 2
+    }
+  }
+}
