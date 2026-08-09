@@ -1,0 +1,304 @@
+# Copyright 2026 Serge Rabyking
+# SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
+#
+# This workflow IS the project's central claim: clone it, run it, and reproduce
+# the result -- including that the generated Verilog is bit-exactly equal to the
+# NumPy models. It must be green. A change that leaves it red is not finished,
+# and a change that makes it pass by weakening a check is worse than one that
+# leaves it red.
+
+name: CI
+
+# SUSPENDED while the repository is private: Actions on a private repository
+# bill against the account's minutes, and this workflow builds Verilator
+# simulations across a three-version Python matrix on every push. Manual runs
+# still work (workflow_dispatch), so the claim can be re-proven on demand.
+#
+# When the repository goes public -- gated on the working FPGA example --
+# restore the automatic triggers by replacing this block with:
+#
+#   on:
+#     push:
+#       branches: [main]
+#     pull_request:
+#     workflow_dispatch:
+#
+# Nothing else in this file changes. The suite itself still runs locally on
+# every change: `pytest` is the same claim without the badge.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-24.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install Verilator
+        # The bit-exact tests are the point of this workflow, so the simulator is
+        # not optional here even though the tests skip without it locally.
+        #
+        # NOT from apt: Ubuntu 24.04 packages a Verilator that predates the VPI
+        # entry points cocotb 2.0 compiles against (VerilatedVpi::evalNeeded and
+        # friends), and the failure appears as a C++ build error deep inside
+        # cocotb rather than as anything naming the real cause. The OSS CAD
+        # Suite binaries carry a current build; the release is PINNED so a
+        # nightly cannot silently change the simulator under the tests.
+        run: |
+          curl -fsSL -o /tmp/oss-cad.tgz \
+            https://github.com/YosysHQ/oss-cad-suite-build/releases/download/2026-08-08/oss-cad-suite-linux-x64-20260808.tgz
+          tar -xzf /tmp/oss-cad.tgz -C /opt
+          echo "/opt/oss-cad-suite/bin" >> "$GITHUB_PATH"
+          /opt/oss-cad-suite/bin/verilator --version
+
+      - name: Install revela and its dependencies
+        # np2hw arrives from PyPI like any dependency; it is the generator, and
+        # revela depends on it rather than vendoring it. A vendored copy could
+        # drift from upstream, and the entire claim is that one NumPy model
+        # drives both.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip list
+
+      # Each claim gets its own step, so a failure names itself in the UI rather
+      # than being one red X on a single "pytest" line.
+
+      - name: Dependency licences are permissive
+        # An ALLOW-LIST, checked against the resolved environment. A deny-list
+        # only catches the licences somebody thought to name; the one that
+        # causes trouble is the one nobody anticipated, and an allow-list
+        # catches that by construction.
+        #
+        # A new dependency under an unlisted licence fails here. If the licence
+        # is genuinely permissive, add it to PERMITTED with a one-line reason
+        # and update docs/THIRD-PARTY.md in the same change.
+        run: |
+          python - <<'PY'
+          import re, sys
+          from importlib.metadata import distributions
+
+          PERMITTED = {
+              "MIT", "MIT-0", "BSD-2-Clause", "BSD-3-Clause", "0BSD",
+              "Apache-2.0", "PSF-2.0", "ISC", "Zlib", "CC0-1.0", "HPND",
+              "Python-2.0", "Unlicense", "MPL-2.0",
+              "Apache-2.0 WITH SHL-2.1",       # revela itself
+          }
+          # MPL-2.0 is permitted only where it appears: a build-time transitive
+          # of the build backend, never imported, never redistributed in the
+          # wheel. See docs/THIRD-PARTY.md.
+
+          def terms(expression):
+              """The identifiers an SPDX expression names.
+
+              Split on AND/OR only: `WITH` binds an exception to its licence
+              ("Apache-2.0 WITH SHL-2.1") and the pair is one identifier.
+              Every branch of an OR must be permitted, which is stricter than
+              SPDX requires and is the right way round for this check.
+              """
+              parts = re.split(r"\s+(?:AND|OR)\s+|[()]", expression)
+              return {p.strip() for p in parts if p.strip()}
+
+          # Three metadata generations are in the wild at once, so all three are
+          # read: the PEP 639 `License-Expression`, the `License ::` trove
+          # classifiers, and the legacy free-text `License` field. A package
+          # that declares its licence only in the oldest form is not an
+          # undeclared package, and reporting it as one would train everyone to
+          # ignore this check.
+          LEGACY = {
+              "mit": "MIT", "mit license": "MIT", "expat": "MIT",
+              "bsd": "BSD-3-Clause", "bsd license": "BSD-3-Clause",
+              "bsd-3-clause": "BSD-3-Clause", "bsd 3-clause": "BSD-3-Clause",
+              "bsd-2-clause": "BSD-2-Clause", "apache-2.0": "Apache-2.0",
+              "apache 2.0": "Apache-2.0", "apache software license": "Apache-2.0",
+              "isc": "ISC", "psf-2.0": "PSF-2.0", "mpl-2.0": "MPL-2.0",
+          }
+          CLASSIFIER = {
+              "MIT License": "MIT", "MIT No Attribution License (MIT-0)": "MIT-0",
+              "BSD License": "BSD-3-Clause",
+              "Apache Software License": "Apache-2.0",
+              "Python Software Foundation License": "PSF-2.0",
+              "Mozilla Public License 2.0 (MPL 2.0)": "MPL-2.0",
+              "ISC License (ISCL)": "ISC", "The Unlicense (Unlicense)": "Unlicense",
+              "Zope Public License": None,
+          }
+
+          def declared(dist):
+              """(identifiers, how it was declared) for one distribution."""
+              expression = (dist.metadata.get("License-Expression") or "").strip()
+              if expression:
+                  return terms(expression), expression
+              classifiers = [c for c in dist.metadata.get_all("Classifier") or []
+                             if c.startswith("License ::")]
+              if classifiers:
+                  names = [c.rsplit(" :: ", 1)[-1] for c in classifiers]
+                  return ({CLASSIFIER.get(n, n) for n in names},
+                          "classifier: " + "; ".join(names))
+              legacy = (dist.metadata.get("License") or "").strip()
+              if legacy and "\n" not in legacy and len(legacy) < 60:
+                  return ({LEGACY.get(legacy.lower(), legacy)},
+                          f"legacy License field: {legacy}")
+              return set(), "no declared licence"
+
+          problems, checked = [], 0
+          for dist in distributions():
+              name = dist.metadata["Name"]
+              if not name:
+                  continue
+              identifiers, how = declared(dist)
+              checked += 1
+              if not identifiers:
+                  problems.append(f"{name} {dist.version}: no declared licence")
+                  continue
+              unlisted = identifiers - PERMITTED
+              if unlisted:
+                  problems.append(f"{name} {dist.version}: {how} "
+                                  f"-> not permitted: {sorted(unlisted)}")
+
+          print(f"checked {checked} distributions against the allow-list")
+          if problems:
+              print("\nNOT PERMITTED:")
+              for p in problems:
+                  print("  " + p)
+              print("\nSee docs/THIRD-PARTY.md. A dependency whose licence is not "
+                    "on the allow-list cannot be added without a decision.")
+              sys.exit(1)
+          print("every dependency licence is on the allow-list")
+          PY
+
+      - name: Licence headers and the no-float rule
+        run: pytest tests/test_spdx_headers.py -v
+
+      - name: Sensor descriptions validate against the schema
+        run: pytest tests/test_sensors.py -v
+
+      - name: Design netlists validate against the schema
+        run: pytest tests/test_designs.py -v
+
+      - name: Register map allocation
+        run: pytest tests/test_address_allocation.py -v
+
+      - name: Models, control loops and host API
+        run: |
+          pytest -v -m "not verilog" \
+            --ignore=tests/test_spdx_headers.py \
+            --ignore=tests/test_sensors.py \
+            --ignore=tests/test_designs.py \
+            --ignore=tests/test_address_allocation.py
+
+      - name: Generated Verilog is bit-exact with the NumPy models
+        run: pytest -v -m verilog
+
+      - name: Examples run
+        # The examples are documentation that executes; if they break, the
+        # README is wrong and nobody finds out from a unit test.
+        run: |
+          for design in pipelines/*/*/*/; do
+            python examples/build_pipeline.py "$design/pipeline.json"
+          done
+          for profile in pipelines/*/*/*/profiles/*.json; do
+            python - "$profile" <<'PY'
+          import sys
+          from revela import profiles
+          p = profiles.load(sys.argv[1])
+          s = profiles.resolve(p, profiles.pipeline_for(p))
+          print(s.summary())
+          PY
+          done
+          python examples/three_a_loop.py
+
+      - name: Generated Verilog elaborates cleanly
+        # Independent of the cocotb tests: proves the emitted RTL is well formed
+        # on its own terms, which is what somebody licensing this will do first.
+        run: |
+          # Three warning classes are tolerated, named explicitly rather than
+          # with a blanket -Wno-fatal, so that a reviewer can see exactly what is
+          # excused and everything else still fails the build. All three come
+          # from np2hw's generated core, not from revela's own emission, and all
+          # three are output-quality items filed against np2hw:
+          #
+          #   WIDTHEXPAND  a narrower accumulator widened into a wider adder.
+          #                Correct, but Verilator wants the extension written out.
+          #   WIDTHTRUNC   the saturating clip assigns a wide ternary to a narrow
+          #                wire. The clip bounds it; Verilator cannot see that.
+          #   UNSIGNED     `erow >= 0` on an unsigned counter is constant-true.
+          #                Dead comparison emitted when the kernel has no vertical
+          #                or horizontal extent.
+          # Elaborated from the CONTROL top, so the register file and its decode
+          # are linted too -- that is the module a board actually instantiates.
+          verilator --lint-only --top-module revela_stereo_imx219_basic_ctrl \
+            -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-UNSIGNED \
+            pipelines/stereo/imx219/basic/build/revela_stereo_imx219_basic.v
+
+      - name: Upload generated output
+        # So a reviewer can read the RTL and the register map without running
+        # anything. Rule 4 says the output is a product surface; this is where
+        # that gets checked by a human.
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-verilog-and-register-map
+          path: pipelines/*/*/*/build/
+          if-no-files-found: error
+
+  package:
+    name: Package builds and installs
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build the wheel and sdist
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+
+      - name: Install the built wheel into a clean environment
+        # Catches the packaging mistakes a source checkout hides: a data file
+        # left out of the wheel, a module that only imports because the working
+        # directory happened to be the repository root.
+        run: |
+          python -m venv /tmp/clean
+          /tmp/clean/bin/pip install dist/*.whl
+          cd /tmp
+          /tmp/clean/bin/python -c "
+          import revela
+          from revela import designs, profiles, sensors
+
+          print('revela', revela.__version__)
+          assert sensors.available(), 'sensor descriptions missing from the wheel'
+          assert sensors.load('imx219')['name'] == 'imx219'
+          assert designs.schema()['title'], 'pipeline schema missing from the wheel'
+          assert profiles.schema()['title'], 'profile schema missing from the wheel'
+          pipeline = designs.build({
+              'schema_version': 1, 'name': 'smoke',
+              'stream': {'bit_depth': 12},
+              'geometry': {'width': 64, 'height': 32},
+              'inputs': [{'name': 'in'}], 'outputs': [{'name': 'out'}],
+              'nodes': [{'instance': 'bl', 'block': 'blacklevel'}],
+              'connections': [{'from': 'in', 'to': 'bl.in'},
+                              {'from': 'bl.out', 'to': 'out'}],
+          })
+          assert pipeline.generate().verilog
+          assert pipeline.register_map()['blocks']
+          print('wheel is self-contained')
+          "

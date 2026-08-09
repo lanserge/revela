@@ -1,0 +1,175 @@
+# Publish revela to PyPI.
+#
+# Uses PyPI Trusted Publishing (OIDC): the job exchanges a short-lived GitHub
+# identity token for an upload token at publish time. There is no API token in
+# repository secrets, so there is no long-lived credential to leak, rotate or
+# explain to a partner's security review.
+#
+# ORDER MATTERS. revela depends on np2hw. PyPI refuses any distribution whose
+# metadata contains a direct reference (`np2hw @ git+https://...`), so:
+#
+#   1. publish np2hw to PyPI first;
+#   2. change revela's dependency to a normal version spec (`np2hw>=0.1.0`) and
+#      drop `[tool.hatch.metadata] allow-direct-references`;
+#   3. then publish revela.
+#
+# The "Refuse a direct-reference dependency" step below enforces that sequence.
+# It fails the build rather than letting an unpublishable distribution reach the
+# upload, which matters because a version number consumed by a failed release
+# can never be reused. Full procedure: docs/RELEASING.md.
+#
+# One-time setup on PyPI, BEFORE the first run:
+#   1. https://pypi.org/manage/account/publishing/ -> add a pending publisher
+#        PyPI project name : revela
+#        Owner             : lanserge
+#        Repository        : revela
+#        Workflow          : publish.yml
+#        Environment       : pypi
+#   2. Repeat at https://test.pypi.org/manage/account/publishing/ with
+#      environment `testpypi`, to rehearse first.
+#   3. Settings -> Environments -> create `pypi` and `testpypi`, with a required
+#      reviewer on `pypi` so a release cannot go out on an accidental tag.
+name: Publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Index to publish to
+        type: choice
+        options: [testpypi, pypi]
+        default: testpypi
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build distributions
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build the sdist and wheel
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+
+      - name: Check the distribution metadata
+        run: twine check --strict dist/*
+
+      - name: Refuse a direct-reference dependency
+        # See the header. This is the interlock between the two projects, not a
+        # style rule: PyPI rejects these outright, and finding out on upload
+        # costs a version number permanently.
+        run: |
+          python - <<'PY'
+          import pathlib, sys, zipfile
+          wheel = next(pathlib.Path("dist").glob("*.whl"))
+          with zipfile.ZipFile(wheel) as archive:
+              name = next(n for n in archive.namelist()
+                          if n.endswith(".dist-info/METADATA"))
+              metadata = archive.read(name).decode()
+          bad = [line for line in metadata.splitlines()
+                 if line.startswith("Requires-Dist:") and " @ " in line]
+          if bad:
+              print("PyPI will not accept a direct reference:", *bad, sep="\n  ")
+              print("\nPublish np2hw first, then change this dependency to a "
+                    "version spec. See docs/RELEASING.md.")
+              sys.exit(1)
+          print("no direct references")
+          PY
+
+      - name: Verify the tag matches the declared version
+        if: github.event_name == 'release'
+        run: |
+          python -m pip install --upgrade packaging
+          python - <<'PY'
+          import os, pathlib, sys, tomllib
+          from packaging.version import Version
+          declared = tomllib.loads(
+              pathlib.Path("pyproject.toml").read_text())["project"]["version"]
+          tag = os.environ["GITHUB_REF_NAME"].lstrip("v")
+          if Version(declared) != Version(tag):
+              sys.exit(f"tag {tag!r} does not match pyproject version {declared!r}")
+          print(f"tag and version agree: {declared}")
+          PY
+
+      - name: Confirm the licence files are in the distributions
+        # A wheel that ships without its licence is a compliance defect for
+        # every downstream user, and it is invisible until somebody audits.
+        run: |
+          python - <<'PY'
+          import pathlib, sys, tarfile, zipfile
+          required = {"LICENSE", "LICENSE-APACHE", "NOTICE"}
+          wheel = next(pathlib.Path("dist").glob("*.whl"))
+          with zipfile.ZipFile(wheel) as archive:
+              names = {pathlib.PurePosixPath(n).name for n in archive.namelist()}
+          missing = required - names
+          if missing:
+              sys.exit(f"wheel is missing {sorted(missing)}")
+          sdist = next(pathlib.Path("dist").glob("*.tar.gz"))
+          with tarfile.open(sdist) as archive:
+              names = {pathlib.PurePosixPath(n).name for n in archive.getnames()}
+          missing = required - names
+          if missing:
+              sys.exit(f"sdist is missing {sorted(missing)}")
+          print("licence files present in both distributions")
+          PY
+
+      - name: Install the wheel into a clean environment
+        run: |
+          python -m venv /tmp/clean
+          /tmp/clean/bin/pip install dist/*.whl
+          cd /tmp
+          /tmp/clean/bin/python -c "
+          import revela
+          from revela import designs, sensors
+          print('revela', revela.__version__)
+          assert sensors.available(), 'sensor descriptions missing from the wheel'
+          assert designs.schema()['title'], 'pipeline schema missing from the wheel'
+          print('wheel is self-contained')
+          "
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: distributions
+          path: dist/
+
+  testpypi:
+    name: Publish to TestPyPI
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
+    runs-on: ubuntu-24.04
+    environment: testpypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: distributions
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  pypi:
+    name: Publish to PyPI
+    needs: build
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.target == 'pypi')
+    runs-on: ubuntu-24.04
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: distributions
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
