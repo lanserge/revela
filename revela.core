@@ -1,0 +1,17 @@
+CAPI=2:
+name: lanserge:revela:gen:0.1.0
+description: >
+  revela as a FuseSoC generator: a pipeline description JSON in, a design
+  pack out -- generated Verilog (rendered by np2hw; revela contributes the
+  composition and the address allocation), the register map JSON, and the
+  same allocation as SystemRDL 2.0. Requires revela on the PATH
+  (pip install revela).
+
+generators:
+  revela:
+    command: revela-fusesoc
+    description: >
+      Build a revela pipeline into a Verilog core with its register maps.
+      Parameters: design (path to the pipeline JSON, relative to the
+      calling core, required), control (emit the AXI4-Lite control plane,
+      default true).
