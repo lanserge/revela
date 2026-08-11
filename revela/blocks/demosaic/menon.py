@@ -2,7 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
 """Menon directional demosaic with refinement.
 
-INTENT -- not implemented. See revela/blocks/demosaic/__init__.py.
+INTENT -- not implemented, and CLEARED: patent-checked 2026-08-11. The
+authors published DDFAPD openly (IEEE TIP 2007) and filed nothing; the
+foundational directional interpolation (Hamilton-Adams, US5629734)
+expired 2015; the nearest in-class patent (US7643676, adaptive
+directional decision) ran out 2026-06-23; and anything that could
+validly claim the published method predates the 2007 paper, so its
+base term is already over. Implement from the PAPER -- never from the
+reference code or another project's implementation.
 
 Linear filters must blur across edges because they cannot know where the edges
 are. This one decides first and interpolates second:
