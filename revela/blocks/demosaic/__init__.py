@@ -4,8 +4,9 @@
 
 The algorithms live in submodules so that they can be compared honestly
 against each other, and so that a pipeline picks one at composition time
-rather than at runtime. ``bilinear`` is implemented; ``malvar`` and
-``menon`` are declared stubs.
+rather than at runtime. ``bilinear`` and ``bicubic`` are implemented;
+``malvar`` (patent-gated until 2027-01-25) and ``menon`` are declared
+stubs.
 
 The sensor measures ONE colour per pixel. Demosaic estimates the other two. It
 is the single largest determinant of perceived image quality in the whole
@@ -19,6 +20,11 @@ Submodules, in increasing order of cost and quality:
                 line buffers. The baseline: cheap, and visibly wrong on edges,
                 because interpolating each channel independently ignores that
                 edges are correlated ACROSS channels.
+
+    bicubic     Keys half-phase cubic ([-1, 9, 9, -1]/16) per colour lattice.
+                Six line buffers. Sharper than bilinear and the best a
+                pipeline does WITHOUT cross-channel correction -- the honest
+                measure of what malvar's correction buys.
 
     malvar      Malvar-He-Cutler gradient-corrected linear interpolation. A 5x5
                 filter that corrects each channel's estimate using the

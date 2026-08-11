@@ -357,6 +357,8 @@ revela/
     demosaic/
       bilinear.py complete; CFA-position-selected taps on one shared window,
                   three channels out via np.stack -- the model never packs
+      bicubic.py  complete; Keys half-phase cubic per lattice, 7x7 window,
+                  signed accumulators, floor shifts, clipped overshoot
       malvar.py   stub; the usual default, gradient-corrected 5x5
       menon.py    stub; directional with refinement, the quality tier
     ...           stubs with intent documented

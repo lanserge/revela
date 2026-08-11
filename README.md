@@ -181,7 +181,8 @@ stated in full in [docs/design-rules.md](docs/design-rules.md).
 
 ## Status
 
-`blacklevel`, `whitebalance`, `gamma`, `ccm` and `bilinear` (demosaic) are
+`blacklevel`, `whitebalance`, `gamma`, `ccm`, `bilinear` and `bicubic`
+(demosaic) are
 complete end to end — model, generated Verilog, bit-exact cocotb tests,
 fixed-point variants through build-time overrides — and contain **no
 hand-written Verilog**: each block, phase mux, window and LUT included, is
@@ -193,8 +194,9 @@ layer alone.
 `pipe`, `stats`, the register map with its AXI4-Lite control plane, address
 allocation, build-time register overrides, the sensor schema and the
 composition layer are implemented. The remaining blocks (`lsc`, `defect`,
-the better demosaics (`malvar`, `menon`), `rgb2yuv`, `sharpen`) are declared
-stubs, each with its intent documented in its own file.
+the corrected demosaics (`malvar` — patent-gated until 2027-01-25 — and
+`menon`), `rgb2yuv`, `sharpen`) are declared stubs, each with its intent
+documented in its own file.
 
 `stats` has a model and a register map but no generated RTL: accumulation over a
 region is a reduction, which np2hw does not trace yet. It is the one block that
