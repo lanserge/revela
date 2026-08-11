@@ -392,18 +392,22 @@ boards/           tang-primer-20k/, pynq-z2/
   lowers them to ONE full-rate datapath with the coefficient selected by pixel
   position, not four quarter-rate paths.
 - **A block is a decorated function.** `@ispblock` declares what the arithmetic
-  cannot say -- the register set, what each stream MEANS (its domain), which
-  context bits the model takes -- and `Block.generate()` is generic, shared by
-  every block. Stream WIDTHS are deliberately not declared: np2hw derives them
-  from the trace, and declaring them twice is how `in_flags` and `ctx_ports`
-  went wrong. `Pipeline` holds Blocks, not modules; the registry discovers
-  Blocks; a block that cannot be traced yet says WHY in `not_traceable`.
-- **Domains are checked in the netlist.** A 12-bit Bayer stream and a 12-bit
-  luma stream are identical to a compiler and nonsense to connect, so a block
-  declares its ports' domain and `np2hw.compose()` refuses a mismatch. np2hw
-  holds the domain as an opaque tag it compares and never interprets — ISP
-  semantics stay here, the mechanism stays there. Component count follows from
-  the domain, so no block writes its own channel guard.
+  cannot say -- the register set, which context bits the model takes -- and
+  `Block.generate()` is generic, shared by every block. Stream WIDTHS are
+  deliberately not declared: np2hw derives them from the trace, and declaring
+  them twice is how `in_flags` and `ctx_ports` went wrong. `Pipeline` holds
+  Blocks, not modules; the registry discovers Blocks; a block that cannot be
+  traced yet says WHY in `not_traceable`.
+- **Streams are just math.** A port declares nothing but its name. The channel
+  count and field width of every stream are what the driving model's
+  arithmetic actually packed -- np2hw publishes them in the traced core's
+  interface, and the composer threads each block's traced output into the
+  next block's input, starting from the pipeline input, the ONE stream fact a
+  design states. There are no meaning tags: whether a connection makes sense
+  is the author's judgment, exactly as it is in NumPy. A connection the
+  arithmetic cannot digest (a three-channel unpack of a one-channel word)
+  dies inside the trace at compose time, before any Verilog exists -- the
+  math is the check.
 ## The revela / np2hw interface
 
 Four things cross the boundary, and nothing else:
@@ -433,9 +437,9 @@ composed module (ports named literally) and a generated core (ports prefixed
 `param_`) can both be instantiated by the same composer.
 
 The general rule behind all of it: **whoever writes a thing owns its
-description.** np2hw writes the ports, so np2hw publishes the port list. revela
-declares what a stream MEANS, so revela publishes the domain -- and np2hw holds
-it as an opaque tag it compares and never interprets.
+description.** np2hw writes the ports, so np2hw publishes the port list; np2hw
+packs the words, so np2hw publishes each traced core's channel count and field
+width, and revela reads them instead of keeping its own table.
 
 - **revela emits no Verilog at all.** Block datapaths are traced from the models
   by np2hw; the top level is built by `np2hw.compose()`, which instantiates the

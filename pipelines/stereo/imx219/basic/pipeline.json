@@ -7,8 +7,7 @@
     "mode": "binned_2x2"
   },
   "stream": {
-    "bit_depth": 10,
-    "channels": 1
+    "bit_depth": 10
   },
   "geometry": {
     "width": 1640,

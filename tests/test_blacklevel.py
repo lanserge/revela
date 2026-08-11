@@ -117,14 +117,12 @@ def test_offsets_from_sensor_negates_the_pedestal():
     }
 
 
-def test_rejects_a_stream_of_the_wrong_domain():
-    """Black level is a Bayer-domain block; three channels means it is misplaced.
-
-    The block does not check this itself. It DECLARES that its input carries
-    Bayer, and one component per pixel follows from the domain -- so the same
-    guard protects every block without any of them repeating it.
-    """
-    with pytest.raises(ValueError, match="consumes 'bayer'"):
+def test_a_multi_channel_stream_fails_at_the_trace():
+    """No meaning tags: the arithmetic is the contract. This block eats one
+    sample per pixel; a packed multi-channel word has no phase slices and
+    no plain samples to offset, so the trace itself dies at compose time,
+    before any Verilog exists."""
+    with pytest.raises(Exception):
         blacklevel.blacklevel.generate(
             StreamSpec(bit_depth=BIT_DEPTH, channels=3), 8, 8,
             module_name="revela_blacklevel")

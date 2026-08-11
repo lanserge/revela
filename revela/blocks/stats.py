@@ -64,7 +64,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from revela.blocks import BAYER, StreamPort, ispblock
+from revela.blocks import StreamPort, ispblock
 from revela.params import Param, StatsWindow
 
 # Build-time grid maximum. The RAM is sized for this; the zone SIZE is a runtime
@@ -98,7 +98,7 @@ STATS_DECLARATION = dict(
     # A SINK: statistics observe the datapath and produce no pixels, so this
     # block taps the stream rather than sitting in it and never stalls its
     # source -- the pixels it is watching have somewhere else to be.
-    inputs=(StreamPort("in", BAYER,
+    inputs=(StreamPort("in",
                        "The pedestal-corrected Bayer stream being metered."),),
     outputs=(),
     not_traceable=(

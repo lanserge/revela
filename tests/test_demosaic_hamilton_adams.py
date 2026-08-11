@@ -162,11 +162,17 @@ def test_correction_overshoot_clips():
     assert out[2, 2, 1] == TOP
 
 
-def test_domains_are_declared():
-    with pytest.raises(ValueError, match="consumes 'bayer'"):
+def test_a_stream_the_arithmetic_cannot_digest_fails_at_the_trace():
+    """No meaning tags anywhere: the model's own arithmetic is the contract.
+
+    ha_green phase-slices its input, which no packed multi-channel word
+    supports; ha_rb unpacks two channels, which no single-channel word has.
+    Either mismatch dies INSIDE the trace -- at compose time, before any
+    Verilog exists -- which is the whole check."""
+    with pytest.raises(Exception):
         ha.ha_green.generate(StreamSpec(bit_depth=BIT_DEPTH, channels=3),
                              8, 8, module_name="x")
-    with pytest.raises(ValueError, match="consumes 'bayer\\+g'"):
+    with pytest.raises(Exception):
         ha.ha_rb.generate(StreamSpec(bit_depth=BIT_DEPTH, channels=1),
                           8, 8, module_name="x")
 
@@ -207,4 +213,5 @@ def test_rb_verilog_is_bit_exact(tmp_path, rng):
     run_cocotb(tmp_path=tmp_path, verilog=generated.verilog,
                toplevel=generated.top, test_module="tb_block",
                case={"block": "ha_rb", "width": WIDTH, "height": HEIGHT,
-                     "bit_depth": BIT_DEPTH, "channels": 3, "trials": trials})
+                     "bit_depth": BIT_DEPTH, "channels": 3,
+                     "in_channels": 2, "trials": trials})

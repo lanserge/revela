@@ -580,34 +580,24 @@ class Pipeline:
             if name in seen:
                 built[stage.path] = seen[name]
                 continue
-            # Each block sees the stream ITS input domain implies, not the
-            # pipeline's boundary stream: a chroma stage eats the 2-channel
-            # word its green stage emits, ccm eats RGB. The bit depth is the
-            # pipeline's; the channel count is the block's own declaration,
-            # so a colour pipeline needs no per-block spec plumbing in the
-            # design JSON.
-            from revela.blocks import DOMAIN_CHANNELS
-
-            channels = (DOMAIN_CHANNELS.get(stage.block.inputs[0].domain, 1)
-                        if stage.block.inputs else self.spec.channels)
-            result = stage.block.generate(self.spec.with_channels(channels),
-                                          self.width, self.height,
-                                          module_name=name)
+            # Each block sees the stream its DRIVER's trace produced, threaded
+            # forward edge by edge from the pipeline input: a chroma stage
+            # eats the 2-channel word its green stage emitted, ccm eats the
+            # 3-channel word the chroma stage emitted. Nothing declares these
+            # counts anywhere -- np2hw publishes what each model's arithmetic
+            # packed, and that IS the next block's input. The only declared
+            # stream fact in a whole design is the input's own.
+            result = stage.block.generate(
+                self.spec.with_channels(self._incoming_channels(stage, built)),
+                self.width, self.height, module_name=name)
             modules.extend(result.modules)
             built[stage.path] = seen[name] = result
 
-        # The pipeline's own ports take their domain from the block at the
-        # boundary, so a design cannot declare its input to be something the
-        # first block does not accept. INPUT and OUTPUT boundaries are read
-        # separately: a colour pipeline eats 1-channel Bayer and emits a
-        # 3-channel RGB word, and each port's width follows its own domain.
-        stream = StreamType(self.spec.data_bits, ("sof", "eol", "last"),
-                            self._boundary_domain())
         top = compose(
             module_name=self.name,
             instances=self._instances(built),
             connections=self._connections(built),
-            ports=self._ports(built, stream),
+            ports=self._ports(built),
             header=spdx_header(
                 what=f"{self.name} -- composed ISP pipeline "
                      f"({len(built)} generated block(s), {self.spec.bit_depth}-bit)",
@@ -685,16 +675,25 @@ class Pipeline:
     def _subsystem_module(self, name: str) -> str:
         return f"revela_{self.name}_{name}"
 
-    def _boundary_domain(self) -> str:
-        """The domain the pipeline's own stream ports carry.
+    def _incoming_channels(self, stage: Stage, built: dict) -> int:
+        """Channel count of the word arriving at ``stage``'s input.
 
-        Taken from the block at the boundary rather than declared separately: the
-        first block's input domain IS what the pipeline consumes.
+        Read from the DRIVER's traced interface -- what its model's
+        arithmetic actually packed -- or from the pipeline's own input spec
+        when the driver is the outside world. The datapath walk is
+        topological, so a driver is always generated before its consumer
+        asks about it.
         """
-        for stage in self.datapath:
-            if stage.block.inputs:
-                return stage.block.inputs[0].domain
-        return ""
+        if not stage.block.ports.inputs:
+            return self.spec.channels
+        source = self.driver(Endpoint(stage.path, stage.block.ports.inputs[0]))
+        if source is None or source.node is None:
+            return self.spec.channels
+        result = built.get(source.node)
+        if result is None:
+            return self.spec.channels
+        return int((result.core["interface"].get("output") or {})
+                   .get("channels", 1))
 
     def _address_map(self) -> list[str]:
         """The address map and netlist, as comments a reviewer reads first."""
@@ -710,7 +709,7 @@ class Pipeline:
             lines.append(f"//   {str(source):<28} -> {str(sink)}{tap}")
         return lines
 
-    def _ports(self, built, stream) -> list:
+    def _ports(self, built) -> list:
         """Top-level ports: context, per-instance CSRs, then the pixel streams."""
         from np2hw import Port
 
@@ -731,30 +730,33 @@ class Pipeline:
                     comment=f"{path}.{name} @ "
                             f"0x{stage.instance.address_of(name):04x} "
                             f"({param.q_format}). {param.description}"))
-        ports += [Port(name, "in", stream=stream) for name in self.inputs]
-        ports += [Port(name, "out", stream=self._output_stream(name))
+        # The INPUT boundary is the one declared stream fact in a design:
+        # its width is the spec's, because the spec IS the input declaration
+        # and the first block was traced against it -- one owner, two
+        # readers. The OUTPUT boundary is the opposite: entirely traced.
+        from np2hw import StreamType
+
+        entry = StreamType(self.spec.data_bits, ("sof", "eol", "last"))
+        ports += [Port(name, "in", stream=entry) for name in self.inputs]
+        ports += [Port(name, "out", stream=self._output_stream(built, name))
                   for name in self.outputs]
         return ports
 
-    def _output_stream(self, name):
-        """The stream an OUTPUT port carries: the driving block's word.
+    def _output_stream(self, built, name):
+        """The stream an OUTPUT port carries: the driving block's traced word.
 
-        Width and domain come from the block wired to the boundary -- a
-        3-channel word is three fields wide -- so the design cannot declare
-        an output narrower than what feeds it."""
+        Width comes from what the driver's model actually packed -- a
+        3-channel word is three fields wide because the trace says so, not
+        because anything declared it."""
         from np2hw import StreamType
-
-        from revela.blocks import DOMAIN_CHANNELS
 
         for source, sink in self.edges:
             if sink.node is None and sink.port == name and source.node:
-                block = self.stage(source.node).block
-                domain = block.domain(source.port)
-                channels = DOMAIN_CHANNELS.get(domain, 1)
-                return StreamType(self.spec.bit_depth * channels,
-                                  ("sof", "eol", "last"), domain)
-        return StreamType(self.spec.data_bits, ("sof", "eol", "last"),
-                          self._boundary_domain())
+                result = built.get(source.node)
+                if result is not None:
+                    return StreamType(int(result.core.out_bits),
+                                      ("sof", "eol", "last"))
+        return StreamType(self.spec.data_bits, ("sof", "eol", "last"))
 
     def _instances(self, built) -> list:
         """One np2hw Instance per generated block, with its parameter bindings."""
@@ -771,14 +773,8 @@ class Pipeline:
                                   "pipeline context, not a register")
                 else:
                     bind[name] = f"param_{stage.module_prefix}_{name}"
-            # What each stream MEANS. Not derivable from the arithmetic -- a
-            # 12-bit Bayer stream and a 12-bit luma stream are identical to a
-            # compiler -- so the block declares it and the composer enforces it.
-            domains = {port.name: port.domain
-                       for port in stage.block.inputs + stage.block.outputs}
             instances.append(Instance(
                 name=stage.module_prefix, core=result.core, bind=bind,
-                domains=domains,
                 comment=f"{path} (base 0x{stage.instance.base:04x})"))
         return instances
 

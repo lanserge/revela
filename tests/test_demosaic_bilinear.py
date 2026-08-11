@@ -138,9 +138,12 @@ def test_borders_replicate():
     assert out[1, 0, 2] == 500
 
 
-def test_rejects_a_stream_of_the_wrong_domain():
-    """Demosaic consumes Bayer; a 3-channel stream means it is misplaced."""
-    with pytest.raises(ValueError, match="consumes 'bayer'"):
+def test_a_multi_channel_stream_fails_at_the_trace():
+    """No meaning tags: the arithmetic is the contract. This block eats one
+    sample per pixel; a packed multi-channel word has no phase slices and
+    no plain samples to offset, so the trace itself dies at compose time,
+    before any Verilog exists."""
+    with pytest.raises(Exception):
         bilinear.generate(StreamSpec(bit_depth=BIT_DEPTH, channels=3),
                           8, 8, module_name="revela_demosaic_bilinear")
 

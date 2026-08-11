@@ -57,7 +57,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from revela.blocks import RGB, StreamPort, ispblock
+from revela.blocks import StreamPort, ispblock
 from revela.params import Param
 
 
@@ -65,12 +65,12 @@ from revela.params import Param
     version=(1, 0),
     description="3x3 colour correction matrix, signed Q2.8, rounding, "
                 "with saturation.",
-    inputs=(StreamPort("in", RGB,
+    inputs=(StreamPort("in",
                        "Linear RGB, white balanced and demosaiced -- the "
                        "matrix is calibrated against balanced input, and "
                        "applying it to gamma-encoded values mixes a "
                        "nonlinearity into a linear correction."),),
-    outputs=(StreamPort("out", RGB,
+    outputs=(StreamPort("out",
                         "Corrected RGB, each channel saturated to the "
                         "datapath range."),),
     params=[

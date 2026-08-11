@@ -70,18 +70,18 @@ from __future__ import annotations
 
 import numpy as np
 
-from revela.blocks import BAYER, RGB, ContextBit, StreamPort, ispblock
+from revela.blocks import ContextBit, StreamPort, ispblock
 
 
 @ispblock(
     version=(1, 0),
     description="Bilinear demosaic: 3x3 window, per-plane linear "
                 "interpolation, phase-selected taps, packed RGB out.",
-    inputs=(StreamPort("in", BAYER,
+    inputs=(StreamPort("in",
                        "Raw Bayer, black-levelled and white-balanced -- "
                        "interpolating unbalanced planes bakes the imbalance "
                        "into all three channels."),),
-    outputs=(StreamPort("out", RGB,
+    outputs=(StreamPort("out",
                         "Packed linear RGB, R in the low bits; interpolated "
                         "channels carry no headroom beyond the input's "
                         "range."),),

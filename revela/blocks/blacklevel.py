@@ -54,7 +54,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from revela.blocks import BAYER, ContextBit, StreamPort, ispblock
+from revela.blocks import ContextBit, StreamPort, ispblock
 from revela.params import Param
 
 # Wide enough to hold a pedestal for any sensor revela targets (a 12-bit part
@@ -66,9 +66,9 @@ OFFSET_BITS = 16
 @ispblock(
     version=(1, 0),
     description="Per-CFA-colour black level offset with saturation.",
-    inputs=(StreamPort("in", BAYER,
+    inputs=(StreamPort("in",
                        "Raw Bayer, still sitting on the sensor's pedestal."),),
-    outputs=(StreamPort("out", BAYER,
+    outputs=(StreamPort("out",
                         "Pedestal removed, saturated to the datapath range."),),
     consumes=("bayer_phase",),
     context=(

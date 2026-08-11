@@ -62,7 +62,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from revela.blocks import BAYER, BAYER_G, RGB, ContextBit, StreamPort, ispblock
+from revela.blocks import ContextBit, StreamPort, ispblock
 
 _PHASE_CONTEXT = (
     ContextBit("phase_row", "bayer_phase", bit=1,
@@ -79,9 +79,9 @@ _PHASE_CONTEXT = (
     version=(1, 0),
     description="Hamilton-Adams green reconstruction: direction-adaptive, "
                 "Laplacian-corrected; emits (raw, green).",
-    inputs=(StreamPort("in", BAYER,
+    inputs=(StreamPort("in",
                        "Raw Bayer, black-levelled and white-balanced."),),
-    outputs=(StreamPort("out", BAYER_G,
+    outputs=(StreamPort("out",
                         "The raw sample and the reconstructed green, one "
                         "word: what the chroma stage needs and nothing "
                         "it does not."),),
@@ -122,10 +122,10 @@ def ha_green(pixel, p, ctx, bit_depth: int):
     version=(1, 0),
     description="Hamilton-Adams chroma: red and blue as colour differences "
                 "against the reconstructed green.",
-    inputs=(StreamPort("in", BAYER_G,
+    inputs=(StreamPort("in",
                        "The green stage's word: raw sample plus "
                        "reconstructed green."),),
-    outputs=(StreamPort("out", RGB,
+    outputs=(StreamPort("out",
                         "Linear RGB; interpolated channels clipped to the "
                         "datapath range."),),
     consumes=("bayer_phase",),

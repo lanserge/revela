@@ -100,9 +100,12 @@ def build(description: dict, validate_description: bool = True):
         mode = sensors.mode(sensor, description["sensor"].get("mode"))
         height = int(mode["height"])
 
-    spec = StreamSpec(bit_depth=bit_depth,
-                      channels=int(stream.get("channels", 1)),
-                      signed=bool(stream.get("signed", False)))
+    # bit_depth is the ONE stream fact a design states (and a named sensor
+    # overrides even that). Channel counts are traced from the block models
+    # and threaded edge to edge at composition -- the schema rejects a
+    # `channels` key for the same reason it rejects `addresses`: stating a
+    # derivable fact is the only way it can ever disagree.
+    spec = StreamSpec(bit_depth=bit_depth)
 
     regions = description.get("regions", {})
     pipeline = Pipeline(
@@ -226,7 +229,6 @@ def describe(pipeline) -> dict:
         "name": pipeline.name,
         "stream": {
             "bit_depth": pipeline.spec.bit_depth,
-            "channels": pipeline.spec.channels,
         },
         "geometry": {"width": pipeline.width, "height": pipeline.height},
         "regions": {

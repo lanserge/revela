@@ -37,7 +37,7 @@ from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge
 
 from np2hw.testing import check_framing, frame_to_beats, reset_stream, run_frame
-from revela.blocks import DOMAIN_CHANNELS, resolve
+from revela.blocks import resolve
 from revela.stream import StreamSpec
 
 
@@ -106,8 +106,11 @@ async def bit_exact_against_model(dut):
         # Models speak channels ((h, w, c), the NumPy way); the wire speaks
         # words. The packing law's owner translates at BOTH boundaries.
         model_in = frame
-        in_channels = (DOMAIN_CHANNELS.get(block.inputs[0].domain, 1)
-                       if block.inputs else 1)
+        # The case states the channel count of the words it packed, right
+        # next to the spec the DUT was generated with -- one writer, both
+        # facts. There is no declaration to consult: streams carry whatever
+        # the upstream math packed.
+        in_channels = case.get("in_channels", 1)
         if in_channels > 1:
             spec_in = StreamSpec(bit_depth=bit_depth, channels=in_channels)
             model_in = np.array(

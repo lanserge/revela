@@ -149,10 +149,13 @@ def test_the_declaration_names_its_own_values():
         MATRIX.values([[1 << 12, 0, 0], [0, 256, 0], [0, 0, 256]])
 
 
-def test_rejects_a_stream_of_the_wrong_domain():
-    """CCM is an RGB block; a single-channel stream means it is misplaced --
-    upstream of demosaic, where it has nothing meaningful to multiply."""
-    with pytest.raises(ValueError, match="consumes 'rgb'"):
+def test_a_single_channel_stream_fails_at_the_trace():
+    """CCM unpacks three channels; a 1-channel word has none to unpack.
+
+    There is no meaning tag to catch a misplaced block any more -- just
+    math -- but math is enough here: the trace itself dies at compose
+    time, before any Verilog exists."""
+    with pytest.raises(Exception):
         ccm.ccm.generate(StreamSpec(bit_depth=BIT_DEPTH), 8, 8,
                          module_name="revela_ccm")
 
@@ -202,6 +205,7 @@ def test_verilog_is_bit_exact_with_the_model(tmp_path, rng):
             "height": HEIGHT,
             "bit_depth": BIT_DEPTH,
             "channels": 3,
+            "in_channels": 3,
             "trials": trials,
         },
     )

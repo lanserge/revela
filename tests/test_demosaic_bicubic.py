@@ -143,8 +143,12 @@ def test_borders_replicate():
     np.testing.assert_array_equal(out, np.full((6, 8, 3), 3000))
 
 
-def test_rejects_a_stream_of_the_wrong_domain():
-    with pytest.raises(ValueError, match="consumes 'bayer'"):
+def test_a_multi_channel_stream_fails_at_the_trace():
+    """No meaning tags: the arithmetic is the contract. This block eats one
+    sample per pixel; a packed multi-channel word has no phase slices and
+    no plain samples to offset, so the trace itself dies at compose time,
+    before any Verilog exists."""
+    with pytest.raises(Exception):
         bicubic.generate(StreamSpec(bit_depth=BIT_DEPTH, channels=3),
                          8, 8, module_name="revela_demosaic_bicubic")
 

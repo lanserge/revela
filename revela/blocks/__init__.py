@@ -38,37 +38,20 @@ from dataclasses import dataclass, field
 from types import ModuleType
 
 
-# Stream domains. What a stream MEANS, which its width and framing cannot say:
-# a 12-bit Bayer stream and a 12-bit luma stream are indistinguishable to a
-# compiler and nonsense to connect. Declared by the block, because it is not
-# derivable from the arithmetic -- unlike the width, which is.
-BAYER = "bayer"     # one colour per pixel, identity given by CFA position
-BAYER_G = "bayer+g"  # the raw sample plus reconstructed green: the word a
-                     # two-stage demosaic passes between its stages
-RGB = "rgb"         # three components per pixel, sensor or display primaries
-YUV = "yuv"         # luma plus chroma
-LUMA = "luma"       # luma alone, e.g. the sharpening path
-STATS = "stats"     # a stream consumed for measurement, not for display
-
-# How many components a pixel of each domain carries. A block declares its
-# domain; the component count follows, so no block repeats it as its own guard.
-DOMAIN_CHANNELS = {BAYER: 1, BAYER_G: 2, LUMA: 1, STATS: 1,
-                   RGB: 3, YUV: 3}
-
-
 @dataclass(frozen=True)
 class StreamPort:
-    """One stream port of a block: its name and what it carries.
+    """One stream port of a block: a name for the netlist to wire.
 
-    The WIDTH is deliberately absent. It is a consequence of the model's
-    arithmetic and np2hw derives it from the trace; declaring it here as well
-    would be a second source of truth free to disagree with the first. The
-    domain is the opposite case -- nothing in the arithmetic says whether these
-    pixels are Bayer or RGB, so the block must say.
+    The WIDTH is deliberately absent -- and so is everything else about the
+    word. Channel count and field width are consequences of the model's
+    arithmetic: np2hw derives them from the trace, and the composer threads
+    each block's traced output into the next block's input. Declaring any
+    of it here would be a second source of truth free to disagree with the
+    first. What flows through a wire is whatever the math upstream computed;
+    whether a connection makes SENSE is the author's judgment, not a check.
     """
 
     name: str
-    domain: str
     description: str = ""
 
 
@@ -245,13 +228,6 @@ class Block:
         return Ports(inputs=tuple(port.name for port in self.inputs),
                      outputs=tuple(port.name for port in self.outputs))
 
-    def domain(self, port: str) -> str:
-        for declared in self.inputs + self.outputs:
-            if declared.name == port:
-                return declared.domain
-        raise KeyError(
-            f"block {self.name!r} has no stream port {port!r}")
-
     def __call__(self, *args, **kwargs):
         """Run the model. A Block is the function it decorates."""
         if self.model is None:
@@ -399,7 +375,8 @@ class Block:
         adapter by existing.
 
         Args:
-            pixel: ``(height, width)`` frame, unsigned, ``bit_depth`` bits.
+            pixel: the frame, ``(h, w)`` or ``(h, w, c)`` as the model's
+                arithmetic expects, unsigned, ``bit_depth`` bits.
             values: register values for ``params.bind`` (defaults fill in).
             bit_depth: datapath width.
             **context: pipeline context by name, e.g. ``bayer_phase=2``.
@@ -414,20 +391,12 @@ class Block:
         if self.model is None:
             raise TypeError(
                 f"block {self.name!r} is configuration only and has no model")
+        # No shape gate: a model speaks CHANNELS ((h, w) or (h, w, c)), its
+        # arithmetic states its own requirements, and the caller is trusted
+        # to know what they are feeding it -- the same contract NumPy itself
+        # offers. Words exist on the wire only; StreamSpec owns that
+        # translation.
         pixel = np.asarray(pixel)
-        in_channels = (DOMAIN_CHANNELS.get(self.inputs[0].domain, 1)
-                       if self.inputs else 1)
-        if in_channels == 1:
-            if pixel.ndim != 2:
-                raise ValueError(
-                    f"expected a 2-D frame, got shape {pixel.shape}")
-        elif pixel.ndim != 3 or pixel.shape[-1] != in_channels:
-            # A model speaks CHANNELS ((h, w, c)); words exist on the wire
-            # only, and StreamSpec owns the translation.
-            raise ValueError(
-                f"block {self.name!r} consumes {self.inputs[0].domain!r}: "
-                f"expected an (h, w, {in_channels}) frame, got shape "
-                f"{pixel.shape}")
         consumed = set(self.params.consumes)
         unknown = set(context) - consumed
         if unknown:
@@ -473,13 +442,6 @@ class Block:
             raise NotImplementedError(
                 f"block {self.name!r} is declared but not built: "
                 f"{self.not_traceable}")
-        expected = DOMAIN_CHANNELS.get(self.inputs[0].domain) if self.inputs else None
-        if expected is not None and spec.channels != expected:
-            raise ValueError(
-                f"block {self.name!r} consumes {self.inputs[0].domain!r}, which is "
-                f"{expected} component(s) per pixel; got a {spec.channels}-channel "
-                "stream. The domain is declared on the port, so this is a wiring "
-                "error rather than something the block should special-case.")
         if len(self.inputs) != 1 or len(self.outputs) > 1:
             raise NotImplementedError(
                 f"block {self.name!r} has {len(self.inputs)} inputs and "
@@ -508,24 +470,14 @@ class Block:
                                Declarations(self.params.params))
             return self.model(pixel, values, ctx, spec.bit_depth)
 
+        # The channel count is the SPEC's -- threaded forward by the composer
+        # from whatever the driving block's trace published, starting from the
+        # pipeline input. Nothing here re-declares it; if the arithmetic
+        # cannot digest the stream it is given (a 3-channel unpack of a
+        # 1-channel word), the trace itself is where that surfaces.
         _, result = to_ir(traced, image, *context, *registers,
-                          channels=expected or 1)
+                          channels=spec.channels)
         core = np2hw_generate(result, module_name=module_name)
-
-        # The emitter states the word layout it built; the stream declares
-        # what this block's output means. They must be the same statement.
-        out_meta = core["interface"].get("output") or {}
-        out_domain = self.outputs[0].domain if self.outputs else None
-        out_channels = DOMAIN_CHANNELS.get(out_domain, 1)
-        if out_channels > 1:
-            if (out_meta.get("channels", 1) != out_channels
-                    or out_meta.get("field_bits") != spec.bit_depth):
-                raise ValueError(
-                    f"block {self.name!r} declares {out_channels} channels of "
-                    f"{spec.bit_depth} bits, but the generated core packed "
-                    f"{out_meta.get('channels', 1)} field(s) of "
-                    f"{out_meta.get('field_bits')}; the wire and the "
-                    "declaration have diverged")
 
         verilog = "\n".join([
             *spdx_header(
@@ -574,8 +526,8 @@ def ispblock(*, version, description, name=None, params=(), stats=(),
         @ispblock(
             version=(1, 0),
             description="Per-CFA-colour black level offset with saturation.",
-            inputs=(StreamPort("in", BAYER),),
-            outputs=(StreamPort("out", BAYER),),
+            inputs=(StreamPort("in"),),
+            outputs=(StreamPort("out"),),
             consumes=("bayer_phase",),
             context=(ContextBit("phase_row", "bayer_phase", bit=1), ...),
             params=[Param("offset", ...)],
@@ -588,8 +540,10 @@ def ispblock(*, version, description, name=None, params=(), stats=(),
     with real arrays when it is the reference and with traced values when it is
     the hardware -- one function, both roles.
 
-    Everything declared here is something the arithmetic cannot say. Stream
-    widths are not declared: np2hw derives them from the trace.
+    Everything declared here is something the arithmetic cannot say. Nothing
+    about the streams is declared beyond the port names: channel counts and
+    widths are traced from the models and threaded edge to edge by the
+    composer.
     """
     from revela.params import ParamSet
 

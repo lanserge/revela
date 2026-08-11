@@ -58,7 +58,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from revela.blocks import BAYER, ContextBit, StreamPort, ispblock
+from revela.blocks import ContextBit, StreamPort, ispblock
 from revela.params import Param
 
 # The gain's Q format lives ON THE DECLARATION below, nowhere else: the
@@ -72,10 +72,10 @@ from revela.params import Param
 @ispblock(
     version=(1, 0),
     description="Per-CFA-colour white balance gain, Q8.8, with saturation.",
-    inputs=(StreamPort("in", BAYER,
+    inputs=(StreamPort("in",
                        "Raw Bayer, black level already removed -- a gain "
                        "applied on top of a pedestal scales the pedestal."),),
-    outputs=(StreamPort("out", BAYER,
+    outputs=(StreamPort("out",
                         "Balanced Bayer, saturated to the datapath range."),),
     consumes=("bayer_phase",),
     context=(

@@ -45,7 +45,7 @@
       }
     },
     "stream": {
-      "description": "The pixel stream entering the pipeline.",
+      "description": "The word entering the pipeline: the ONE declared stream fact in a design. Every internal and output stream is traced from the block models, so a description cannot state them -- stating them is the only way they could ever disagree.",
       "type": "object",
       "required": [
         "bit_depth"
@@ -57,16 +57,6 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 32
-        },
-        "channels": {
-          "description": "Components per pixel. 1 in the Bayer domain, 3 after demosaic.",
-          "type": "integer",
-          "minimum": 1,
-          "default": 1
-        },
-        "signed": {
-          "type": "boolean",
-          "default": false
         }
       }
     },

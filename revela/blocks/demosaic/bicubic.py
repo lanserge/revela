@@ -56,7 +56,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from revela.blocks import BAYER, RGB, ContextBit, StreamPort, ispblock
+from revela.blocks import ContextBit, StreamPort, ispblock
 
 # Keys cubic convolution, a = -1/2, evaluated at the half-phase positions
 # (+-0.5, +-1.5 lattice units): the one kernel this block needs.
@@ -68,11 +68,11 @@ OFFSETS = (-3, -1, 1, 3)                 # mosaic-domain reach of the kernel
     version=(1, 0),
     description="Bicubic demosaic: 7x7 window, Keys half-phase kernel per "
                 "colour lattice, phase-selected taps, clipped, RGB out.",
-    inputs=(StreamPort("in", BAYER,
+    inputs=(StreamPort("in",
                        "Raw Bayer, black-levelled and white-balanced -- "
                        "interpolating unbalanced planes bakes the imbalance "
                        "into all three channels."),),
-    outputs=(StreamPort("out", RGB,
+    outputs=(StreamPort("out",
                         "Linear RGB; interpolated channels are clipped to "
                         "the datapath range, absorbing the cubic kernel's "
                         "overshoot."),),

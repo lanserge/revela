@@ -265,12 +265,12 @@ def test_context_is_fanned_out_not_duplicated():
 
 def test_unknown_context_signal_is_rejected():
     """A block cannot consume context the pipe block does not provide."""
-    from revela.blocks import BAYER, StreamPort, ispblock
+    from revela.blocks import StreamPort, ispblock
 
     @ispblock(version=(1, 0), description="placeholder",
               consumes=("no_such_signal",),
-              inputs=(StreamPort("in", BAYER),),
-              outputs=(StreamPort("out", BAYER),),
+              inputs=(StreamPort("in"),),
+              outputs=(StreamPort("out"),),
               params=[Param("x", bits=8, description="placeholder")])
     def broken(pixel, p, ctx, bit_depth):
         return pixel

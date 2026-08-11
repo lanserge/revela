@@ -63,7 +63,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from revela.blocks import BAYER, RGB, StreamPort, ispblock
+from revela.blocks import StreamPort, ispblock
 from revela.params import Param
 
 # 33 knots = 32 segments: the classic budget. A design overrides shape for
@@ -122,11 +122,11 @@ def _curve(value, p, bit_depth):
 @ispblock(
     version=(1, 0),
     description="Piecewise-linear tone curve (gamma) over uniform segments.",
-    inputs=(StreamPort("in", BAYER,
+    inputs=(StreamPort("in",
                        "Linear samples. Classically this block sits post-CCM "
                        "on RGB; it is in the Bayer chain because that is the "
                        "chain that exists."),),
-    outputs=(StreamPort("out", BAYER,
+    outputs=(StreamPort("out",
                         "Tone-mapped samples, same width as the input."),),
     params=[_knots_param()],
 )
@@ -148,10 +148,10 @@ def gamma(pixel, p, ctx, bit_depth: int):
     version=(1, 0),
     description="Piecewise-linear tone curve applied per RGB channel, "
                 "one shared knot table.",
-    inputs=(StreamPort("in", RGB,
+    inputs=(StreamPort("in",
                        "Linear RGB, post-CCM -- the classical seat for the "
                        "display curve."),),
-    outputs=(StreamPort("out", RGB,
+    outputs=(StreamPort("out",
                         "Tone-mapped RGB, same width per channel."),),
     params=[_knots_param()],
 )
