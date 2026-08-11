@@ -43,6 +43,8 @@ from types import ModuleType
 # compiler and nonsense to connect. Declared by the block, because it is not
 # derivable from the arithmetic -- unlike the width, which is.
 BAYER = "bayer"     # one colour per pixel, identity given by CFA position
+BAYER_G = "bayer+g"  # the raw sample plus reconstructed green: the word a
+                     # two-stage demosaic passes between its stages
 RGB = "rgb"         # three components per pixel, sensor or display primaries
 YUV = "yuv"         # luma plus chroma
 LUMA = "luma"       # luma alone, e.g. the sharpening path
@@ -50,7 +52,8 @@ STATS = "stats"     # a stream consumed for measurement, not for display
 
 # How many components a pixel of each domain carries. A block declares its
 # domain; the component count follows, so no block repeats it as its own guard.
-DOMAIN_CHANNELS = {BAYER: 1, LUMA: 1, STATS: 1, RGB: 3, YUV: 3}
+DOMAIN_CHANNELS = {BAYER: 1, BAYER_G: 2, LUMA: 1, STATS: 1,
+                   RGB: 3, YUV: 3}
 
 
 @dataclass(frozen=True)

@@ -359,6 +359,10 @@ revela/
                   three channels out via np.stack -- the model never packs
       bicubic.py  complete; Keys half-phase cubic per lattice, 7x7 window,
                   signed accumulators, floor shifts, clipped overshoot
+      hamilton_adams.py  complete; TWO blocks in one file (the drift test
+                  reads them as ha_green.py / ha_rb.py): direction-adaptive
+                  green with a per-pixel select, then chroma from colour
+                  differences over the (raw, green) word -- bayer+g between
       malvar.py   stub; the usual default, gradient-corrected 5x5
       menon.py    stub; directional with refinement, the quality tier
     ...           stubs with intent documented

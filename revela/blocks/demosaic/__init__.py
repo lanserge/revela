@@ -4,9 +4,9 @@
 
 The algorithms live in submodules so that they can be compared honestly
 against each other, and so that a pipeline picks one at composition time
-rather than at runtime. ``bilinear`` and ``bicubic`` are implemented;
-``malvar`` (patent-gated until 2027-01-25) and ``menon`` are declared
-stubs.
+rather than at runtime. ``bilinear``, ``bicubic`` and ``hamilton_adams``
+(two stages: ``ha_green``, ``ha_rb``) are implemented; ``malvar``
+(patent-gated until 2027-01-25) and ``menon`` are declared stubs.
 
 The sensor measures ONE colour per pixel. Demosaic estimates the other two. It
 is the single largest determinant of perceived image quality in the whole
@@ -25,6 +25,12 @@ Submodules, in increasing order of cost and quality:
                 Six line buffers. Sharper than bilinear and the best a
                 pipeline does WITHOUT cross-channel correction -- the honest
                 measure of what malvar's correction buys.
+
+    hamilton_adams  Direction-adaptive (Kodak US5629734/US5652621, both
+                expired): green along the axis with less activity, Laplacian
+                corrected, then red/blue as colour differences against the
+                reconstructed green. Two streaming stages, six line buffers
+                total, and the first block with a per-pixel decision.
 
     malvar      Malvar-He-Cutler gradient-corrected linear interpolation. A 5x5
                 filter that corrects each channel's estimate using the
