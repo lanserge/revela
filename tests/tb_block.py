@@ -103,6 +103,16 @@ async def bit_exact_against_model(dut):
         await RisingEdge(dut.clk)
 
         expected = block.run(frame, values, bit_depth=bit_depth, **context)
+        if expected.ndim == 3:
+            # The model speaks channels ((h, w, c), the NumPy way); the wire
+            # speaks words. The packing law's owner does the translation.
+            from revela.stream import StreamSpec
+
+            spec = StreamSpec(bit_depth=bit_depth,
+                              channels=expected.shape[-1])
+            expected = np.apply_along_axis(
+                lambda px: spec.pack(px.tolist()), -1,
+                expected.astype(np.int64)).astype(np.uint64)
 
         # The wire carries the model's own input words; the framing they get
         # is np2hw's statement, made where the flags' meaning lives.

@@ -354,6 +354,11 @@ revela/
     gamma.py      complete; PWL tone curve from a knot register array
     stats.py      model + register map; RTL pending np2hw reductions
     ccm.py        complete; first 3-channel block, seatless until demosaic
+    demosaic/
+      bilinear.py complete; CFA-position-selected taps on one shared window,
+                  three channels out via np.stack -- the model never packs
+      malvar.py   stub; the usual default, gradient-corrected 5x5
+      menon.py    stub; directional with refinement, the quality tier
     ...           stubs with intent documented
   sensors/        schema.json + <name>/sensor.json
   control/        AE/AWB/AF — pure Python, frame rate, no hardware
@@ -441,4 +446,8 @@ it as an opaque tag it compares and never interprets.
   deadlocks under load), and a **register file** — the top still exposes flat
   `param_*` inputs, with no CSR block, shadow registers, commit-on-SOF or stats
   RAM windows behind them.
-- `demosaic` algorithms are deliberately not implemented yet.
+- `demosaic/bilinear` is complete: the first phase-selected STENCIL block
+  (np2hw traces `out[r::2, c::2] = taps[r::2, c::2]` to one shared window
+  with a positional tap-combination mux) and the first three-channel
+  producer (`np.stack([r, g, b], axis=-1)`; the wire word is the stream
+  layer's business). `malvar` and `menon` remain declared stubs.

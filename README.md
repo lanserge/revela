@@ -181,16 +181,20 @@ stated in full in [docs/design-rules.md](docs/design-rules.md).
 
 ## Status
 
-`blacklevel`, `whitebalance`, `gamma` and `ccm` are complete end to
-end — model, generated Verilog, bit-exact cocotb tests, fixed-point variants
-through build-time overrides — and contain **no hand-written Verilog**: each
-block, phase mux and LUT included, is one np2hw trace of its NumPy model.
-(`ccm` awaits a demosaic to feed it and sits in no example design yet.)
+`blacklevel`, `whitebalance`, `gamma`, `ccm` and `bilinear` (demosaic) are
+complete end to end — model, generated Verilog, bit-exact cocotb tests,
+fixed-point variants through build-time overrides — and contain **no
+hand-written Verilog**: each block, phase mux, window and LUT included, is
+one np2hw trace of its NumPy model. `bilinear` is the first block whose tap
+combination is selected by CFA position over a shared line-buffered window,
+and the first to emit a three-channel stream — its model ends in
+`np.stack([r, g, b], axis=-1)`, and the wire packing belongs to the stream
+layer alone.
 `pipe`, `stats`, the register map with its AXI4-Lite control plane, address
 allocation, build-time register overrides, the sensor schema and the
 composition layer are implemented. The remaining blocks (`lsc`, `defect`,
-`demosaic`, `rgb2yuv`, `sharpen`) are declared stubs, each with its intent
-documented in its own file.
+the better demosaics (`malvar`, `menon`), `rgb2yuv`, `sharpen`) are declared
+stubs, each with its intent documented in its own file.
 
 `stats` has a model and a register map but no generated RTL: accumulation over a
 region is a reduction, which np2hw does not trace yet. It is the one block that

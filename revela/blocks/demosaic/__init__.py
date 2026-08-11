@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
 """Demosaic: reconstruct three colours per pixel from the CFA mosaic.
 
-NOT IMPLEMENTED -- deliberately. The algorithms live in submodules so that they
-can be compared honestly against each other, and so that a pipeline picks one at
-composition time rather than at runtime.
+The algorithms live in submodules so that they can be compared honestly
+against each other, and so that a pipeline picks one at composition time
+rather than at runtime. ``bilinear`` is implemented; ``malvar`` and
+``menon`` are declared stubs.
 
 The sensor measures ONE colour per pixel. Demosaic estimates the other two. It
 is the single largest determinant of perceived image quality in the whole
