@@ -43,6 +43,7 @@ dev = [
 ]
 
 [project.scripts]
+revela = "revela.cli:main"
 revela-fusesoc = "revela.fusesoc:main"
 
 [project.urls]
