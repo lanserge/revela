@@ -63,7 +63,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from revela.blocks import BAYER, StreamPort, ispblock
+from revela.blocks import BAYER, RGB, StreamPort, ispblock
 from revela.params import Param
 
 # 33 knots = 32 segments: the classic budget. A design overrides shape for
@@ -71,43 +71,28 @@ from revela.params import Param
 KNOTS_DEFAULT = 33
 
 
-@ispblock(
-    version=(1, 0),
-    description="Piecewise-linear tone curve (gamma) over uniform segments.",
-    inputs=(StreamPort("in", BAYER,
-                       "Linear samples. Classically this block sits post-CCM "
-                       "on RGB; it is in the Bayer chain because that is the "
-                       "chain that exists."),),
-    outputs=(StreamPort("out", BAYER,
-                        "Tone-mapped samples, same width as the input."),),
-    params=[
-        Param(
-            name="knots",
-            bits=13,                       # bit_depth + 1; see the docstring
-            shape=(KNOTS_DEFAULT,),
-            default_ramp=True,
-            configurable=("bits", "shape"),
-            description=(
-                "Tone curve knots at uniform input spacing: knot i is the "
-                "output for input i * 2**S, and between knots the hardware "
-                "interpolates linearly on the input's low S bits. One bit "
-                "wider than the datapath so the identity ramp's top knot "
-                "(full scale + 1) is exact. Reset is the identity ramp: an "
-                "unconfigured pipeline passes the image through. Written by "
-                "the host from a target curve via knots_from_curve()"
-            ),
+def _knots_param() -> Param:
+    """ONE declaration of the knot register, used by both curve blocks."""
+    return Param(
+        name="knots",
+        bits=13,                       # bit_depth + 1; see the docstring
+        shape=(KNOTS_DEFAULT,),
+        default_ramp=True,
+        configurable=("bits", "shape"),
+        description=(
+            "Tone curve knots at uniform input spacing: knot i is the "
+            "output for input i * 2**S, and between knots the hardware "
+            "interpolates linearly on the input's low S bits. One bit "
+            "wider than the datapath so the identity ramp's top knot "
+            "(full scale + 1) is exact. Reset is the identity ramp: an "
+            "unconfigured pipeline passes the image through. Written by "
+            "the host from a target curve via knots_from_curve()"
         ),
-    ],
-)
-def gamma(pixel, p, ctx, bit_depth: int):
-    """THE model. Segment by bit-slice, gather two knots, integer lerp.
+    )
 
-    Plain NumPy both ways: on arrays the fancy index is a fancy index; traced,
-    it is a register-array gather whose index range np2hw proves inside the
-    table. The knot count and the shift both come from the CONFIGURED
-    declaration, so a design that overrides the shape changes the model, the
-    RTL and the map together -- there is no second copy of K anywhere.
-    """
+
+def _curve(value, p, bit_depth):
+    """The PWL machinery both blocks share: slice, gather, lerp, clip."""
     knots = p.knots
     count = p.decl.knots.shape[0]
     segments = count - 1
@@ -126,12 +111,58 @@ def gamma(pixel, p, ctx, bit_depth: int):
         raise ValueError(
             f"{count} knots means {segments} segments, more than a "
             f"{bit_depth}-bit input has values; reduce the knot count")
-
-    value = pixel.astype(np.int32)
     seg = value >> shift
     frac = value & ((1 << shift) - 1)
     base = knots[seg].astype(np.int32)
     step = knots[seg + 1].astype(np.int32) - base
     out = base + ((step * frac) >> shift)
-    return out.clip(0, (1 << bit_depth) - 1).astype(np.uint16)
+    return out.clip(0, (1 << bit_depth) - 1)
 
+
+@ispblock(
+    version=(1, 0),
+    description="Piecewise-linear tone curve (gamma) over uniform segments.",
+    inputs=(StreamPort("in", BAYER,
+                       "Linear samples. Classically this block sits post-CCM "
+                       "on RGB; it is in the Bayer chain because that is the "
+                       "chain that exists."),),
+    outputs=(StreamPort("out", BAYER,
+                        "Tone-mapped samples, same width as the input."),),
+    params=[_knots_param()],
+)
+def gamma(pixel, p, ctx, bit_depth: int):
+    """THE model. Segment by bit-slice, gather two knots, integer lerp.
+
+    Plain NumPy both ways: on arrays the fancy index is a fancy index; traced,
+    it is a register-array gather whose index range np2hw proves inside the
+    table. The knot count and the shift both come from the CONFIGURED
+    declaration, so a design that overrides the shape changes the model, the
+    RTL and the map together -- there is no second copy of K anywhere.
+    """
+    value = pixel.astype(np.int32)
+    return _curve(value, p, bit_depth).astype(np.uint16)
+
+
+
+@ispblock(
+    version=(1, 0),
+    description="Piecewise-linear tone curve applied per RGB channel, "
+                "one shared knot table.",
+    inputs=(StreamPort("in", RGB,
+                       "Linear RGB, post-CCM -- the classical seat for the "
+                       "display curve."),),
+    outputs=(StreamPort("out", RGB,
+                        "Tone-mapped RGB, same width per channel."),),
+    params=[_knots_param()],
+)
+def rgb_gamma(pixel, p, ctx, bit_depth: int):
+    """THE model. The same curve, once per channel, one knot table.
+
+    One table for all three channels is the classical display-gamma
+    choice (per-channel tables are a colour-cast instrument, a different
+    block). The channels view hands each lane through the shared PWL
+    machinery; np.stack says three channels the NumPy way.
+    """
+    value = pixel.astype(np.int32)
+    return np.stack([_curve(value[..., k], p, bit_depth) for k in range(3)],
+                    axis=-1).astype(np.uint16)

@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "name": "imx219_indoor",
+  "description": "IMX219 binned, tuned for indoor tungsten. Exposure is allowed to run long because the scene is static; the metering target is pulled down slightly because indoor scenes usually contain a window and metering for the average blows it out.",
+  "pipeline": "../pipeline.json",
+  "sensor": {
+    "name": "imx219",
+    "mode": "binned_2x2"
+  },
+  "values": {
+    "pipe": {
+      "window_x0": 8,
+      "window_y0": 8,
+      "window_x1": 1632,
+      "window_y1": 1224
+    },
+    "blacklevel": {
+      "offset_0_1": -65,
+      "offset_1_0": -65
+    },
+    "stats": {
+      "zones_x": 8,
+      "zones_y": 8,
+      "zone_width": 203,
+      "zone_height": 152
+    }
+  },
+  "control": {
+    "ae": {
+      "target_q8": 40,
+      "max_exposure_ns": 40000000
+    },
+    "awb": {
+      "grey_world_fallback": true
+    }
+  }
+}

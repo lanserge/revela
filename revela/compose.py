@@ -580,14 +580,27 @@ class Pipeline:
             if name in seen:
                 built[stage.path] = seen[name]
                 continue
-            result = stage.block.generate(self.spec, self.width, self.height,
+            # Each block sees the stream ITS input domain implies, not the
+            # pipeline's boundary stream: a chroma stage eats the 2-channel
+            # word its green stage emits, ccm eats RGB. The bit depth is the
+            # pipeline's; the channel count is the block's own declaration,
+            # so a colour pipeline needs no per-block spec plumbing in the
+            # design JSON.
+            from revela.blocks import DOMAIN_CHANNELS
+
+            channels = (DOMAIN_CHANNELS.get(stage.block.inputs[0].domain, 1)
+                        if stage.block.inputs else self.spec.channels)
+            result = stage.block.generate(self.spec.with_channels(channels),
+                                          self.width, self.height,
                                           module_name=name)
             modules.extend(result.modules)
             built[stage.path] = seen[name] = result
 
         # The pipeline's own ports take their domain from the block at the
         # boundary, so a design cannot declare its input to be something the
-        # first block does not accept.
+        # first block does not accept. INPUT and OUTPUT boundaries are read
+        # separately: a colour pipeline eats 1-channel Bayer and emits a
+        # 3-channel RGB word, and each port's width follows its own domain.
         stream = StreamType(self.spec.data_bits, ("sof", "eol", "last"),
                             self._boundary_domain())
         top = compose(
@@ -719,8 +732,29 @@ class Pipeline:
                             f"0x{stage.instance.address_of(name):04x} "
                             f"({param.q_format}). {param.description}"))
         ports += [Port(name, "in", stream=stream) for name in self.inputs]
-        ports += [Port(name, "out", stream=stream) for name in self.outputs]
+        ports += [Port(name, "out", stream=self._output_stream(name))
+                  for name in self.outputs]
         return ports
+
+    def _output_stream(self, name):
+        """The stream an OUTPUT port carries: the driving block's word.
+
+        Width and domain come from the block wired to the boundary -- a
+        3-channel word is three fields wide -- so the design cannot declare
+        an output narrower than what feeds it."""
+        from np2hw import StreamType
+
+        from revela.blocks import DOMAIN_CHANNELS
+
+        for source, sink in self.edges:
+            if sink.node is None and sink.port == name and source.node:
+                block = self.stage(source.node).block
+                domain = block.domain(source.port)
+                channels = DOMAIN_CHANNELS.get(domain, 1)
+                return StreamType(self.spec.bit_depth * channels,
+                                  ("sof", "eol", "last"), domain)
+        return StreamType(self.spec.data_bits, ("sof", "eol", "last"),
+                          self._boundary_domain())
 
     def _instances(self, built) -> list:
         """One np2hw Instance per generated block, with its parameter bindings."""

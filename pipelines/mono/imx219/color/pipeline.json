@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "name": "revela_mono_imx219_color",
+  "description": "The first full-colour pipeline: pedestal off, illuminant balanced, Hamilton-Adams demosaic in its two streaming stages, colour matrix, display curve -- and stats tapping the corrected Bayer for the 3A loops. Every block bit-exact against its model; this design is where they first meet as one machine.",
+  "sensor": {
+    "name": "imx219",
+    "mode": "binned_2x2"
+  },
+  "stream": {
+    "bit_depth": 10,
+    "channels": 1
+  },
+  "geometry": {
+    "width": 1640,
+    "height": 1232
+  },
+  "inputs": [
+    {
+      "name": "sensor",
+      "description": "Raw Bayer from the sensor receiver."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "video",
+      "description": "Tone-mapped RGB, three channels in one word."
+    }
+  ],
+  "nodes": [
+    {
+      "instance": "blacklevel",
+      "block": "blacklevel",
+      "description": "Remove the sensor pedestal per CFA colour, before anything multiplies the signal."
+    },
+    {
+      "instance": "whitebalance",
+      "block": "whitebalance",
+      "description": "Per-CFA-colour gain, written by the AWB loop at frame rate. Before demosaic: interpolating unbalanced planes bakes the imbalance into all three channels."
+    },
+    {
+      "instance": "ha_green",
+      "block": "ha_green",
+      "description": "Hamilton-Adams green reconstruction, direction-adaptive; emits the (raw, green) word the chroma stage differences against."
+    },
+    {
+      "instance": "ha_rb",
+      "block": "ha_rb",
+      "description": "Red and blue as colour differences against the reconstructed green."
+    },
+    {
+      "instance": "ccm",
+      "block": "ccm",
+      "description": "Sensor RGB into the target colour space; calibration output, interpolated by colour temperature on the host."
+    },
+    {
+      "instance": "rgb_gamma",
+      "block": "rgb_gamma",
+      "registers": {
+        "knots": {
+          "bits": 11
+        }
+      },
+      "description": "Display tone curve per channel, one shared knot table. knots bits = bit_depth + 1 (10-bit path)."
+    },
+    {
+      "instance": "stats",
+      "block": "stats",
+      "description": "Per-zone colour and luminance accumulators for AE and AWB."
+    }
+  ],
+  "connections": [
+    {
+      "from": "sensor",
+      "to": "blacklevel.in"
+    },
+    {
+      "from": "blacklevel.out",
+      "to": "whitebalance.in"
+    },
+    {
+      "from": "whitebalance.out",
+      "to": "ha_green.in"
+    },
+    {
+      "from": "ha_green.out",
+      "to": "ha_rb.in"
+    },
+    {
+      "from": "ha_rb.out",
+      "to": "ccm.in"
+    },
+    {
+      "from": "ccm.out",
+      "to": "rgb_gamma.in"
+    },
+    {
+      "from": "rgb_gamma.out",
+      "to": "video"
+    },
+    {
+      "from": "blacklevel.out",
+      "to": "stats.in",
+      "description": "A TAP, deliberately PRE-whitebalance: AWB must meter the illuminant's cast, and a loop that meters its own correction chases its tail."
+    }
+  ]
+}
