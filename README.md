@@ -181,8 +181,8 @@ stated in full in [docs/design-rules.md](docs/design-rules.md).
 
 ## Status
 
-`blacklevel`, `whitebalance`, `gamma`, `ccm`, `bilinear`, `bicubic` and the
-two-stage adaptive `hamilton_adams` (`ha_green`, `ha_rb`) are
+`blacklevel`, `whitebalance`, `gamma`, `rgb_gamma`, `ccm`, `bilinear`,
+`bicubic` and the two-stage adaptive `hamilton_adams` (`ha_green`, `ha_rb`) are
 complete end to end — model, generated Verilog, bit-exact cocotb tests,
 fixed-point variants through build-time overrides — and contain **no
 hand-written Verilog**: each block, phase mux, window and LUT included, is

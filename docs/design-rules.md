@@ -351,7 +351,10 @@ revela/
     pipe.py       pipeline context (an ordinary block, at base 0)
     blacklevel.py complete: model + generation + bit-exact test
     whitebalance.py complete; per-CFA gain, fixed-point variants
-    gamma.py      complete; PWL tone curve from a knot register array
+    gamma.py      complete; PWL tone curve from a knot register array --
+                  TWO blocks (gamma.py also reads as rgb_gamma.py to the
+                  drift test): single-channel, and per-RGB-channel over one
+                  shared knot table via the channels view
     stats.py      model + register map; RTL pending np2hw reductions
     ccm.py        complete; first 3-channel block, seatless until demosaic
     demosaic/
