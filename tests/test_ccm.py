@@ -5,10 +5,10 @@
 Rule 3, same shape as the other block suites: the simulator half lives in
 ``tb_ccm.py``; this module builds the design, chooses stimulus that exercises
 the signed and rounding paths deliberately, and covers the pure-Python
-behaviour. First three-channel block, so the packing convention -- R in the
-low bits, the same order :meth:`StreamSpec.pack` states -- is under test here
-too, mostly by the identity cases that would shear channels apart if either
-end packed differently.
+behaviour. The model speaks (h, w, 3); the wire word appears only where the
+wire does -- the cocotb trials drive packed words built by this file's own
+pack(), the deliberate second statement of the law that catches either end
+packing differently.
 """
 from __future__ import annotations
 
@@ -65,7 +65,7 @@ def test_identity_reset_is_pass_through(rng):
     unity, in matrix form. Pass-through THROUGH the packed word also proves
     unpack and repack agree on which bits are which channel.
     """
-    frame = pack(rgb_frame(rng))
+    frame = rgb_frame(rng)
     out = ccm.ccm.run(frame, {}, bit_depth=BIT_DEPTH)
     np.testing.assert_array_equal(out, frame)
 
@@ -75,10 +75,9 @@ def test_matches_the_dot_product_with_rounding(rng):
     an independently written integer matmul over every channel at once."""
     rgb = rgb_frame(rng)
     matrix = [[350, -70, -24], [-60, 380, -64], [10, -120, 366]]
-    out = ccm.ccm.run(pack(rgb), MATRIX.values(matrix),
-                      bit_depth=BIT_DEPTH)
+    out = ccm.ccm.run(rgb, MATRIX.values(matrix), bit_depth=BIT_DEPTH)
     reference = np.clip((rgb @ np.array(matrix).T + 128) >> 8, 0, TOP)
-    np.testing.assert_array_equal(out, pack(reference))
+    np.testing.assert_array_equal(out, reference)
 
 
 def test_rounds_to_nearest_not_a_floor():
@@ -88,12 +87,12 @@ def test_rounds_to_nearest_not_a_floor():
     behind this block to integrate a truncation bias away -- and it is
     exactly what a float reference would fail to pin down.
     """
-    one_r = pack(np.array([[[1, 0, 0]]]))
+    one_r = np.array([[[1, 0, 0]]])
     for coefficient, want in ((383, 1), (384, 2)):
         values = MATRIX.values(
             [[coefficient, 0, 0], [0, ONE, 0], [0, 0, ONE]])
         out = ccm.ccm.run(one_r, values, bit_depth=BIT_DEPTH)
-        assert int(out[0, 0]) == want, (coefficient, int(out[0, 0]))
+        assert int(out[0, 0, 0]) == want, (coefficient, int(out[0, 0, 0]))
 
 
 def test_saturates_at_zero_and_full_scale():
@@ -101,13 +100,13 @@ def test_saturates_at_zero_and_full_scale():
     rgb = np.array([[[100, TOP, 0], [TOP, TOP, TOP]]])
     negative = MATRIX.values(
         [[ONE, -ONE, 0], [0, ONE, 0], [0, 0, ONE]])       # R' = R - G < 0
-    out = ccm.ccm.run(pack(rgb), negative, bit_depth=BIT_DEPTH)
-    assert int(out[0, 0]) & TOP == 0
+    out = ccm.ccm.run(rgb, negative, bit_depth=BIT_DEPTH)
+    assert int(out[0, 0, 0]) == 0
 
     hot = MATRIX.values(
         [[2 * ONE, 0, 0], [0, 2 * ONE, 0], [0, 0, 2 * ONE]])
-    out = ccm.ccm.run(pack(rgb), hot, bit_depth=BIT_DEPTH)
-    assert int(out[0, 1]) == int(pack(np.array([[[TOP, TOP, TOP]]]))[0, 0])
+    out = ccm.ccm.run(rgb, hot, bit_depth=BIT_DEPTH)
+    np.testing.assert_array_equal(out[0, 1], (TOP, TOP, TOP))
 
 
 def test_row_is_the_output_channel():
@@ -117,8 +116,8 @@ def test_row_is_the_output_channel():
     rgb = np.array([[[1000, 2000, 3000]]])
     swap_rb = MATRIX.values(
         [[0, 0, ONE], [0, ONE, 0], [ONE, 0, 0]])
-    out = ccm.ccm.run(pack(rgb), swap_rb, bit_depth=BIT_DEPTH)
-    np.testing.assert_array_equal(out, pack(np.array([[[3000, 2000, 1000]]])))
+    out = ccm.ccm.run(rgb, swap_rb, bit_depth=BIT_DEPTH)
+    np.testing.assert_array_equal(out, [[[3000, 2000, 1000]]])
 
 
 def test_variant_identity_re_derives_with_frac():
@@ -133,7 +132,7 @@ def test_variant_identity_re_derives_with_frac():
     assert declared["m_0_0"] == declared["m_1_1"] == declared["m_2_2"] == 64
     assert declared["m_0_1"] == declared["m_2_0"] == 0
 
-    frame = pack(np.array([[[7, 2049, TOP]]]))
+    frame = np.array([[[7, 2049, TOP]]])
     out = variant.run(frame, {}, bit_depth=BIT_DEPTH)
     np.testing.assert_array_equal(out, frame)
 

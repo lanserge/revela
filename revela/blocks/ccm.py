@@ -24,14 +24,16 @@ block does NOT enforce that: a deliberately non-unity row is how a global
 gain or a creative look is applied, and enforcing the convention would
 remove a control that is genuinely wanted.
 
-The stream, three channels in one word
---------------------------------------
+The stream, three channels
+--------------------------
 
-This is the first block whose pixel is not one value. The RGB stream packs
-its channels into one data word, R in the low bits -- the same convention
-:meth:`revela.stream.StreamSpec.pack` states -- and the model unpacks,
-mixes and repacks exactly as the wire carries them. The model IS the wire
-format; there is no per-channel view that exists only in Python.
+The model speaks CHANNELS, the NumPy way: an ``(h, w, 3)`` frame in,
+``pixel[..., k]`` to read a channel, ``np.stack([...], axis=-1)`` out. How
+three channels share one data word on the wire is the stream layer's one
+statement (:meth:`revela.stream.StreamSpec.pack`, channel 0 in the low
+bits); traced, np2hw's channel view does the field extraction the model no
+longer writes, and the generated core publishes the word layout it built,
+which composition checks against this block's declaration.
 
 Where the values come from
 --------------------------
@@ -97,12 +99,11 @@ from revela.params import Param
     ],
 )
 def ccm(pixel, p, ctx, bit_depth: int):
-    """THE model. Unpack three channels, one dot product per output, repack.
+    """THE model. Three channels in, one dot product per output channel.
 
-    ``pixel`` is the packed data word: R in the low ``bit_depth`` bits, then
-    G, then B. Unpacking is shift-and-mask, repacking is multiply-by-power-
-    of-two and add -- all of it hardware the tracer sizes from exact ranges,
-    with the nine coefficients entering the expression as register ports.
+    ``pixel`` is an ``(h, w, 3)`` frame; ``pixel[..., k]`` is a channel. The
+    nine coefficients enter the expression as register ports, and the tracer
+    sizes every wire from exact ranges.
 
     The shift and the rounding constant come from the CONFIGURED
     declaration: a design that overrides ``frac`` changes the model, the
@@ -112,15 +113,11 @@ def ccm(pixel, p, ctx, bit_depth: int):
     top = (1 << bit_depth) - 1
     frac = p.decl.m.frac
     half = (1 << frac) >> 1          # 0 when frac is 0: nothing to round
-    channels = (value & top,
-                (value >> bit_depth) & top,
-                (value >> (2 * bit_depth)) & top)
-    packed = None
+    channels = [value[..., k] for k in range(3)]
+    outs = []
     for row in range(3):
         acc = (channels[0] * p.m[row, 0]
                + channels[1] * p.m[row, 1]
                + channels[2] * p.m[row, 2])
-        out = ((acc + half) // (1 << frac)).clip(0, top)
-        shifted = out if row == 0 else out * (1 << (row * bit_depth))
-        packed = shifted if packed is None else packed + shifted
-    return packed.astype(np.uint64)
+        outs.append(((acc + half) // (1 << frac)).clip(0, top))
+    return np.stack(outs, axis=-1).astype(np.uint16)

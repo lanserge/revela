@@ -412,9 +412,19 @@ class Block:
             raise TypeError(
                 f"block {self.name!r} is configuration only and has no model")
         pixel = np.asarray(pixel)
-        if pixel.ndim != 2:
+        in_channels = (DOMAIN_CHANNELS.get(self.inputs[0].domain, 1)
+                       if self.inputs else 1)
+        if in_channels == 1:
+            if pixel.ndim != 2:
+                raise ValueError(
+                    f"expected a 2-D frame, got shape {pixel.shape}")
+        elif pixel.ndim != 3 or pixel.shape[-1] != in_channels:
+            # A model speaks CHANNELS ((h, w, c)); words exist on the wire
+            # only, and StreamSpec owns the translation.
             raise ValueError(
-                f"expected a 2-D frame, got shape {pixel.shape}")
+                f"block {self.name!r} consumes {self.inputs[0].domain!r}: "
+                f"expected an (h, w, {in_channels}) frame, got shape "
+                f"{pixel.shape}")
         consumed = set(self.params.consumes)
         unknown = set(context) - consumed
         if unknown:
@@ -432,7 +442,7 @@ class Block:
                     f"{declared.bits}-bit range")
             ctx_values[name] = value
         if any(bit.context == "bayer_phase" for bit in self.context):
-            height, width = pixel.shape
+            height, width = pixel.shape[:2]
             if height % 2 or width % 2:
                 raise ValueError(
                     f"frame {width}x{height} has an odd dimension; a "
@@ -495,8 +505,24 @@ class Block:
                                Declarations(self.params.params))
             return self.model(pixel, values, ctx, spec.bit_depth)
 
-        _, result = to_ir(traced, image, *context, *registers)
+        _, result = to_ir(traced, image, *context, *registers,
+                          channels=expected or 1)
         core = np2hw_generate(result, module_name=module_name)
+
+        # The emitter states the word layout it built; the stream declares
+        # what this block's output means. They must be the same statement.
+        out_meta = core["interface"].get("output") or {}
+        out_domain = self.outputs[0].domain if self.outputs else None
+        out_channels = DOMAIN_CHANNELS.get(out_domain, 1)
+        if out_channels > 1:
+            if (out_meta.get("channels", 1) != out_channels
+                    or out_meta.get("field_bits") != spec.bit_depth):
+                raise ValueError(
+                    f"block {self.name!r} declares {out_channels} channels of "
+                    f"{spec.bit_depth} bits, but the generated core packed "
+                    f"{out_meta.get('channels', 1)} field(s) of "
+                    f"{out_meta.get('field_bits')}; the wire and the "
+                    "declaration have diverged")
 
         verilog = "\n".join([
             *spdx_header(
