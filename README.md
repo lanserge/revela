@@ -196,7 +196,10 @@ allocation, build-time register overrides, the sensor schema and the
 composition layer are implemented. The remaining blocks (`lsc`, `defect`,
 the corrected demosaics (`malvar` — patent-gated until 2027-01-25 — and
 `menon`), `rgb2yuv`, `sharpen`) are declared stubs, each with its intent
-documented in its own file.
+documented in its own file. Every declared stub and
+documented gap is a sponsorable goal — the
+[`sponsorable` label](https://github.com/lanserge/revela/issues?q=label%3Asponsorable)
+carries the full slate, scoped and ready to fund.
 
 `stats` has a model and a register map but no generated RTL: accumulation over a
 region is a reduction, which np2hw does not trace yet. It is the one block that
@@ -249,8 +252,11 @@ Developed independently. Detail in [FUNDING.md](FUNDING.md); enquiries to
 - **Commercial licence** — patent grant, indemnity, support SLA, and access to
   advanced blocks and verification collateral.
 - **Sponsor a block** — fund a declared stub (`lsc`, `defect`, `demosaic`,
-  `rgb2yuv`, `sharpen`) or a documented gap; done means bit-exact under the four
-  rules, and the work lands here openly, immediately.
+  `rgb2yuv`, `sharpen`) or a documented gap; the
+  [`sponsorable` label](https://github.com/lanserge/revela/issues?q=label%3Asponsorable)
+  is the slate. Done means bit-exact under the four
+  rules, and the work lands here openly, immediately — sponsorship buys
+  ordering and named credit, not exclusivity.
 - **Sponsor a sensor** — fund characterisation of a sensor you need; you pick it
   and the conditions, get the data first, and it is then published here for all.
 - **Consulting** — ISP bring-up, tuning, custom blocks.
