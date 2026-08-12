@@ -90,6 +90,25 @@ sensors × modes, and a matrix like that does not stay green.
 
 ## Contributing a block
 
+**Algorithm blocks are maintainer-implemented.** Anything with an academic
+or patent lineage -- demosaic, denoise, sharpening, tone mapping, the
+methods with names on them -- is written here by the maintainer, from the
+paper or the patent text, clean-room. This is not about trust in anyone's
+skill: revela is offered commercially with indemnity, and that promise
+rests on a single, documented provenance trail for every method in the
+tree. A pull request cannot carry its author's reading history with it.
+Every algorithm block states when its patent situation was checked
+(`patent-checked YYYY-MM-DD` in the module docstring -- CI enforces it),
+and that statement has to be the implementer's own.
+
+What is enormously welcome for algorithm blocks instead: pointers to
+methods worth implementing (with the paper), patent-status research,
+failing test cases, and quality comparisons. Open an issue -- the
+`sponsorable` label is exactly these, priced.
+
+Blocks WITHOUT such lineage -- plumbing, statistics, format conversions --
+follow the normal path below, CLA and all.
+
 1. One file in `revela/blocks/`, one `@ispblock`-decorated model function (the decorated function IS the block: `Block.run()` runs it, the generic `generate()` traces it, `.params` is its register set — declare nothing beside it).
 2. The model is the specification. Write it at the hardware's arithmetic first
    and let the RTL follow, not the other way round.
