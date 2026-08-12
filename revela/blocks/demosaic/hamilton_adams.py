@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
 """Hamilton-Adams demosaic: direction-adaptive, in two streaming stages.
 
-IP: the method is Kodak's, from US5629734 (expired 2015) and US5652621
-(expired 2016) -- verified on the register 2026-08-11. Implemented from the
-patents' published method, clean-room, like everything here.
+IP: patent-checked 2026-08-11 -- the method is Kodak's, from US5629734
+(expired 2015) and US5652621 (expired 2016), both verified on the
+register. Implemented from the patents' published method, clean-room,
+like everything here.
 
 The first ADAPTIVE demosaic in the tree, and the reason the compiler grew
 window expressions: at each missing-green site the horizontal and vertical

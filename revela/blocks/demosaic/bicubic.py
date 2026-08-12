@@ -2,6 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
 """Bicubic demosaic: 4-tap cubic interpolation per colour lattice.
 
+IP: patent-checked 2026-08-11 -- the kernel is Catmull-Rom (1974,
+academic literature), coefficients standard for fifty years; no
+in-force claim covers channel-independent cubic interpolation.
+
 The classic upgrade from bilinear: each missing colour is estimated with
 Keys' cubic convolution (a = -1/2) on that colour's own lattice instead of
 a 2-tap average. A missing sample sits exactly midway between its

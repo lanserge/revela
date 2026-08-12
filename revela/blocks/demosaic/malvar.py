@@ -7,7 +7,7 @@ US7502505B2, which is in force until its adjusted expiration on
 2027-01-25. This project ships silicon IP under a commercial tier with
 indemnity, so the implementation waits for that date -- not because
 enforcement is likely, but because "unenforced" is not "licensed".
-Verified 2026-08-11 (patents.google.com/patent/US7502505B2).
+Patent-checked 2026-08-11 (patents.google.com/patent/US7502505B2).
 
 The observation that makes this work: at a pixel where G was measured but R was
 not, the LOCAL SECOND DERIVATIVE of G is a good estimate of the local second

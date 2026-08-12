@@ -2,6 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
 """Bilinear demosaic: separable linear interpolation per colour plane.
 
+IP: patent-checked 2026-08-11 -- nothing to clear: interpolation by
+neighbour averaging is the field's foundational prior art (it appears
+in Bayer's own US3971065, filed 1975, expired decades ago) and no
+in-force claim covers it.
+
 The baseline algorithm, and the honest floor: it is what "just interpolate"
 looks like. Each missing colour at a pixel is the average of the nearest
 measured samples of that colour, each channel interpolated independently.
