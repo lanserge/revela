@@ -546,7 +546,8 @@ class Pipeline:
 
     # -- generation ------------------------------------------------------------ #
 
-    def generate(self, control: bool = True) -> Generated:
+    def generate(self, control: bool = True,
+                 clk_ns: float | None = None) -> Generated:
         """Emit every block's Verilog, and hand the netlist to np2hw to compose.
 
         revela emits no Verilog. It describes: which instances exist, how they
@@ -589,7 +590,7 @@ class Pipeline:
             # stream fact in a whole design is the input's own.
             result = stage.block.generate(
                 self.spec.with_channels(self._incoming_channels(stage, built)),
-                self.width, self.height, module_name=name)
+                self.width, self.height, module_name=name, clk_ns=clk_ns)
             modules.extend(result.modules)
             built[stage.path] = seen[name] = result
 

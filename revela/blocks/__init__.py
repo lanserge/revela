@@ -429,7 +429,8 @@ class Block:
         return _View({bit.name: (int(values[bit.context]) >> bit.bit) & 1
                       for bit in self.context})
 
-    def generate(self, spec, width: int, height: int, module_name: str) -> "Generated":
+    def generate(self, spec, width: int, height: int, module_name: str,
+                 clk_ns: float | None = None) -> "Generated":
         """Trace the model into Verilog. Generic: every block uses this one.
 
         There is no per-block generator and no hand-written Verilog anywhere in
@@ -477,7 +478,8 @@ class Block:
         # 1-channel word), the trace itself is where that surfaces.
         _, result = to_ir(traced, image, *context, *registers,
                           channels=spec.channels)
-        core = np2hw_generate(result, module_name=module_name)
+        core = np2hw_generate(result, module_name=module_name,
+                              clk_ns=clk_ns, label=self.name)
 
         verilog = "\n".join([
             *spdx_header(
