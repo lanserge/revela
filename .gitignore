@@ -78,6 +78,15 @@ pipelines/*/*/*/build/
 *.pgm
 *.ppm
 *.pfm
+
+# EXCEPTIONS, deliberately narrow. The ban above is about third-party
+# reference imagery whose licence forbids redistribution; these two are
+# the project's own mark, and the block that draws it cannot import
+# without its table. Nothing else here is exempt -- previews and
+# captures stay ignored, and docs/logo/prep.py regenerates them from
+# the vector source.
+!docs/Revela_Logo.png
+!revela/blocks/assets/revela_mark.npz
 *.exr
 *.webp
 *.mp4
