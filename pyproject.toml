@@ -28,7 +28,10 @@ dependencies = [
     # is that one NumPy model drives both. From PyPI, so the dependency is
     # pinnable, hashable and scannable; co-development installs it editable
     # over the top (pip install -e ../np2hw).
-    "np2hw>=0.3.0",
+    # 0.4.0 is the floor, not a preference: the demo pipeline's adaptive
+    # demosaic needs the phase-stencil emitter to cut its arithmetic into
+    # several pipeline stages, and 0.3.0 refuses to generate it.
+    "np2hw>=0.4.0",
 ]
 
 [project.optional-dependencies]
