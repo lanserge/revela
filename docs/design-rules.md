@@ -357,6 +357,10 @@ revela/
                   shared knot table via the channels view
     stats.py      model + register map; RTL pending np2hw reductions
     ccm.py        complete; first 3-channel block, seatless until demosaic
+    logo.py       complete; a mark composited from a ROM, position derived
+                  from the frame's own shape -- the first block whose table
+                  is data rather than coefficients, and the first to prove
+                  Rom() lands in block RAM
     demosaic/
       bilinear.py complete; CFA-position-selected taps on one shared window,
                   three channels out via np.stack -- the model never packs

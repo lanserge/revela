@@ -181,7 +181,7 @@ stated in full in [docs/design-rules.md](docs/design-rules.md).
 
 ## Status
 
-`blacklevel`, `whitebalance`, `gamma`, `rgb_gamma`, `ccm`, `bilinear`,
+`blacklevel`, `whitebalance`, `gamma`, `rgb_gamma`, `ccm`, `logo`, `bilinear`,
 `bicubic` and the two-stage adaptive `hamilton_adams` (`ha_green`, `ha_rb`) are
 complete end to end — model, generated Verilog, bit-exact cocotb tests,
 fixed-point variants through build-time overrides — and contain **no

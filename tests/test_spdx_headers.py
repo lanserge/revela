@@ -63,6 +63,19 @@ def test_file_has_spdx_header(path: Path):
     )
 
 
+def _is_path_join(node):
+    """`Path(...) / "name"` is not arithmetic.
+
+    pathlib overloads the same operator, and a block that loads an asset
+    beside itself writes exactly that. The rule this test enforces is about
+    the MODELS being written at the hardware's arithmetic, so a division
+    whose right-hand side is a string is a path and not a rounding mistake.
+    """
+    right = getattr(node, "value", None) if isinstance(node, ast.AugAssign) \
+        else getattr(node, "right", None)
+    return isinstance(right, ast.Constant) and isinstance(right.value, str)
+
+
 def test_no_blocks_module_uses_floating_point():
     """Rule 1, enforced: no float in the block models.
 
@@ -90,7 +103,7 @@ def test_no_blocks_module_uses_floating_point():
                 offenders.append(f"{relative}:{where}: float literal {node.value!r}")
 
             elif isinstance(node, (ast.BinOp, ast.AugAssign)) and isinstance(
-                    node.op, ast.Div):
+                    node.op, ast.Div) and not _is_path_join(node):
                 offenders.append(
                     f"{relative}:{where}: true division '/' -- use // and be "
                     "explicit about rounding")
