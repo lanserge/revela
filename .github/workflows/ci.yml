@@ -157,12 +157,23 @@ jobs:
                           f"legacy License field: {legacy}")
               return set(), "no declared licence"
 
+          # setuptools 78/79 dropped its `License ::` classifiers, and its
+          # metadata predates `License-Expression`, so it declares its licence
+          # in none of the three places read above. It is MIT; it is a build
+          # tool, never imported and never redistributed in a wheel; and pip
+          # brings it whether or not anything asked. Named here rather than
+          # waved through: anything ELSE that declares nothing still fails.
+          UNDECLARED_UPSTREAM = {"setuptools": "MIT"}
+
           problems, checked = [], 0
           for dist in distributions():
               name = dist.metadata["Name"]
               if not name:
                   continue
               identifiers, how = declared(dist)
+              if not identifiers and name.lower() in UNDECLARED_UPSTREAM:
+                  identifiers = {UNDECLARED_UPSTREAM[name.lower()]}
+                  how = "known upstream packaging gap"
               checked += 1
               if not identifiers:
                   problems.append(f"{name} {dist.version}: no declared licence")

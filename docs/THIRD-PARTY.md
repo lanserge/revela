@@ -63,6 +63,19 @@ never redistributed.
 | `pathspec` | **MPL-2.0** | See below. |
 | `trove-classifiers` | Apache-2.0 | |
 | `packaging`, `pluggy`, `tomli` | as above | |
+| `setuptools` | MIT | Declares nothing readable; see below. |
+
+### `setuptools` and its missing metadata
+
+setuptools 78/79 dropped the legacy `License ::` trove classifiers, and its
+wheel metadata predates PEP 639's `License-Expression`, so it declares its
+licence in none of the three places the allow-list reads. It is MIT, it is
+a build tool that is never imported and never redistributed in a wheel, and
+pip installs it whether or not anything asked for it.
+
+The check names it explicitly rather than relaxing the rule: anything else
+that declares no licence still fails the build. If setuptools' metadata is
+fixed upstream, the exception can be deleted and nothing else changes.
 
 ### `pathspec` and MPL-2.0
 
