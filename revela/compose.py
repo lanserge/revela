@@ -145,7 +145,18 @@ class Pipeline:
 
     def __init__(self, name: str, spec: StreamSpec, width: int, height: int,
                  config_base: int = 0x0000, stats_base: int = 0x8000,
-                 inputs: Sequence[str] = ("in",), outputs: Sequence[str] = ("out",)):
+                 inputs: Sequence[str] = ("in",), outputs: Sequence[str] = ("out",),
+                 context_from_stream: Sequence[str] = ()):
+        """
+        context_from_stream: context names that arrive WITH THE DATA rather
+            than being configured -- geometry and CFA phase carried in a
+            stream's header, say. Those become input ports on the control
+            top and get no register, because a register holding a second
+            copy of a header fact is a second answer to one question, and
+            software could set it to disagree with the picture arriving.
+            What stays a register is what is genuinely a CHOICE: a crop
+            window is software's to pick, a line length is not.
+        """
         self.name = name
         self.spec = spec
         self.width = width
@@ -165,6 +176,9 @@ class Pipeline:
         # description can be recovered with its hierarchy intact. The graph
         # itself holds the flattened equivalents.
         self.boundary_edges: list[tuple[str, str]] = []
+        for name in context_from_stream:
+            pipe_block.resolve(name)        # raises with the available names
+        self.context_from_stream = frozenset(context_from_stream)
         self.add("pipe", pipe_block.pipe)
 
     # -- composition ---------------------------------------------------------- #
@@ -310,6 +324,13 @@ class Pipeline:
             registers = []
             for reg in paramset.registers:
                 param = reg.param
+                if (stage.path == "pipe"
+                        and param.name in self.context_from_stream):
+                    # The stream owns this one, so the hardware has no
+                    # register for it. The map must say the same thing the
+                    # decode does, or it is documentation of a design that
+                    # was not built.
+                    continue
                 registers.append({
                     "name": param.name,
                     "offset": reg.offset,
@@ -476,6 +497,9 @@ class Pipeline:
                                 "the bitstream is the one it was built against.")]
                 for register in paramset.registers:
                     param = register.param
+                    if (stage.path == "pipe"
+                            and param.name in self.context_from_stream):
+                        continue        # the stream owns it; see __init__
                     regs.append(Reg(
                         name=param.name, bits=param.bits, offset=register.offset,
                         signed=param.signed, reset=param.default,
@@ -486,8 +510,9 @@ class Pipeline:
                 block = types[type_name] = RegBlock(
                     name=type_name, regs=tuple(regs),
                     size=paramset.size_bytes, description=paramset.description)
-            elif block.size != paramset.size_bytes or \
-                    len(block.regs) != 1 + len(paramset.registers):
+            elif block.size != paramset.size_bytes or (
+                    stage.path != "pipe"
+                    and len(block.regs) != 1 + len(paramset.registers)):
                 raise ValueError(
                     f"two different layouts both call themselves "
                     f"{paramset.block!r}; a block TYPE has one layout")
@@ -535,7 +560,9 @@ class Pipeline:
         context comes from ``pipe``'s registers, ONE copy fanned out to every
         consumer; and a context BIT is a slice of one of those.
         """
-        bind = {f"ctx_{ctx.name}": f"param_pipe_{ctx.name}"
+        bind = {f"ctx_{ctx.name}":
+                (f"ctx_{ctx.name}" if ctx.name in self.context_from_stream
+                 else f"param_pipe_{ctx.name}")
                 for ctx in pipe_block.CONTEXT}
         for path, result in built.items():
             stage = self.stage(path)
@@ -640,6 +667,8 @@ class Pipeline:
 
         return control_wrap(
             top, self.address_map(), bind=self.control_bind(built),
+            passthrough=[(f"ctx_{c.name}", c.bits) for c in pipe_block.CONTEXT
+                         if c.name in self.context_from_stream],
             module_name=f"{self.name}_ctrl",
             addr_bits=self.allocator.address_bits(),
             header=spdx_header(
