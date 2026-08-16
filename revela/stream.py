@@ -108,9 +108,16 @@ class StreamSpec:
         return StreamSpec(bit_depth=bit_depth, channels=self.channels,
                           name=self.name, signed=self.signed)
 
-    def with_channels(self, channels: int) -> "StreamSpec":
-        """This stream with a different component count (demosaic: 1 -> 3)."""
-        return StreamSpec(bit_depth=self.bit_depth, channels=channels,
+    def with_stream(self, channels: int, bit_depth: int) -> "StreamSpec":
+        """This stream as some block's model actually packed it.
+
+        Both numbers are consequences of arithmetic, not declarations: a
+        demosaic packs three components where it read one, and a stage
+        that widens rather than saturating packs a taller one. The
+        composer reads them off the driver's trace and hands them to the
+        consumer, so a block is told the stream it is really given.
+        """
+        return StreamSpec(bit_depth=bit_depth, channels=channels,
                           name=self.name, signed=self.signed)
 
     # -- packing --------------------------------------------------------------- #

@@ -611,12 +611,15 @@ class Pipeline:
             # Each block sees the stream its DRIVER's trace produced, threaded
             # forward edge by edge from the pipeline input: a chroma stage
             # eats the 2-channel word its green stage emitted, ccm eats the
-            # 3-channel word the chroma stage emitted. Nothing declares these
-            # counts anywhere -- np2hw publishes what each model's arithmetic
-            # packed, and that IS the next block's input. The only declared
-            # stream fact in a whole design is the input's own.
+            # 3-channel word the chroma stage emitted. Depth travels the same
+            # way -- a stage that saturates back hands on the depth it was
+            # given, one that narrows after a tone curve hands on less, one
+            # that widens hands on more. Nothing declares any of it anywhere:
+            # np2hw publishes what each model's arithmetic packed, and that IS
+            # the next block's input. The only declared stream fact in a whole
+            # design is the input's own.
             result = stage.block.generate(
-                self.spec.with_channels(self._incoming_channels(stage, built)),
+                self.spec.with_stream(*self._incoming_stream(stage, built)),
                 self.width, self.height, module_name=name, clk_ns=clk_ns)
             modules.extend(result.modules)
             built[stage.path] = seen[name] = result
@@ -705,25 +708,36 @@ class Pipeline:
     def _subsystem_module(self, name: str) -> str:
         return f"revela_{self.name}_{name}"
 
-    def _incoming_channels(self, stage: Stage, built: dict) -> int:
-        """Channel count of the word arriving at ``stage``'s input.
+    def _incoming_stream(self, stage: Stage, built: dict) -> tuple[int, int]:
+        """(channels, bit_depth) of the word arriving at ``stage``'s input.
 
         Read from the DRIVER's traced interface -- what its model's
         arithmetic actually packed -- or from the pipeline's own input spec
         when the driver is the outside world. The datapath walk is
         topological, so a driver is always generated before its consumer
         asks about it.
+
+        Depth is threaded for the same reason the channel count is, and
+        both are read from the same place. A block is told the depth of
+        what it is GIVEN, not the pipeline's input depth: a stage that
+        saturates back hands on what it received, a stage that narrows
+        after a tone curve hands on less, and a stage that widens hands
+        on more. np2hw packs a multi-channel word as equal fields, so the
+        per-component depth is the word divided by its components -- and
+        it is exact, because a datapath bound stated in bits can only
+        produce ``2**bits - 1``.
         """
         if not stage.block.ports.inputs:
-            return self.spec.channels
+            return self.spec.channels, self.spec.bit_depth
         source = self.driver(Endpoint(stage.path, stage.block.ports.inputs[0]))
         if source is None or source.node is None:
-            return self.spec.channels
+            return self.spec.channels, self.spec.bit_depth
         result = built.get(source.node)
         if result is None:
-            return self.spec.channels
-        return int((result.core["interface"].get("output") or {})
-                   .get("channels", 1))
+            return self.spec.channels, self.spec.bit_depth
+        channels = int((result.core["interface"].get("output") or {})
+                       .get("channels", 1))
+        return channels, int(result.core.out_bits) // max(1, channels)
 
     def _address_map(self) -> list[str]:
         """The address map and netlist, as comments a reviewer reads first."""
