@@ -9,7 +9,7 @@ and skin tones look wrong. A 3x3 matrix maps one to the other.
 The arithmetic, exactly as the hardware does it
 -----------------------------------------------
 
-    out[c] = clip((sum_k m[c][k] * in[k] + half) >> frac, 0, 2**bit_depth - 1)
+    out[c] = saturate((sum_k m[c][k] * in[k] + half) >> frac, bit_depth)
 
 Nine signed Q2.8 coefficients (see the register's q_format for a variant's
 scale). ``half`` is ``(1 << frac) >> 1``, added before the shift: this block
@@ -56,6 +56,8 @@ awaiting its seat, like ``stats``.
 from __future__ import annotations
 
 import numpy as np
+
+from np2hw import saturate
 
 from revela.blocks import StreamPort, ispblock
 from revela.params import Param
@@ -110,7 +112,6 @@ def ccm(pixel, p, ctx, bit_depth: int):
     RTL and the register map together, or not at all.
     """
     value = pixel.astype(np.int64)
-    top = (1 << bit_depth) - 1
     frac = p.decl.m.frac
     half = (1 << frac) >> 1          # 0 when frac is 0: nothing to round
     channels = [value[..., k] for k in range(3)]
@@ -119,5 +120,5 @@ def ccm(pixel, p, ctx, bit_depth: int):
         acc = (channels[0] * p.m[row, 0]
                + channels[1] * p.m[row, 1]
                + channels[2] * p.m[row, 2])
-        outs.append(((acc + half) // (1 << frac)).clip(0, top))
+        outs.append(saturate((acc + half) // (1 << frac), bit_depth))
     return np.stack(outs, axis=-1).astype(np.uint16)

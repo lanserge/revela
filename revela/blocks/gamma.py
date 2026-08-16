@@ -62,6 +62,7 @@ cares what its samples mean.
 from __future__ import annotations
 
 import numpy as np
+from np2hw import saturate
 
 from revela.blocks import StreamPort, ispblock
 from revela.params import Param
@@ -116,7 +117,7 @@ def _curve(value, p, bit_depth):
     base = knots[seg].astype(np.int32)
     step = knots[seg + 1].astype(np.int32) - base
     out = base + ((step * frac) >> shift)
-    return out.clip(0, (1 << bit_depth) - 1)
+    return saturate(out, bit_depth)
 
 
 @ispblock(

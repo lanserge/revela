@@ -13,7 +13,7 @@ four offsets and picks between them by pixel position.
 The arithmetic, exactly as the hardware does it
 -----------------------------------------------
 
-    out = clip(pixel + offset[colour], 0, 2**bit_depth - 1)
+    out = saturate(pixel + offset[colour], bit_depth)
 
 The register holds a SIGNED OFFSET THAT IS ADDED, not a pedestal that is
 subtracted. That is the hardware's choice, not a translation convenience: an
@@ -53,6 +53,8 @@ than four quarter-rate paths and a recombiner.
 from __future__ import annotations
 
 import numpy as np
+
+from np2hw import saturate
 
 from revela.blocks import ContextBit, StreamPort, ispblock
 from revela.params import Param
@@ -116,13 +118,12 @@ def blacklevel(pixel, p, ctx, bit_depth: int):
     """
     value = pixel.astype(np.int32)
     out = np.empty_like(value)
-    top = (1 << bit_depth) - 1
     for i, rows in enumerate((ctx.phase_row, 1 - ctx.phase_row)):
         for j, cols in enumerate((ctx.phase_col, 1 - ctx.phase_col)):
             # (i, j) indexes the COLOUR: [R, Gr; Gb, B]. The phase decides which
             # positions that colour occupies.
-            out[rows::2, cols::2] = (value[rows::2, cols::2]
-                                     + p.offset[i, j]).clip(0, top)
+            out[rows::2, cols::2] = saturate(
+                value[rows::2, cols::2] + p.offset[i, j], bit_depth)
     return out.astype(np.uint16)
 
 

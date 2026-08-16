@@ -11,7 +11,7 @@ channels that are still mismatched paints coloured fringes on every edge.
 The arithmetic, exactly as the hardware does it
 -----------------------------------------------
 
-    out = clip((pixel * gain[colour]) >> 8, 0, 2**bit_depth - 1)
+    out = saturate((pixel * gain[colour]) >> 8, bit_depth)
 
 ``gain`` is unsigned Q8.8: 256 is unity, and the truncating shift is the
 hardware's rounding -- a floor, not round-to-nearest, because it is one wire
@@ -57,6 +57,8 @@ a shift and a clip, with the coefficient selected by pixel position.
 from __future__ import annotations
 
 import numpy as np
+
+from np2hw import saturate
 
 from revela.blocks import ContextBit, StreamPort, ispblock
 from revela.params import Param
@@ -122,7 +124,6 @@ def whitebalance(pixel, p, ctx, bit_depth: int):
     """
     value = pixel.astype(np.uint32)
     out = np.empty_like(value)
-    top = (1 << bit_depth) - 1
     # The shift comes from the CONFIGURED declaration -- the same Param the
     # register map derives q_format from -- so a design that overrides frac
     # changes the model, the RTL and the documentation together, or not at
@@ -132,9 +133,8 @@ def whitebalance(pixel, p, ctx, bit_depth: int):
         for j, cols in enumerate((ctx.phase_col, 1 - ctx.phase_col)):
             # (i, j) indexes the COLOUR: [R, Gr; Gb, B]. The phase decides
             # which positions that colour occupies.
-            out[rows::2, cols::2] = (
-                (value[rows::2, cols::2] * p.gain[i, j]) // one
-            ).clip(0, top)
+            out[rows::2, cols::2] = saturate(
+                (value[rows::2, cols::2] * p.gain[i, j]) // one, bit_depth)
     return out.astype(np.uint16)
 
 

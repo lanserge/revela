@@ -59,6 +59,7 @@ wire word owned by the stream layer.
 from __future__ import annotations
 
 import numpy as np
+from np2hw import saturate
 
 from revela.blocks import ContextBit, StreamPort, ispblock
 
@@ -108,17 +109,16 @@ def bicubic(pixel, p, ctx, bit_depth: int):
     def at(dr, dc):
         return x[3 + dr:3 + dr + height, 3 + dc:3 + dc + width]
 
-    top = (1 << bit_depth) - 1
     centre = at(0, 0)
     h4 = sum(w * at(0, o) for w, o in zip(CUBIC, OFFSETS))
     v4 = sum(w * at(o, 0) for w, o in zip(CUBIC, OFFSETS))
     d16 = sum(wr * wc * at(r, c)
               for wr, r in zip(CUBIC, OFFSETS)
               for wc, c in zip(CUBIC, OFFSETS))
-    horiz = (h4 // 16).clip(0, top)
-    vert = (v4 // 16).clip(0, top)
-    cross = ((h4 + v4) // 32).clip(0, top)
-    diag = (d16 // 256).clip(0, top)
+    horiz = saturate(h4 // 16, bit_depth)
+    vert = saturate(v4 // 16, bit_depth)
+    cross = saturate((h4 + v4) // 32, bit_depth)
+    diag = saturate(d16 // 256, bit_depth)
 
     red = np.empty_like(value)
     green = np.empty_like(value)

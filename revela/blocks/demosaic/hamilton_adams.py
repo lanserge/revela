@@ -62,6 +62,7 @@ is a comparator and a mux inside the plane, not a second datapath.
 from __future__ import annotations
 
 import numpy as np
+from np2hw import saturate
 
 from revela.blocks import ContextBit, StreamPort, ispblock
 
@@ -92,7 +93,6 @@ _PHASE_CONTEXT = (
 def ha_green(pixel, p, ctx, bit_depth: int):
     """THE model. Adaptive estimate at non-green sites, passthrough at green."""
     height, width = pixel.shape[:2]
-    top = (1 << bit_depth) - 1
     value = pixel.astype(np.int32)
     x = np.pad(value, 2, mode="edge")
 
@@ -105,9 +105,9 @@ def ha_green(pixel, p, ctx, bit_depth: int):
     lv = 2 * centre - at(-2, 0) - at(2, 0)
     dh = np.abs(gw - ge) + np.abs(lh)
     dv = np.abs(gn - gs) + np.abs(lv)
-    gh = ((gw + ge) // 2 + lh // 4).clip(0, top)
-    gv = ((gn + gs) // 2 + lv // 4).clip(0, top)
-    ga = ((gw + ge + gn + gs) // 4 + (lh + lv) // 8).clip(0, top)
+    gh = saturate((gw + ge) // 2 + lh // 4, bit_depth)
+    gv = saturate((gn + gs) // 2 + lv // 4, bit_depth)
+    ga = saturate((gw + ge + gn + gs) // 4 + (lh + lv) // 8, bit_depth)
     est = np.where(dh < dv, gh, np.where(dv < dh, gv, ga))
 
     green = np.empty_like(value)
@@ -135,7 +135,6 @@ def ha_green(pixel, p, ctx, bit_depth: int):
 def ha_rb(pixel, p, ctx, bit_depth: int):
     """THE model. D = raw - green, interpolated per site, added back to green."""
     height, width = pixel.shape[:2]
-    top = (1 << bit_depth) - 1
     raw = np.pad(pixel[..., 0].astype(np.int32), 1, mode="edge")
     grn = np.pad(pixel[..., 1].astype(np.int32), 1, mode="edge")
 
@@ -150,9 +149,10 @@ def ha_rb(pixel, p, ctx, bit_depth: int):
 
     gc = G(0, 0)
     cent = R(0, 0)
-    horiz = (gc + (d(0, -1) + d(0, 1)) // 2).clip(0, top)
-    vert = (gc + (d(-1, 0) + d(1, 0)) // 2).clip(0, top)
-    diag = (gc + (d(-1, -1) + d(-1, 1) + d(1, -1) + d(1, 1)) // 4).clip(0, top)
+    horiz = saturate(gc + (d(0, -1) + d(0, 1)) // 2, bit_depth)
+    vert = saturate(gc + (d(-1, 0) + d(1, 0)) // 2, bit_depth)
+    diag = saturate(
+        gc + (d(-1, -1) + d(-1, 1) + d(1, -1) + d(1, 1)) // 4, bit_depth)
 
     red = np.empty_like(cent)
     blue = np.empty_like(cent)
