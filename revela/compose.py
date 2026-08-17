@@ -696,6 +696,7 @@ class Pipeline:
             # for one number, and two of them would be describing the
             # same fact.
             frame_sync=False,
+            bus_clock=True,
             header=spdx_header(
                 what=f"{self.name} -- AXI4-Lite control register file and the "
                      f"{self.name} datapath",

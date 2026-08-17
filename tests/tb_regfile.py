@@ -83,7 +83,18 @@ async def identity_words_match_the_register_map(dut):
     """
     case = _load_case()
     cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    # The register file runs on its OWN clock now, and deliberately not a
+    # multiple of the pixel clock: it must be a clock that keeps running
+    # when the link's does not, so the testbench must not quietly make
+    # them related and hide the crossing.
+    cocotb.start_soon(Clock(dut.s_axil_aclk, 7, unit="ns").start())
+    # ...and reset it, on its own clock. Holding aresetn high from time
+    # zero looks harmless and is not: the file initialises its write
+    # state machine only in the reset branch, so it would never accept a
+    # write at all.
+    dut.s_axil_aresetn.value = 0
     await reset_stream(dut)
+    dut.s_axil_aresetn.value = 1
     axi = AxiLiteMaster(dut)
     await axi.idle()
 
@@ -106,7 +117,18 @@ async def read_only_and_unmapped_addresses_are_refused(dut):
     effect, hours later and somewhere else. The bus says so instead."""
     case = _load_case()
     cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    # The register file runs on its OWN clock now, and deliberately not a
+    # multiple of the pixel clock: it must be a clock that keeps running
+    # when the link's does not, so the testbench must not quietly make
+    # them related and hide the crossing.
+    cocotb.start_soon(Clock(dut.s_axil_aclk, 7, unit="ns").start())
+    # ...and reset it, on its own clock. Holding aresetn high from time
+    # zero looks harmless and is not: the file initialises its write
+    # state machine only in the reset branch, so it would never accept a
+    # write at all.
+    dut.s_axil_aresetn.value = 0
     await reset_stream(dut)
+    dut.s_axil_aresetn.value = 1
     axi = AxiLiteMaster(dut)
     await axi.idle()
 
@@ -145,7 +167,18 @@ async def configuration_commits_at_the_frame_boundary(dut):
     blocks = _blocks(case)
 
     cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    # The register file runs on its OWN clock now, and deliberately not a
+    # multiple of the pixel clock: it must be a clock that keeps running
+    # when the link's does not, so the testbench must not quietly make
+    # them related and hide the crossing.
+    cocotb.start_soon(Clock(dut.s_axil_aclk, 7, unit="ns").start())
+    # ...and reset it, on its own clock. Holding aresetn high from time
+    # zero looks harmless and is not: the file initialises its write
+    # state machine only in the reset branch, so it would never accept a
+    # write at all.
+    dut.s_axil_aresetn.value = 0
     await reset_stream(dut)
+    dut.s_axil_aresetn.value = 1
     axi = AxiLiteMaster(dut)
     await axi.idle()
 
