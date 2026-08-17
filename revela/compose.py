@@ -635,6 +635,19 @@ class Pipeline:
                 source="the netlist in this design's pipeline.json",
             ),
             notes=self._address_map(),
+            # A block reads its own copy of its own coefficients, kept
+            # beside it, and takes an update as the frame boundary
+            # reaches it. The register file stays the one place software
+            # writes; it stops being the place the datapath reads from,
+            # which is what put a knot register on one side of the chip
+            # and the arithmetic that selects it on the other.
+            commit=True,
+            # Configuration only. `ctx_*` is context that arrived with a
+            # frame, and holding it to a commit would make a frame's own
+            # geometry arrive one frame late.
+            commit_ports={f"param_{self.stage(path).module_prefix}_{name}"
+                          for path, result in built.items()
+                          for name, _ in result.params},
         )
         modules.append((self.name, top["verilog"]))
 
@@ -674,6 +687,15 @@ class Pipeline:
                          if c.name in self.context_from_stream],
             module_name=f"{self.name}_ctrl",
             addr_bits=self.allocator.address_bits(),
+            # ONE bank here, not two. A shadow-and-live pair in the
+            # register file existed to freeze values while a frame
+            # boundary crossed a full pipeline; the datapath now keeps
+            # each block's copy beside the block and loads them all at
+            # the instant the pipe is empty, so there is nothing left to
+            # freeze. Keeping the second bank would be a third register
+            # for one number, and two of them would be describing the
+            # same fact.
+            frame_sync=False,
             header=spdx_header(
                 what=f"{self.name} -- AXI4-Lite control register file and the "
                      f"{self.name} datapath",

@@ -54,9 +54,16 @@ def _flat(path: str) -> str:
 
 
 def _decoded_writes(verilog: str) -> dict[str, int]:
-    """``{register name: word index}`` from the register file's write decode."""
+    """``{register name: word index}`` from the register file's write decode.
+
+    The prefix is whatever the emitter uses for the bank software writes,
+    which depends on whether the file keeps a second one. What this test
+    is about is the ADDRESS each name decodes at, so it should not fail
+    when that decision changes.
+    """
     return {name: int(word) for word, name
-            in re.findall(r"^\s+(\d+): begin shadow_(\w+) <=", verilog, re.M)}
+            in re.findall(r"^\s+(\d+): begin (?:shadow|reg)_(\w+) <=",
+                          verilog, re.M)}
 
 
 def _decoded_constants(verilog: str) -> dict[int, int]:
@@ -156,8 +163,9 @@ def test_context_reaches_the_datapath_from_pipe_not_from_a_copy(pipeline, genera
 
 def test_a_signed_register_reads_back_sign_extended(generated):
     """A host reading a negative black-level offset must not see 65436."""
-    assert re.search(r"s_axil_rdata <= \{\{16\{shadow_blacklevel_offset_0_0\[15\]\}\}",
-                     generated.verilog), (
+    assert re.search(
+        r"s_axil_rdata <= \{\{16\{(?:shadow|reg)_blacklevel_offset_0_0\[15\]\}\}",
+        generated.verilog), (
         "the signed offset register is not sign-extended on read-back")
 
 
