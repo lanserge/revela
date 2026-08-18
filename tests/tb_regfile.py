@@ -220,6 +220,17 @@ async def configuration_commits_at_the_frame_boundary(dut):
         f"a coefficient write while armed was answered {refused:#04b}; it "
         "must be refused, or a host cannot tell its write was ignored")
 
+    # And it must CLEAR once the datapath has taken the values -- that
+    # is how software knows the update landed, and it is the half of the
+    # handshake that lives on the return path. Left unchecked, the ack
+    # wire was simply never connected: the datapath copied correctly
+    # from its own state, every frame was right, and the arm stayed set
+    # forever so every later write was refused. A frame test alone
+    # cannot see that.
+    assert (await axi.read(pipe_regs["commit"]))[0] & 1, (
+        "the arm reads back 0 immediately after being set; software has "
+        "no way to tell a pending update from a finished one")
+
     frame = np.array(case["frame"], dtype=np.uint16).reshape(height, width)
     beats = frame_to_beats(frame, spec)
 
@@ -231,6 +242,21 @@ async def configuration_commits_at_the_frame_boundary(dut):
                                 random.Random(case["seed"]), **OFFER)
     _check_frame(collected, before, width,
                  "frame 1 (written, not yet committed)")
+
+    # A frame has gone by, so the datapath has reached a boundary and
+    # acknowledged: the arm must be back to 0 and writes must flow.
+    # POLL, as software does: the acknowledgement crosses two clock
+    # domains, so "cleared" is a state to wait for, not to assume.
+    # Bounded, because an unbounded wait on this bench has outlived the
+    # hardware before.
+    for _ in range(64):
+        armed, _ = await axi.read(pipe_regs["commit"])
+        if not (armed & 1):
+            break
+    assert not (armed & 1), (
+        "the arm is still set after a whole frame; the datapath's "
+        "acknowledgement never reached the register file, so software "
+        "would poll forever and every coefficient write would be refused")
 
     # Frame 2: the boundary at the end of frame 1 committed the shadow.
     after = blacklevel.blacklevel.run(frame, offsets, bayer_phase=phase,
