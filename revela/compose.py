@@ -642,6 +642,7 @@ class Pipeline:
             # which is what put a knot register on one side of the chip
             # and the arithmetic that selects it on the other.
             commit=True,
+            arm=("cfg_arm_req", "cfg_arm_ack"),
             # Configuration only. `ctx_*` is context that arrived with a
             # frame, and holding it to a commit would make a frame's own
             # geometry arrive one frame late.
@@ -697,6 +698,8 @@ class Pipeline:
             # same fact.
             frame_sync=False,
             bus_clock=True,
+            # (register name in the map, then the two datapath ports)
+            arm=("pipe_commit", "cfg_arm_req", "cfg_arm_ack"),
             header=spdx_header(
                 what=f"{self.name} -- AXI4-Lite control register file and the "
                      f"{self.name} datapath",
@@ -787,6 +790,14 @@ class Pipeline:
                          f"{ctx.description}")
             for ctx in pipe_block.CONTEXT
         ]
+        # The coefficients are written from another clock -- see COMMIT in
+        # blocks/pipe.py. These two carry the whole crossing: the file
+        # says its values are frozen, the datapath says it has taken
+        # them. One bit each way; the values themselves never cross.
+        ports.append(Port("cfg_arm_req", "in",
+                          comment="the register file's values are frozen"))
+        ports.append(Port("cfg_arm_ack", "out",
+                          comment="the copy has been taken"))
         for path, result in built.items():
             stage = self.stage(path)
             for name, bits in result.params:

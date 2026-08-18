@@ -204,6 +204,22 @@ async def configuration_commits_at_the_frame_boundary(dut):
             f"{name} read back {signed}, wrote {value} "
             f"(raw 0x{data:08x} at 0x{addresses[name]:04x})")
 
+    # ARM: say the batch is complete. The coefficients live on the
+    # processor's clock and the datapath reads them from the pixel clock,
+    # so they are only safe to copy while they provably cannot move --
+    # which is what this bit buys. Until it is set, the datapath keeps
+    # the values it has, which is why a host that forgets it sees its
+    # writes read back correctly and change nothing.
+    pipe_regs = {r["name"]: r["address"] for r in blocks["pipe"]["registers"]}
+    assert await axi.write(pipe_regs["commit"], 1) == OKAY
+
+    # And while armed, a coefficient write is REFUSED rather than
+    # silently dropped -- so a driver that writes into the window learns.
+    refused = await axi.write(addresses["offset_0_0"], 0)
+    assert refused == SLVERR, (
+        f"a coefficient write while armed was answered {refused:#04b}; it "
+        "must be refused, or a host cannot tell its write was ignored")
+
     frame = np.array(case["frame"], dtype=np.uint16).reshape(height, width)
     beats = frame_to_beats(frame, spec)
 

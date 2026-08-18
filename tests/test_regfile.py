@@ -62,8 +62,9 @@ def _decoded_writes(verilog: str) -> dict[str, int]:
     when that decision changes.
     """
     return {name: int(word) for word, name
-            in re.findall(r"^\s+(\d+): begin (?:shadow|reg)_(\w+) <=",
-                          verilog, re.M)}
+            in re.findall(
+                r"^\s+(\d+): (?:if \([^)]*\) )?begin (?:shadow|reg)_(\w+) <=",
+                verilog, re.M)}
 
 
 def _decoded_constants(verilog: str) -> dict[int, int]:

@@ -31,7 +31,7 @@ are structural.
 from __future__ import annotations
 
 from revela.blocks import configblock
-from revela.params import Context
+from revela.params import Context, Param
 
 # Bayer phase encodes the position of the R pixel within the 2x2 CFA tile:
 # bit 1 is R's row parity, bit 0 is R's column parity. The four combinations are
@@ -111,11 +111,38 @@ CONTEXT = (
 # No stream ports: `pipe` owns configuration and fans context out as wires. It is
 # still an ordinary block -- allocated an address like any other, with an
 # ID-and-version word -- it simply has no ports to wire.
+# `commit` is NOT context: it is never fanned out to a block. It is how
+# software says "the values I have been writing are complete, take them"
+# -- and it is what makes the coefficients safe to read from the
+# datapath's clock, which is not the clock this file runs on.
+#
+# The register file lives on the processor's clock, because one on the
+# pixel clock has no clock whenever the link is down and an AXI slave
+# that cannot answer hangs the processor that asked (2026-08-17: it did).
+# Reading those values from the pixel clock is therefore a crossing, and
+# a wide value sampled mid-write is half old bits and half new. While
+# this bit is set the file REFUSES coefficient writes, so the values
+# provably cannot move while the datapath copies them; the datapath
+# clears it when it has.
+#
+# It also makes a batch atomic. Writing five of nine matrix coefficients
+# either side of a frame boundary otherwise applies half a matrix.
+COMMIT = Param(
+    name="commit",
+    bits=1,
+    default=0,
+    description="Write 1 when a batch of coefficient writes is complete. "
+                "Coefficient writes are refused (SLVERR) while it is set, "
+                "and the datapath clears it once it has taken the values -- "
+                "so poll it to know the update has landed. Reads back 1 "
+                "while still pending",
+)
+
 pipe = configblock(
     "pipe",
     version=(1, 0),
     description="Pipeline-wide context, fanned out to blocks as wires.",
-    params=[ctx.as_param() for ctx in CONTEXT],
+    params=[ctx.as_param() for ctx in CONTEXT] + [COMMIT],
 )
 
 CONTEXT_BY_NAME = {ctx.name: ctx for ctx in CONTEXT}
