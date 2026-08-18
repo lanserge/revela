@@ -162,6 +162,46 @@ def test_context_reaches_the_datapath_from_pipe_not_from_a_copy(pipeline, genera
                 "context has one owner")
 
 
+def test_the_map_describes_the_commit_contract_the_rtl_implements(pipeline, generated):
+    """The map and the decode must be one document -- for BEHAVIOUR too.
+
+    The commit contract changed once (automatic at the frame boundary ->
+    armed by software) and for a while the map kept describing the old
+    one: a host reading it would write coefficients and wait forever for
+    a commit that no longer happens by itself. Addresses were already
+    held together by the tests above; this holds the SEMANTICS together,
+    by checking the map's claims against the emitted RTL rather than
+    against anyone's memory.
+    """
+    control = pipeline.register_map()["control"]
+    assert control["commit"] == "armed"
+
+    # The register the map points at must exist at the address it says.
+    block_path, reg_name = control["commit_register"].split(".")
+    regs = {f"{b['path']}.{r['name']}": r
+            for b in pipeline.register_map()["blocks"] for r in b["registers"]}
+    assert control["commit_register"] in regs
+
+    # And the RTL must actually implement the two halves of the claim:
+    # coefficient writes gated on that register, and the acknowledgement
+    # clearing it. Grepping the generated Verilog is deliberate -- it is
+    # the artifact a host talks to, not the intent.
+    flat = f"reg_{block_path}_{reg_name}"
+    assert f"if (!{flat}) begin" in generated.verilog, (
+        "the map says writes are refused while committed, but no write "
+        "in the decode is gated on the commit register")
+    assert f"if (ack_s1) {flat} <= 1'b0;" in generated.verilog, (
+        "the map says the datapath clears the commit, but nothing in "
+        "the RTL clears it")
+
+    # The caveat is part of the contract: reset publishes the bank,
+    # uncommitted writes included. If the emission ever changes to make
+    # that false, the map must stop warning about it -- so its presence
+    # is tied to the rst-load in the RTL.
+    assert "commit_caveat" in control
+    assert "if (rst || " in generated.verilog
+
+
 def test_a_signed_register_reads_back_sign_extended(generated):
     """A host reading a negative black-level offset must not see 65436."""
     assert re.search(

@@ -54,10 +54,18 @@ from revela.stream import StreamSpec
 # map it does not understand instead of misreading it.
 #
 #   2  added `control` (the bus, and what the commit and the error response mean);
-#      `commit` on a register became "frame_boundary", which is what the hardware
-#      does -- the copy happens as the frame in flight ends, so the NEXT frame is
-#      the first to see the write.
-MAP_FORMAT_VERSION = 2
+#      `commit` on a register became "frame_boundary" -- the copy happened
+#      automatically as the frame in flight ended.
+#   3  the contract changed and for a while the map DID NOT SAY SO, which
+#      is the exact failure this file exists to prevent: software reading
+#      the map would have written coefficients and waited forever for an
+#      automatic commit that no longer exists. `commit` on a register is
+#      now "armed": nothing takes effect until software writes 1 to
+#      `pipe.commit`; while it is set, coefficient writes are REFUSED
+#      (SLVERR); the datapath clears it when the values are taken. The
+#      bump is what lets a version-2 host refuse this map instead of
+#      misreading it.
+MAP_FORMAT_VERSION = 3
 
 
 # One end of a connection. np2hw's: the netlist is np2hw's structure, and a
@@ -341,7 +349,7 @@ class Pipeline:
                     "q_format": param.q_format,
                     "default": param.default,
                     "access": "rw",
-                    "commit": "frame_boundary",
+                    "commit": "armed",
                     "description": param.description,
                 })
             windows = []
@@ -412,15 +420,28 @@ class Pipeline:
                 "bus": "axi4-lite",
                 "data_bits": REG_WIDTH,
                 "address_bits": self.allocator.address_bits(),
-                "commit": "frame_boundary",
+                "commit": "armed",
+                "commit_register": "pipe.commit",
                 "commit_description":
-                    "A write lands in a shadow register and is copied to the live "
-                    "value at the end of the frame in flight, so every frame is "
-                    "processed with one coherent set of values. A write made during "
-                    "frame N therefore takes effect on frame N+1",
+                    "Writes land in the registers but reach the datapath only "
+                    "when software writes 1 to pipe.commit -- a host that never "
+                    "commits sees its writes read back and change nothing. While "
+                    "commit is set, coefficient writes are refused (SLVERR) so "
+                    "the batch is frozen; the datapath takes the whole batch at "
+                    "a frame boundary and clears the bit, so poll it to know the "
+                    "update landed. One commit therefore applies its batch "
+                    "atomically: never half a colour matrix",
+                "commit_caveat":
+                    "A link reset (cable unplug) reloads the datapath's copies "
+                    "from the registers as they stand, UNCOMMITTED writes "
+                    "included -- commit gates when an update lands, not whether "
+                    "it eventually becomes visible. Do not stage writes you are "
+                    "not prepared to see applied",
                 "error_response":
-                    "A write to a read-only word, and any access to an unmapped "
-                    "address, is answered SLVERR",
+                    "A write to a read-only word, any access to an unmapped "
+                    "address, and a coefficient write while commit is set, are "
+                    "answered SLVERR. On Linux /dev/mem that is a SIGBUS, not "
+                    "an error code",
             },
             "regions": {
                 "config": {
@@ -920,7 +941,9 @@ def register_map_markdown(mapping: dict) -> str:
         a("")
         a(f"- {control['bus']}, {control['data_bits']}-bit data, "
           f"{control['address_bits']}-bit address")
-        a(f"- Commit: {control['commit']}. {control['commit_description']}.")
+        a(f"- Commit: {control['commit']}, via {control['commit_register']}. "
+          f"{control['commit_description']}.")
+        a(f"- Caveat: {control['commit_caveat']}.")
         a(f"- {control['error_response']}.")
         a("- Read the `id_version` word of a block before writing anything to it: "
           "it is how software proves the bitstream matches this map.")
