@@ -57,6 +57,19 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 32
+        },
+        "context": {
+          "description": "Context facts that arrive WITH the stream -- geometry and CFA phase carried in a transport's per-frame header. Each named fact becomes an input port latched at frame start, and gets NO register: a register holding a second copy of a header fact is a second answer to one question, and software could set it to disagree with the picture arriving. What stays a register is what is genuinely a CHOICE -- a crop window is software's to pick, a line length is not.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "width",
+              "height",
+              "bayer_phase",
+              "bit_depth"
+            ]
+          }
         }
       }
     },

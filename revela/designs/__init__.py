@@ -117,6 +117,7 @@ def build(description: dict, validate_description: bool = True):
         stats_base=int(regions.get("stats_base", 0x8000)),
         inputs=tuple(entry["name"] for entry in description.get("inputs", [{"name": "in"}])),
         outputs=tuple(entry["name"] for entry in description.get("outputs", [{"name": "out"}])),
+        context_from_stream=tuple(stream.get("context", ())),
     )
 
     subsystems = {entry["name"]: _subsystem(entry)
@@ -227,9 +228,13 @@ def describe(pipeline) -> dict:
     recovered = {
         "schema_version": 1,
         "name": pipeline.name,
-        "stream": {
-            "bit_depth": pipeline.spec.bit_depth,
-        },
+        "stream": dict(
+            {"bit_depth": pipeline.spec.bit_depth},
+            # Sorted because the pipeline holds a SET -- which facts the
+            # stream carries, not an order -- and a round trip must be
+            # deterministic.
+            **({"context": sorted(pipeline.context_from_stream)}
+               if pipeline.context_from_stream else {})),
         "geometry": {"width": pipeline.width, "height": pipeline.height},
         "regions": {
             "config_base": pipeline.allocator.config_base,

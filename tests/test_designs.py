@@ -157,6 +157,58 @@ def test_a_sensor_supplies_only_build_time_parameters(mono):
     assert owners == ["pipe"], "bayer_phase must be a register, not baked in"
 
 
+def test_stream_context_becomes_ports_not_registers():
+    """A header-carried fact gets a port and loses its register.
+
+    When a design declares that the stream itself carries its geometry and
+    CFA phase (a bayerlink header does), those context facts must stop
+    existing as registers entirely -- a register copy of a header fact is a
+    second answer software could set to disagree with the picture arriving.
+    What stays is what is genuinely software's choice: the crop window.
+    """
+    from conftest import chain, describe
+
+    carried = ["bayer_phase", "bit_depth", "height", "width"]
+    description = describe(
+        "ctx_carried", chain("blacklevel"),
+        stream={"bit_depth": 12, "context": carried})
+    designs.validate(description)
+    pipeline = designs.build(description)
+
+    pipe = next(b for b in pipeline.register_map()["blocks"]
+                if b["path"] == "pipe")
+    names = {r["name"] for r in pipe["registers"]}
+    assert not names & set(carried), f"{sorted(names & set(carried))} kept registers"
+    assert {"window_x0", "window_y0", "window_x1", "window_y1"} <= names
+    assert "ctx_width" in pipeline.generate(control=True).verilog
+
+
+def test_stream_context_round_trips():
+    """describe() must carry the declaration back out, deterministically."""
+    from conftest import chain, describe
+
+    description = describe(
+        "ctx_trip", chain("blacklevel"),
+        stream={"bit_depth": 12, "context": ["width", "bayer_phase"]})
+    pipeline = designs.build(description)
+    recovered = designs.describe(pipeline)
+    designs.validate(recovered)
+    assert recovered["stream"]["context"] == ["bayer_phase", "width"]
+    assert (designs.build(recovered).generate().verilog
+            == pipeline.generate().verilog)
+
+
+def test_an_unknown_context_name_is_refused():
+    """The vocabulary is the per-frame header's, closed by the schema."""
+    from conftest import chain, describe
+
+    description = describe(
+        "ctx_bad", chain("blacklevel"),
+        stream={"bit_depth": 12, "context": ["depth"]})
+    with pytest.raises(jsonschema.ValidationError, match="depth"):
+        designs.validate(description)
+
+
 def _netlist(name, nodes, connections):
     return {
         "schema_version": 1, "name": name,
