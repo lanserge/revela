@@ -43,7 +43,8 @@
       "max_gain_q8": 2730
     },
     "digital": {
-      "model": "linear_q8",
+      "model": "linear",
+      "unity_code": 256,
       "register": "digital_gain_global",
       "bits": 12,
       "code_min": 256,

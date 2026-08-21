@@ -214,8 +214,8 @@ def gain_code(description: dict, gain_q8: int, channel: str = "analogue") -> int
 
     if model == "sony_inverse":
         code = Q8 - (Q8 * Q8 + gain_q8 // 2) // gain_q8
-    elif model == "linear_q8":
-        code = gain_q8
+    elif model == "linear":
+        code = (gain_q8 * int(spec["unity_code"]) + Q8 // 2) // Q8
     elif model == "db_per_step":
         code = _db_code(gain_q8, int(spec["step_millidb"]))
     else:                                       # unreachable: schema constrains it
@@ -237,8 +237,9 @@ def gain_of_code(description: dict, code: int, channel: str = "analogue") -> int
         if denominator <= 0:                    # the mapping's singularity
             return int(spec.get("max_gain_q8", Q8))
         return (Q8 * Q8) // denominator
-    if model == "linear_q8":
-        return code
+    if model == "linear":
+        unity = int(spec["unity_code"])
+        return (code * Q8 + unity // 2) // unity
     if model == "db_per_step":
         return _db_gain(code, int(spec["step_millidb"]))
     raise ValueError(f"unknown gain model {model!r}")

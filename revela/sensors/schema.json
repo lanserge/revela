@@ -274,6 +274,18 @@
       }
     },
 
+    "apply_delay_frames": {
+      "description": "Write-to-effect latency in FRAMES, per control group: a value written during frame N first takes effect in frame N + delay. Stated together rather than beside each control, because the write scheduler consumes the DIFFERENCES between them -- they are one fact-set about the sensor's register pipeline.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "exposure": { "type": "integer", "minimum": 0 },
+        "analogue_gain": { "type": "integer", "minimum": 0 },
+        "digital_gain": { "type": "integer", "minimum": 0 },
+        "vblank": { "type": "integer", "minimum": 0 }
+      }
+    },
+
     "i2c": {
       "type": "object",
       "additionalProperties": false,
@@ -310,14 +322,18 @@
       "additionalProperties": false,
       "properties": {
         "model": {
-          "description": "How a code becomes a gain. 'sony_inverse' is gain = 256 / (256 - code), the mapping Sony parts use for analogue gain. 'linear_q8' is gain = code / 256.",
+          "description": "How a code becomes a gain. 'sony_inverse' is gain = 256 / (256 - code), the mapping Sony parts use for analogue gain. 'linear' is gain = code / unity_code -- one law for every linear part, parameterized instead of one enum entry per divisor.",
           "type": "string",
-          "enum": ["sony_inverse", "linear_q8", "db_per_step"]
+          "enum": ["sony_inverse", "linear", "db_per_step"]
         },
         "register": { "type": "string", "minLength": 1 },
         "bits": { "type": "integer", "minimum": 1, "maximum": 32 },
         "code_min": { "type": "integer", "minimum": 0 },
         "code_max": { "type": "integer", "minimum": 0 },
+        "unity_code": {
+          "description": "Only for model 'linear': the code that means a gain of exactly 1.0.",
+          "type": "integer", "minimum": 1
+        },
         "step_millidb": {
           "description": "Only for model 'db_per_step'.",
           "type": "integer", "minimum": 1
