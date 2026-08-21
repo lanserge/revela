@@ -131,8 +131,17 @@ model, the RTL, the register map and the host all follow the one overridden
 declaration.
 
 ```bash
-python examples/build_pipeline.py pipelines/mono/imx219/basic/pipeline.json
+revela generate pipelines/mono/imx219/basic/pipeline.json --out build --clock-mhz 148.5
 ```
+
+That is the shipping path: it builds the design, proves the generated Verilog
+bit-exact against the same NumPy models under Verilator, and only then writes
+the pack — Verilog, register map, SystemRDL, and a FuseSoC core manifest. It
+refuses to emit anything it has not verified, so a failure there is a
+verification failure rather than a tool problem. To read a design rather than
+ship it, `examples/build_pipeline.py` prints the address map, the stream
+topology and a profile's resolved values, and writes the register-map
+documentation beside them.
 
 Designs live in `pipelines/<topology>/<sensor>/<variant>/`, holding the netlist,
 every tuning for it, and a git-ignored `build/`:
@@ -142,7 +151,7 @@ pipelines/mono/imx219/basic/
   pipeline.json                structure  — nodes and connections
   profiles/indoor.json         values     — registers + 3A tuning
   profiles/outdoor.json        values     — same structure, different numbers
-  build/                       generated  — .v, register map, register docs
+  build/                       generated  — .v, register map, SystemRDL, docs
 ```
 
 A **profile** carries values and names the sensor it was tuned for, so one

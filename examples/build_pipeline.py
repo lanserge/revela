@@ -1,9 +1,16 @@
 # Copyright 2026 Serge Rabyking
 # SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
-"""Build a pipeline: emit the Verilog, the register map, and the documentation.
+"""Read a pipeline: its address map, its topology, its resolved values.
 
     python examples/build_pipeline.py pipelines/mono/imx219/basic/pipeline.json
     python examples/build_pipeline.py pipelines/stereo/imx219/basic/pipeline.json
+
+For artifacts headed at a hardware tool, use `revela generate`, which is the
+shipped path and REFUSES to emit anything it has not proved bit-exact against
+the models first. This script is the explainer beside it: it writes the same
+kind of files, and it also prints what a person wants when reading a design --
+where each block landed, what the streams look like, what a profile resolves
+to -- and renders the register map as documentation.
 
 A pipeline is described in JSON and nowhere else. There is one way to say what a
 pipeline contains, so a design cannot exist in two forms that disagree -- and a
