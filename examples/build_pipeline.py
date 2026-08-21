@@ -5,21 +5,21 @@
     python examples/build_pipeline.py pipelines/mono/imx219/basic/pipeline.json
     python examples/build_pipeline.py pipelines/stereo/imx219/basic/pipeline.json
 
-For artifacts headed at a hardware tool, use `revela generate`, which is the
-shipped path and REFUSES to emit anything it has not proved bit-exact against
-the models first. This script is the explainer beside it: it writes the same
-kind of files, and it also prints what a person wants when reading a design --
-where each block landed, what the streams look like, what a profile resolves
-to -- and renders the register map as documentation.
+The artifacts come from ``revela.fusesoc.emit`` -- the same one emitter
+``revela generate`` and the FuseSoC generator call, which proves the RTL
+bit-exact against the models before it writes anything. There is no
+second way to build a design here, because a second way is a way for two
+builds of one design to differ.
+
+What this script adds is the READING: where each block landed, what the
+streams look like, what a profile resolves to and which layer each value
+came from. That is what a person wants when opening a design somebody
+else wrote, and none of it belongs in a pack.
 
 A pipeline is described in JSON and nowhere else. There is one way to say what a
 pipeline contains, so a design cannot exist in two forms that disagree -- and a
 builder GUI emitting that JSON is on exactly the same footing as a file written
 by hand.
-
-All three outputs come from the same declarations: the Verilog and the register
-map from the block ParamSets, the Markdown from the register map. There is no
-fourth place where an address is written down, which is the point.
 """
 from __future__ import annotations
 
@@ -27,8 +27,7 @@ import argparse
 import json
 from pathlib import Path
 
-from revela import designs, profiles, sensors
-from revela.compose import register_map_markdown
+from revela import designs, fusesoc, profiles, sensors
 
 
 def main() -> int:
@@ -39,19 +38,19 @@ def main() -> int:
                         help="output directory (default: <design>/build/)")
     parser.add_argument("--profile", type=Path, default=None,
                         help="also resolve this profile and report its settings")
+    parser.add_argument("--clock-mhz", type=float, default=None,
+                        help="the clock the design must make; every pointwise "
+                             "stage is depth-checked and cut against it")
+    parser.add_argument("--no-verify", action="store_true",
+                        help="skip the Verilator twin: a quick structural "
+                             "read, not a pack to build anything from")
     args = parser.parse_args()
 
-    pipeline = designs.load(args.description)
     out = args.out or args.description.parent / "build"
-    out.mkdir(parents=True, exist_ok=True)
-
-    generated = pipeline.generate()
-    verilog_path = out / f"{pipeline.name}.v"
-    verilog_path.write_text(generated.verilog)
-    map_path = pipeline.write_register_map(out / f"{pipeline.name}.json")
-    rdl_path = pipeline.write_systemrdl(out / f"{pipeline.name}.rdl")
-    docs_path = out / f"{pipeline.name}-registers.md"
-    docs_path.write_text(register_map_markdown(pipeline.register_map()))
+    written = fusesoc.emit(args.description, out,
+                           clock_mhz=args.clock_mhz,
+                           verify=not args.no_verify)
+    pipeline = designs.load(args.description)
 
     declared = json.loads(args.description.read_text()).get("sensor")
     if declared:
@@ -64,7 +63,8 @@ def main() -> int:
     print(f"pipeline    {pipeline.name}: "
           + " | ".join(_stream_summary(pipeline)))
     print(f"datapath    {pipeline.spec.bit_depth}-bit, "
-          f"{pipeline.width}x{pipeline.height}, latency {generated.latency} pixel(s)")
+          f"{pipeline.width}x{pipeline.height}, latency "
+          f"{written['latency']} pixel(s)")
     print()
     print("address map")
     for stage in pipeline.stages:
@@ -82,10 +82,8 @@ def main() -> int:
         print(f"  control: {settings.control}")
 
     print()
-    print(f"wrote {verilog_path}")
-    print(f"wrote {map_path}")
-    print(f"wrote {rdl_path}")
-    print(f"wrote {docs_path}")
+    for artifact in ("verilog", "regmap", "systemrdl", "docs", "core"):
+        print(f"wrote {written[artifact]}")
     return 0
 
 

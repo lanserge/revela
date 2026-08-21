@@ -53,12 +53,15 @@ def emit(design, output_dir, name: str | None = None, control: bool = True,
             own testbench is the twin).
 
     Returns:
-        ``{artifact: Path}`` for everything written, plus ``"toplevel"``:
-        the generated top module's name (a string, for whoever instantiates
-        the core outside FuseSoC).
+        ``{artifact: Path}`` for everything written -- Verilog, register
+        map, SystemRDL, register documentation, ``.core`` manifest --
+        plus two facts about the build for whoever instantiates it:
+        ``"toplevel"`` (the generated top module's name) and
+        ``"latency"`` (its latency in pixels).
     """
     from np2hw.fusesoc import write_core
     from revela import designs
+    from revela.compose import register_map_markdown
 
     pipeline = (designs.build(design) if isinstance(design, dict)
                 else designs.load(design))
@@ -104,6 +107,12 @@ def emit(design, output_dir, name: str | None = None, control: bool = True,
     pipeline.write_register_map(written["regmap"])
     written["systemrdl"] = pipeline.write_systemrdl(
         output_dir / f"{pipeline.name}.rdl")
+    # The documentation is the map in prose, and it ships WITH the map:
+    # whoever reads a register in review reads this, and a pack whose
+    # docs were rendered by a separate run is a pack whose docs can
+    # describe a different build.
+    written["docs"] = output_dir / f"{pipeline.name}-registers.md"
+    written["docs"].write_text(register_map_markdown(pipeline.register_map()))
 
     written["core"] = write_core(
         output_dir,
@@ -117,11 +126,17 @@ def emit(design, output_dir, name: str | None = None, control: bool = True,
             "maps": {"files": [written["regmap"].name,
                                written["systemrdl"].name],
                      "file_type": "user"},
+            "docs": {"files": [written["docs"].name],
+                     "file_type": "user"},
         },
         toplevel=generated.top,
         description=f"revela design pack for {pipeline.name}",
     )
     written["toplevel"] = generated.top
+    # Not a file: the pixel latency through the core, which whoever
+    # instantiates it needs and would otherwise re-derive by building
+    # the design a second time.
+    written["latency"] = generated.latency
     return written
 
 

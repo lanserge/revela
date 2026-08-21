@@ -160,9 +160,10 @@ def _generate(arguments) -> int:
         print(f"timing: every pointwise stage fits "
               f"{1000.0 / arguments.clock_mhz:.1f} ns "
               f"({arguments.clock_mhz:g} MHz), by the traced depth model")
-    for artifact in ("verilog", "regmap", "systemrdl", "core"):
+    for artifact in ("verilog", "regmap", "systemrdl", "docs", "core"):
         print(f"{artifact}: {written[artifact]}")
-    print(f"toplevel: {written['toplevel']}")
+    print(f"toplevel: {written['toplevel']} "
+          f"(latency {written['latency']} pixels)")
     return 0
 
 

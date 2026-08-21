@@ -138,10 +138,11 @@ That is the shipping path: it builds the design, proves the generated Verilog
 bit-exact against the same NumPy models under Verilator, and only then writes
 the pack — Verilog, register map, SystemRDL, and a FuseSoC core manifest. It
 refuses to emit anything it has not verified, so a failure there is a
-verification failure rather than a tool problem. To read a design rather than
-ship it, `examples/build_pipeline.py` prints the address map, the stream
-topology and a profile's resolved values, and writes the register-map
-documentation beside them.
+verification failure rather than a tool problem. The register documentation is
+part of that pack, not a later step. To read a design rather than ship it,
+`examples/build_pipeline.py` writes the same pack -- through the same emitter --
+and prints the address map, the stream topology and a profile's resolved
+values.
 
 Designs live in `pipelines/<topology>/<sensor>/<variant>/`, holding the netlist,
 every tuning for it, and a git-ignored `build/`:

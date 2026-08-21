@@ -115,6 +115,39 @@ def test_emit_verifies_by_default(tmp_path):
     assert written["verilog"].exists()
 
 
+def test_pack_carries_the_register_documentation(tmp_path):
+    """The docs are the map in prose and ship WITH the map.
+
+    Rendered inside emit rather than by whoever wants them, because a
+    document produced by a separate run can describe a different build.
+    """
+    from revela.compose import register_map_markdown
+
+    written = fusesoc.emit(MONO, tmp_path, verify=False)
+    assert written["docs"].exists()
+    expected = register_map_markdown(designs.load(MONO).register_map())
+    assert written["docs"].read_text() == expected
+    assert written["docs"].name in written["core"].read_text(), (
+        "the documentation was written but the manifest does not name it")
+
+
+def test_the_explainer_is_not_a_second_emitter():
+    """examples/build_pipeline.py must READ designs, not build them.
+
+    Two paths that both write Verilog are two ways for one design to
+    come out differently, so the explainer goes through emit like every
+    other caller. Structural, because the failure it guards against is
+    someone adding a generate() call back for convenience.
+    """
+    source = (ROOT / "examples" / "build_pipeline.py").read_text()
+    assert "fusesoc.emit(" in source
+    for forbidden in (".generate(", "write_register_map(", "write_systemrdl(",
+                      "register_map_markdown("):
+        assert forbidden not in source, (
+            f"the explainer calls {forbidden} itself -- artifacts come from "
+            "revela.fusesoc.emit, or there are two emitters again")
+
+
 def test_cli_generate_emits_the_pack(tmp_path):
     """``revela generate`` is the command a hardware flow calls; it must
     speak the same emit, files landing where --out says."""

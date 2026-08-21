@@ -95,12 +95,19 @@ in a different scene" a matter of swapping one file.
 ## Building one
 
 ```bash
-python examples/build_pipeline.py pipelines/mono/imx219/basic/pipeline.json
+revela generate pipelines/mono/imx219/basic/pipeline.json \
+    --out pipelines/mono/imx219/basic/build
+
+# the same build, with the design read back to you -- where each block
+# landed, the stream topology, and what a profile resolves to
 python examples/build_pipeline.py pipelines/mono/imx219/basic/pipeline.json \
     --profile pipelines/mono/imx219/basic/profiles/indoor.json
 ```
 
-Output lands in that design's `build/`.
+Both go through one emitter, which proves the RTL bit-exact against the models
+before writing anything. Output lands in that design's `build/`: the Verilog,
+the register map, the SystemRDL, the register documentation and a FuseSoC core
+manifest.
 
 ## Adding a design
 

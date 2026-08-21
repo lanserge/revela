@@ -18,11 +18,14 @@ same JSON the host API reads, which comes from the same block declarations that
 produced the Verilog:
 
 ```bash
-python examples/build_pipeline.py --description pipelines/mono/imx219/basic/pipeline.json \
-                                  --out pipelines/mono/imx219/basic/build/
+revela generate pipelines/mono/imx219/basic/pipeline.json \
+    --out pipelines/mono/imx219/basic/build
 ```
 
-writes `build/<name>.v`, `build/<name>.json` and `build/<name>-registers.md`.
+writes `build/<name>.v`, `build/<name>_regmap.json`, `build/<name>.rdl`,
+`build/<name>-registers.md` and `build/<name>.core`. The documentation is part
+of the pack rather than a later step, so it cannot come from a different build
+than the Verilog beside it.
 
 That chain matters more than it looks. A register map document written alongside
 the hardware is correct on the day it is written and slowly stops being correct,
