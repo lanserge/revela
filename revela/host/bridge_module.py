@@ -19,7 +19,7 @@ block.param names, so a sensor package survives any register
 relayout.
 
     python -m revela.host.bridge_module \\
-        --regmap revela_isp.regmap.json --out revela-isp.tar.gz
+        --regmap revela_isp_core_regmap.json --out revela-isp.tar.gz
 """
 import argparse
 import io

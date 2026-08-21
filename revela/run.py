@@ -242,6 +242,42 @@ def explain(chain, values, origin) -> str:
     return "\n".join(lines)
 
 
+def synthetic_values(pipeline, seed: int = 20260821):
+    """Register values for TWIN VERIFICATION: deterministic, non-degenerate,
+    and never anyone's calibration.
+
+    Every reset value is nudged a little way off itself, within the
+    register's declared range -- because the resets are deliberately
+    transparent (unity gains, an identity matrix, a ramp LUT), and a
+    transparent value masks the arithmetic it configures. An identity
+    matrix never exercises its cross-terms; a unity gain never carries
+    into its integer bits. The nudge is small (about 1.5% of the range)
+    so the values stay in each block's plausible operating region rather
+    than pinning everything to a saturation corner.
+
+    ``pipe`` keeps its resets: perturbing the crop window or the maximum
+    geometry does not exercise more arithmetic, it just shrinks the frame
+    the twins compare.
+    """
+    rng = np.random.default_rng(seed)
+    values = {}
+    for stage in pipeline.stages:
+        registers = dict(stage.paramset.defaults())
+        if stage.path != "pipe":
+            for name, default in registers.items():
+                param = stage.paramset.param(name)
+                low, high = param.limits
+                step = max(1, (high - low) >> 6)
+                value = int(default) + int(rng.integers(-step, step + 1))
+                value = min(max(value, low), high)
+                if value == default:
+                    value = (default - step if default - step >= low
+                             else default + step)
+                registers[name] = value
+        values[stage.path] = registers
+    return values
+
+
 # --------------------------------------------------------------------------- #
 # The model run
 # --------------------------------------------------------------------------- #

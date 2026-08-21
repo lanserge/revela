@@ -6,12 +6,18 @@
     revela run pipeline.json --profile indoor.json --to ccm.out in.npy mid.npy
     revela run pipeline.json --from rgb_gamma.in mid.npy out.png
     revela run pipeline.json --rtl in.npy out.npy
+    revela generate pipeline.json --out build --clock-mhz 155
 
-One subcommand so far. ``run`` treats a design as a library of image
-functions: the whole pipeline by default, or any consecutive run of blocks
-between ``--from`` and ``--to``. Splitting a run at a port and feeding the
-intermediate back in is exact by construction -- both halves together are
-the same block models in the same order -- and there is a test that says so.
+``run`` treats a design as a library of image functions: the whole
+pipeline by default, or any consecutive run of blocks between ``--from``
+and ``--to``. Splitting a run at a port and feeding the intermediate back
+in is exact by construction -- both halves together are the same block
+models in the same order -- and there is a test that says so.
+
+``generate`` is the same design headed the other way: build it, prove it
+bit-exact against its own models under Verilator, and emit the pack a
+hardware flow consumes (Verilog, register map, SystemRDL, FuseSoC core).
+It refuses to emit anything unverified.
 """
 from __future__ import annotations
 
@@ -55,6 +61,31 @@ def main(argv=None) -> int:
     run.add_argument("--explain", action="store_true",
                      help="print where every register value came from")
     run.set_defaults(handler=_run)
+
+    generate = commands.add_parser(
+        "generate",
+        help="build a design, verify it, and emit its pack",
+        description="Build a design, prove it bit-exact against its own "
+                    "NumPy models under Verilator, and emit the pack: "
+                    "Verilog, register map, SystemRDL, FuseSoC core "
+                    "manifest. Refuses to emit anything unverified.")
+    generate.add_argument("design", help="pipeline description (pipeline.json)")
+    generate.add_argument("--out", default=".",
+                          help="directory the pack lands in (default: here)")
+    generate.add_argument("--clock-mhz", type=float, default=None,
+                          help="the clock the core must make; every "
+                               "pointwise stage is depth-checked against it "
+                               "and a too-deep stage is cut into pipeline "
+                               "stages, by arithmetic on the traced "
+                               "expression graph (default: unchecked)")
+    generate.add_argument("--no-control", action="store_true",
+                          help="stop at the datapath: no AXI4-Lite register "
+                               "file, coefficients as flat input ports -- "
+                               "the testbench form")
+    generate.add_argument("--no-verify", action="store_true",
+                          help="skip the Verilator twin -- only for flows "
+                               "that prove the same thing elsewhere")
+    generate.set_defaults(handler=_generate)
 
     arguments = parser.parse_args(argv)
     try:
@@ -115,6 +146,23 @@ def _run(arguments) -> int:
         result = rtl
 
     runner.write_frame(arguments.output, result, bit_depth)
+    return 0
+
+
+def _generate(arguments) -> int:
+    from revela import fusesoc
+
+    written = fusesoc.emit(arguments.design, arguments.out,
+                           control=not arguments.no_control,
+                           clock_mhz=arguments.clock_mhz,
+                           verify=not arguments.no_verify)
+    if arguments.clock_mhz is not None:
+        print(f"timing: every pointwise stage fits "
+              f"{1000.0 / arguments.clock_mhz:.1f} ns "
+              f"({arguments.clock_mhz:g} MHz), by the traced depth model")
+    for artifact in ("verilog", "regmap", "systemrdl", "core"):
+        print(f"{artifact}: {written[artifact]}")
+    print(f"toplevel: {written['toplevel']}")
     return 0
 
 
