@@ -147,6 +147,17 @@ API and the documentation are both generated from it. **Nothing anywhere
 hardcodes an address** — no constant in a host script, no `#define` checked in,
 no address in a docstring somebody might copy.
 
+The map also states how each register **faces a person**: its raw representable
+range, and the widget a control surface should present — a tick box for one bit,
+a choice among named values, a fixed-point box in the declared Q format, an
+integer slider otherwise. That kind is DERIVED from the declaration by one rule
+(`Param.widget`), never stated per parameter, because a register whose
+presentation disagrees with its arithmetic is a register the interface lies
+about. The single presentation fact no rule can derive — which raw values are
+meaningful and what a person calls them — is declared as `Param.choices` and
+validated where it is written: values in range, labels unique, the reset among
+them. A panel renders the map and decides nothing.
+
 ### The register file
 
 `Pipeline.generate()` emits an AXI4-Lite slave in front of the datapath, so a
