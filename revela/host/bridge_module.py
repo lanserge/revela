@@ -265,6 +265,44 @@ def generate_isp_c(regmap: dict) -> str:
     w("        }")
     w("    }")
     w("}")
+    w("")
+    w("/* the panel's side of the same one-writer rule: a command line")
+    w(" * from the bridge's control socket, translated through the same")
+    w(" * key table every other writer uses. The panel renders its")
+    w(" * widgets from the regmap.json riding this package, so what it")
+    w(" * shows and what this table writes are one generated artifact. */")
+    w("void bridge_command_hook(const char *cmd, char *reply, size_t cap) {")
+    w("    char key[64];")
+    w("    long long v;")
+    w('    if (sscanf(cmd, "set %63s %lld", key, &v) == 2) {')
+    w("        if (isp_set(key, (int32_t)v) == 0)")
+    w('            snprintf(reply, cap, "ok");')
+    w("        else")
+    w('            snprintf(reply, cap, "err set %s: unknown key, or the '
+      'cable did not answer", key);')
+    w("        return;")
+    w("    }")
+    w('    if (sscanf(cmd, "get %63s", key) == 1) {')
+    w("        int32_t value;")
+    w("        if (isp_get(key, &value) == 0) {")
+    w('            snprintf(reply, cap, "ok %ld", (long)value);')
+    w("            return;")
+    w("        }")
+    w('        snprintf(reply, cap, "err get %s: unknown key, or the cable '
+      'did not answer", key);')
+    w("        return;")
+    w("    }")
+    w('    if (!strcmp(cmd, "commit")) {')
+    w("        if (isp_commit() == 0)")
+    w('            snprintf(reply, cap, "ok");')
+    w("        else")
+    w('            snprintf(reply, cap, "err commit: the cable did not '
+      'answer");')
+    w("        return;")
+    w("    }")
+    w('    snprintf(reply, cap, "err unknown command; this module speaks: '
+      'set <key> <raw>, get <key>, commit");')
+    w("}")
     return "\n".join(L) + "\n"
 
 
@@ -287,6 +325,12 @@ def main() -> int:
         "revela_sensor_api.h": SENSOR_API_H,
         "revela_algo_api.h": ALGO_API_H,
         "revela_isp.c": generate_isp_c(regmap),
+        # The map rides the package VERBATIM: the panel renders its
+        # widgets from it (min/max/widget/choices are stated per
+        # register), and because the C table above is generated from
+        # the same map in the same breath, what the panel shows and
+        # what the module writes cannot disagree.
+        "regmap.json": json.dumps(regmap, indent=2) + "\n",
     }
     with tarfile.open(args.out, "w:gz") as tar:
         for fname, data in files.items():
