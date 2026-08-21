@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "name": "ov5647",
+  "vendor": "OmniVision",
+  "part_number": "OV5647",
+  "description": "1/4-inch 5 Mpixel CMOS sensor, 2592x1944, 10-bit, MIPI CSI-2. The sensor on the Raspberry Pi Camera Module v1, and this project's reference camera. STUB in one respect: only the 1080p crop mode this bench runs is stated; the full-resolution and binned modes join when a bench states them.",
+
+  "provenance": {
+    "derived_from": [
+      {
+        "kind": "datasheet",
+        "reference": "OmniVision OV5647 Datasheet",
+        "notes": "Structural facts: array geometry, native CFA order, chip identity, the 20-bit coarse exposure register, the BLC target pedestal."
+      },
+      {
+        "kind": "measurement",
+        "reference": "This project's bench: OV5647 module on Raspberry Pi 3B, values read back from the running part over V4L2 (2026-08-21).",
+        "notes": "The gain law is bench-verified: code 200 measured as 12.5x, confirming gain = code/16, with the code range 16..1023 read from the control limits. The exposure clamp was confirmed live: maximum 1121 lines at a frame length of 1125, the stated margin of 4. Mode timing is the part's own defaults (line 2416, frame 1104 at 87.5 MHz); runtime blanking writes stretch these (this bench runs 2593x1125 for 30.00 fps), which is a control matter, not a mode fact. apply_delay_frames is stated from ecosystem behaviour and is promoted to bench-verified when the AE work exercises the write scheduler."
+      }
+    ],
+    "gpl_driver_transcribed": false,
+    "notes": "The Linux kernel driver drivers/media/i2c/ov5647.c is GPL-2.0. Its register tables are NOT transcribed here and must not be: that licence is incompatible with this project's. It may be consulted as a cross-reference for behaviour, and cited, but values must come from the datasheet or be read back from the running part, as above."
+  },
+
+  "cfa": {
+    "order": "BGGR",
+    "flip_changes_order": true
+  },
+
+  "format": {
+    "bit_depth": 10,
+    "packing": "mipi_raw10",
+    "csi_data_type": 43
+  },
+
+  "black_level": {
+    "pedestal": 16
+  },
+
+  "gain": {
+    "analogue": {
+      "model": "linear",
+      "unity_code": 16,
+      "register": "aec_agc_adj",
+      "bits": 10,
+      "code_min": 16,
+      "code_max": 1023,
+      "max_gain_q8": 16368
+    }
+  },
+
+  "exposure": {
+    "unit": "lines",
+    "coarse": {
+      "register": "aec_pk_exposure",
+      "bits": 20,
+      "min": 4,
+      "max_margin": 4
+    }
+  },
+
+  "apply_delay_frames": {
+    "exposure": 2,
+    "analogue_gain": 2,
+    "vblank": 2
+  },
+
+  "timing": {
+    "line_length_pck": 2416,
+    "frame_length_lines": 1104,
+    "pixel_rate_hz": 87500000
+  },
+
+  "modes": [
+    {
+      "name": "cropped_1080p",
+      "width": 1920,
+      "height": 1080,
+      "binning": { "x": 1, "y": 1, "mode": "none" },
+      "line_length_pck": 2416,
+      "frame_length_lines": 1104,
+      "pixel_rate_hz": 87500000
+    }
+  ],
+
+  "register_sequences": {},
+
+  "i2c": {
+    "addresses": [54],
+    "address_bytes": 2,
+    "value_bytes": 1,
+    "chip_id": {
+      "register": 12298,
+      "value": 22087,
+      "bytes": 2
+    }
+  }
+}

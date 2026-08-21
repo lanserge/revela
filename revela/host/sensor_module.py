@@ -76,14 +76,29 @@ def generate_sensor_c(sensor: str, values: dict) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--sensor", required=True)
-    parser.add_argument("--profile", required=True,
-                        help="fitted values, semantic keys (block.param)")
+    parser.add_argument("--profile", default=None,
+                        help="fitted values, semantic keys (block.param); "
+                             "omit to use the built-in library "
+                             "(revela/sensors/<sensor>/profile.json -- "
+                             "ov5647 ships free as the reference; other "
+                             "sensors' data lives in revela-sensor-data)")
     parser.add_argument("--version", default="0.1")
     parser.add_argument("--out", default=None)
     args = parser.parse_args()
     out = args.out or f"sensor-{args.sensor}.tar.gz"
 
-    values = json.loads(Path(args.profile).read_text())
+    if args.profile:
+        profile_path = Path(args.profile)
+    else:
+        profile_path = (Path(__file__).parent.parent / "sensors"
+                        / args.sensor / "profile.json")
+        if not profile_path.exists():
+            print(f"no built-in profile for {args.sensor!r}: the free "
+                  "library carries the reference sensor only; other "
+                  "sensors' data comes from revela-sensor-data "
+                  "(--profile PATH)", file=sys.stderr)
+            return 2
+    values = json.loads(profile_path.read_text())
     src = f"sensor_{args.sensor}.c"
     files = {
         "manifest.json": json.dumps({
