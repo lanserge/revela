@@ -155,6 +155,13 @@ class Param:
     # pass-through -- and the diagonal re-derives when a design overrides
     # frac, because unity is a semantic invariant, not a number.
     default_identity: bool = False
+    # Named values, for registers that SELECT rather than measure:
+    # ((value, "label"), ...). This is the one presentation fact a control
+    # surface cannot derive -- which raw values are meaningful and what
+    # each one is called -- so it is the one that gets declared. Everything
+    # else about how a UI presents a register (tick box, fixed-point box,
+    # integer slider) derives from bits, frac and signedness; see `widget`.
+    choices: tuple = ()
 
     def __post_init__(self) -> None:
         _check_name(self.name, "parameter")
@@ -229,6 +236,45 @@ class Param:
             raise ValueError(
                 f"param {self.name!r}: default {self.default} outside the representable "
                 f"range [{lo}, {hi}] for {self.bits} {'signed' if self.signed else 'unsigned'} bits")
+        if self.choices:
+            if self.shape:
+                raise ValueError(
+                    f"param {self.name!r}: choices need a scalar register; an "
+                    "array of selectors has no single thing being selected")
+            if self.frac:
+                raise ValueError(
+                    f"param {self.name!r}: choices and fractional bits "
+                    "contradict each other -- a named value is not a quantity")
+            entries = []
+            for entry in self.choices:
+                if len(entry) != 2 or not str(entry[1]).strip():
+                    raise ValueError(
+                        f"param {self.name!r}: each choice is (value, label), "
+                        "and the label is what a person selects -- it cannot "
+                        "be empty")
+                entries.append((int(entry[0]), str(entry[1])))
+            if len(entries) < 2:
+                raise ValueError(
+                    f"param {self.name!r}: a choice needs at least two named "
+                    "values; with one there is nothing to choose")
+            values = [v for v, _ in entries]
+            labels = [label for _, label in entries]
+            if len(set(values)) != len(values) or len(set(labels)) != len(labels):
+                raise ValueError(
+                    f"param {self.name!r}: choice values and labels must each "
+                    "be unique -- two names for one value (or one name for "
+                    "two) is an ambiguity handed straight to a user")
+            for v in values:
+                if not lo <= v <= hi:
+                    raise ValueError(
+                        f"param {self.name!r}: choice value {v} outside the "
+                        f"representable range [{lo}, {hi}]")
+            if self.default not in values:
+                raise ValueError(
+                    f"param {self.name!r}: default {self.default} is not one "
+                    "of the named choices -- reset would select something "
+                    "the UI cannot display")
+            object.__setattr__(self, "choices", tuple(entries))
 
     # -- fixed-point presentation ------------------------------------------- #
 
@@ -244,6 +290,24 @@ class Param:
         """Human Q notation, e.g. ``Q8.8`` or ``u12.0``."""
         kind = "Q" if self.signed else "u"
         return f"{kind}{self.bits - self.frac}.{self.frac}"
+
+    @property
+    def widget(self) -> str:
+        """How a control surface presents this register -- DERIVED, in this
+        one place, never stated per parameter: named values are a choice,
+        one bit is a tick box, fractional bits mean a real value typed into
+        a box in the declared Q format, and anything else is an integer
+        slider over the representable range. A block author who wants a
+        different widget changes the declaration the widget derives from,
+        because a register whose presentation disagrees with its arithmetic
+        is a register the UI lies about."""
+        if self.choices:
+            return "choice"
+        if self.bits == 1:
+            return "checkbox"
+        if self.frac:
+            return "fixed"
+        return "slider"
 
     @property
     def count(self) -> int:

@@ -301,3 +301,63 @@ def test_registers_written_over_axi_reach_the_datapath(tmp_path, rng, generated,
         "seed": 20260808,
     }
     run_cocotb(tmp_path, generated.verilog, generated.top, "tb_regfile", case)
+
+
+# --------------------------------------------------------------------------- #
+# Presentation: what a control surface reads off the map
+# --------------------------------------------------------------------------- #
+
+def test_widget_is_derived_from_the_declaration():
+    """One rule, in one place: named values are a choice, one bit is a tick
+    box, fractional bits are a typed value, the rest is an integer slider."""
+    from revela.params import Param
+
+    assert Param("en", bits=1, description="x").widget == "checkbox"
+    assert Param("gain", bits=16, frac=8, description="x").widget == "fixed"
+    assert Param("rows", bits=12, description="x").widget == "slider"
+    assert Param("mode", bits=2, default=0,
+                 choices=((0, "off"), (1, "bars"), (2, "ramp")),
+                 description="x").widget == "choice"
+
+
+def test_choices_that_lie_are_refused():
+    """The declaration is what the UI shows a person; contradictions and
+    ambiguities must fail at declaration, not on someone's screen."""
+    from revela.params import Param
+
+    with pytest.raises(ValueError, match="not a quantity"):
+        Param("q", bits=8, frac=4, default=0,
+              choices=((0, "a"), (16, "b")), description="x")
+    with pytest.raises(ValueError, match="nothing to choose"):
+        Param("one", bits=2, default=0, choices=((0, "only"),),
+              description="x")
+    with pytest.raises(ValueError, match="unique"):
+        Param("dup", bits=2, default=0,
+              choices=((0, "same"), (1, "same")), description="x")
+    with pytest.raises(ValueError, match="reset would select"):
+        Param("stray", bits=2, default=3,
+              choices=((0, "a"), (1, "b")), description="x")
+    with pytest.raises(ValueError, match="representable"):
+        Param("big", bits=2, default=0,
+              choices=((0, "a"), (9, "b")), description="x")
+
+
+def test_the_map_states_every_register_presentation():
+    """min/max/widget ride the map, so a UI never re-derives two's
+    complement in JavaScript -- the map is generated output and states
+    what one rule derived."""
+    built = designs.build(describe(
+        "present", chain("blacklevel", "whitebalance"),
+        bit_depth=BIT_DEPTH, width=WIDTH, height=HEIGHT))
+    blocks = {b["path"]: {r["name"]: r for r in b["registers"]}
+              for b in built.register_map()["blocks"]}
+
+    gain = blocks["whitebalance"]["gain_0_0"]
+    assert (gain["widget"], gain["min"], gain["max"]) == ("fixed", 0, 65535)
+
+    offset = blocks["blacklevel"]["offset_0_0"]
+    assert (offset["widget"], offset["min"], offset["max"]) == (
+        "slider", -32768, 32767)
+
+    commit = blocks["pipe"]["commit"]
+    assert commit["widget"] == "checkbox"

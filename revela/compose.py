@@ -65,7 +65,12 @@ from revela.stream import StreamSpec
 #      (SLVERR); the datapath clears it when the values are taken. The
 #      bump is what lets a version-2 host refuse this map instead of
 #      misreading it.
-MAP_FORMAT_VERSION = 3
+#   4  every register carries its presentation: `min`/`max` (the raw
+#      representable range, so no consumer re-derives two's complement),
+#      `widget` (choice | checkbox | fixed | slider, derived from the
+#      declaration by one rule), and `choices` when the register selects
+#      among named values rather than measuring a quantity.
+MAP_FORMAT_VERSION = 4
 
 
 # One end of a connection. np2hw's: the netlist is np2hw's structure, and a
@@ -339,6 +344,7 @@ class Pipeline:
                     # decode does, or it is documentation of a design that
                     # was not built.
                     continue
+                low, high = param.limits
                 registers.append({
                     "name": param.name,
                     "offset": reg.offset,
@@ -348,6 +354,16 @@ class Pipeline:
                     "frac": param.frac,
                     "q_format": param.q_format,
                     "default": param.default,
+                    # Presentation, derived from the declaration by ONE
+                    # rule (Param.widget) and stated here because this map
+                    # is generated output -- a UI consumes it, it never
+                    # re-derives two's-complement limits in JavaScript.
+                    "min": low,
+                    "max": high,
+                    "widget": param.widget,
+                    **({"choices": [{"value": v, "label": label}
+                                    for v, label in param.choices]}
+                       if param.choices else {}),
                     "access": "rw",
                     "commit": "armed",
                     "description": param.description,
