@@ -655,9 +655,10 @@ class Pipeline:
             # np2hw publishes what each model's arithmetic packed, and that IS
             # the next block's input. The only declared stream fact in a whole
             # design is the input's own.
+            in_w, in_h = self._incoming_geometry(stage, built)
             result = stage.block.generate(
                 self.spec.with_stream(*self._incoming_stream(stage, built)),
-                self.width, self.height, module_name=name, clk_ns=clk_ns)
+                in_w, in_h, module_name=name, clk_ns=clk_ns)
             modules.extend(result.modules)
             built[stage.path] = seen[name] = result
 
@@ -770,6 +771,31 @@ class Pipeline:
 
     def _subsystem_module(self, name: str) -> str:
         return f"revela_{self.name}_{name}"
+
+    def _incoming_geometry(self, stage: Stage, built: dict) -> tuple[int, int]:
+        """(width, height) of the frame arriving at ``stage``'s input.
+
+        Read from the DRIVER's traced interface, exactly as the channel
+        count and the depth are, and for the same reason: what a block is
+        handed is what the block before it produced. It was broadcast from
+        the pipeline for as long as every block was geometry-preserving --
+        revela's stencils pad, so a 5x5 window still emits what it consumed
+        -- and a broadcast that happens to be right is a fact with two
+        owners waiting for the first block that changes size.
+
+        The pipeline's own geometry is still the answer for the first block
+        in a chain, because there is no driver to ask.
+        """
+        if not stage.block.ports.inputs:
+            return self.width, self.height
+        source = self.driver(Endpoint(stage.path, stage.block.ports.inputs[0]))
+        result = built.get(source.node) if source is not None else None
+        if result is None:
+            return self.width, self.height
+        out = (result.core["interface"].get("output") or {})
+        if "cols" not in out or "rows" not in out:
+            return self.width, self.height
+        return int(out["cols"]), int(out["rows"])
 
     def _incoming_stream(self, stage: Stage, built: dict) -> tuple[int, int]:
         """(channels, bit_depth) of the word arriving at ``stage``'s input.

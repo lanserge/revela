@@ -163,3 +163,47 @@ def test_the_composer_refuses_when_a_consumer_disagrees(monkeypatch):
     with pytest.raises(Exception) as caught:
         p.generate(control=False)
     assert "bit" in str(caught.value).lower()
+
+
+def test_geometry_is_threaded_from_the_driver_not_broadcast():
+    """A block is built for the frame it is GIVEN.
+
+    Depth and channels have always been read from the driver's traced
+    interface; geometry was broadcast from the pipeline instead, and was
+    right only because every block preserves geometry -- revela's stencils
+    pad, so a 5x5 window emits what it consumed. A fact with two owners
+    that agree by construction still has two owners, and the first block
+    that changes size makes them disagree.
+    """
+    import io
+    from contextlib import redirect_stdout
+
+    from conftest import chain, describe
+    from revela import designs
+
+    pipeline = designs.build(describe(
+        "geo", chain("blacklevel", "ha_green", "ha_rb"),
+        bit_depth=10, width=64, height=32))
+
+    built, seen = {}, []
+    for stage in pipeline.datapath:
+        width, height = pipeline._incoming_geometry(stage, built)
+        channels, depth = pipeline._incoming_stream(stage, built)
+        with redirect_stdout(io.StringIO()):
+            result = stage.block.generate(
+                pipeline.spec.with_stream(channels, depth), width, height,
+                module_name=f"t_{stage.path}")
+        built[stage.path] = result
+        output = result.core["interface"].get("output") or {}
+        seen.append((stage.path, (width, height),
+                     (output.get("cols"), output.get("rows"))))
+
+    # every block is told a real geometry, and it is the one its driver
+    # produced -- not the pipeline's, which merely coincides today
+    for index, (path, given, produced) in enumerate(seen):
+        assert given == (64, 32), f"{path} was built for {given}"
+        assert produced == (64, 32), f"{path} produced {produced}"
+        if index:
+            assert given == seen[index - 1][2], (
+                f"{path} was built for {given} but its driver produced "
+                f"{seen[index - 1][2]}")
