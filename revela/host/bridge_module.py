@@ -57,6 +57,28 @@ struct revela_focus_facts {
     uint32_t settle_ms;        /* worst move-to-still time */
 };
 
+/* The sensor's LAWS: what no ioctl can answer.
+ *
+ * A bridge can ask the sensor its geometry, its mosaic order, its
+ * depth and its pixel rate, and it does. What it cannot ask is how a
+ * gain CODE becomes a gain, how close to the frame length an exposure
+ * may go, or how many frames pass before a write takes effect. Those
+ * are facts about the part, they differ between parts, and an
+ * exposure loop cannot be written without them -- so they travel with
+ * the sensor, in the sensor's own package, beside its calibration.
+ *
+ * gain_unity_code is the code that means 1.0x, so gain = code /
+ * unity: one law, parameterised, rather than a rule per part.
+ * exposure_max_margin is how many lines must remain between the
+ * integration time and the frame length. The apply delays are counted
+ * in FRAMES, and a scheduler wants the DIFFERENCES between them. */
+struct revela_sensor_facts {
+    uint32_t gain_unity_code, gain_min_code, gain_max_code;
+    uint32_t exposure_min_lines, exposure_max_margin;
+    uint32_t delay_exposure, delay_analog_gain, delay_digital_gain;
+    int32_t black_level;     /* the pedestal, at the sensor's depth */
+};
+
 struct revela_sensor_driver {
     int api;                 /* REVELA_SENSOR_API */
     const char *name;
@@ -66,6 +88,7 @@ struct revela_sensor_driver {
     int (*set_integration_lines)(int fd, uint32_t lines);
     int (*set_analog_gain)(int fd, uint32_t code);
     int (*set_digital_gain)(int fd, uint32_t code); /* NULL: no Gd */
+    const struct revela_sensor_facts *facts;  /* NULL: unstated     */
     const struct revela_focus_facts *focus;   /* NULL: fixed focus */
     int (*set_focus)(int fd, uint32_t position); /* NULL: no lens  */
 };
