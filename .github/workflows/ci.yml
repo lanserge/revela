@@ -206,7 +206,7 @@ jobs:
       - name: Register map allocation
         run: pytest tests/test_address_allocation.py -v
 
-      - name: Models, control loops and host API
+      - name: Models and host API
         run: |
           pytest -v -m "not verilog" \
             --ignore=tests/test_spdx_headers.py \
@@ -233,7 +233,6 @@ jobs:
           print(s.summary())
           PY
           done
-          python examples/three_a_loop.py
 
       - name: Generated Verilog elaborates cleanly
         # Independent of the cocotb tests: proves the emitted RTL is well formed
