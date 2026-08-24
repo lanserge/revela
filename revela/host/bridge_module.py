@@ -29,6 +29,11 @@ import tarfile
 import time
 from pathlib import Path
 
+# The driver ABI's version, and the ONE place it is written. It was in
+# five: a #define, two manifests and two banners, which agreed until the
+# struct grew a field and four of them did not notice.
+SENSOR_API = 2
+
 SENSOR_API_H = '''\
 /* The driver ABI between the revela ISP package (policy, the only
  * ISP-register writer) and a sensor package (a driver: writes its
@@ -40,7 +45,7 @@ SENSOR_API_H = '''\
 #define REVELA_SENSOR_API_H
 #include <stdint.h>
 
-#define REVELA_SENSOR_API 1
+#define REVELA_SENSOR_API {SENSOR_API}
 
 /* fitted ISP parameters, by revela's stable block.param names --
  * semantic keys, never addresses; NULL key terminates */
@@ -75,6 +80,10 @@ struct revela_focus_facts {
 struct revela_sensor_facts {
     uint32_t gain_unity_code, gain_min_code, gain_max_code;
     uint32_t exposure_min_lines, exposure_max_margin;
+    /* The longest integration that still fits a frame, from the
+     * sensor's own timing: frame_length_lines - max_margin. A
+     * starting point, not a policy -- AE owns it once AE exists. */
+    uint32_t integration_default_lines;
     uint32_t delay_exposure, delay_analog_gain, delay_digital_gain;
     int32_t black_level;     /* the pedestal, at the sensor's depth */
 };
@@ -98,6 +107,12 @@ const struct revela_sensor_driver *revela_sensor(void);
 
 #endif
 '''
+
+# The header is a plain string because it is full of C braces; the
+# one number it must agree with is substituted here rather than
+# written again inside it.
+SENSOR_API_H = SENSOR_API_H.replace("{SENSOR_API}", str(SENSOR_API))
+
 
 ALGO_API_H = '''\
 /* The algorithm ABI: an algo package (autofocus and its kin) is
@@ -212,6 +227,43 @@ def generate_isp_c(regmap: dict) -> str:
     w("static struct revela_algo_ctx algo_ctx;")
     w("")
     w("void bridge_frame_hook(const struct bridge_frame *f) {")
+    w("    /* STUB EXPOSURE, standing in until the real AE arrives as C")
+    w("     * beside the stats block. It is not a loop and does not")
+    w("     * measure anything: it applies the sensor's OWN declared")
+    w("     * unity gain and its longest integration that fits a")
+    w("     * frame, once, so a run starts from a defined point.")
+    w("     *")
+    w("     * A sensor whose gain nobody sets keeps whatever the last")
+    w("     * caller left. On 2026-08-23 that was 12.5x -- the raw was")
+    w("     * 55%% saturated before the ISP saw a pixel, and every")
+    w("     * downstream stage was blamed in turn for a picture that")
+    w("     * had already lost its highlights at the sensor.")
+    w("     *")
+    w("     * The value is the sensor package's, not this one's: the")
+    w("     * gain law travels with the sensor, and unity is whatever")
+    w("     * its own facts say it is. An algo package supersedes this")
+    w("     * entirely -- if one is installed, exposure is its job.")
+    w("     */")
+    w("    static int gain_started = 0;")
+    w("    if (!gain_started && !algo && f->sensor_fd >= 0 && revela_sensor) {")
+    w("        const struct revela_sensor_driver *d = revela_sensor();")
+    w("        if (d && d->facts) {")
+    w("            uint32_t unity = d->facts->gain_unity_code;")
+    w("            uint32_t lines = d->facts->integration_default_lines;")
+    w("            int ok = 0;")
+    w("            if (d->set_analog_gain &&")
+    w("                d->set_analog_gain(f->sensor_fd, unity) == 0) ok |= 1;")
+    w("            if (d->set_integration_lines && lines &&")
+    w("                d->set_integration_lines(f->sensor_fd, lines) == 0)")
+    w("                ok |= 2;")
+    w("            if (ok) {")
+    w('                printf("revela: %s: exposure started at unity gain '
+      '(code %u) and %u lines -- stub until AE\\n",')
+    w("                       d->name, unity, lines);")
+    w("                gain_started = 1;")
+    w("            }")
+    w("        }")
+    w("    }")
     w("    if (algo && algo->on_frame) algo->on_frame(f);")
     w("}")
     w("")
@@ -342,7 +394,8 @@ def main() -> int:
             "name": "revela-isp", "version": args.version,
             "kind": "picam2hdmi-module", "abi": 1,
             "slot": "isp",
-            "provides": ["revela-sensor-api:1", "revela-algo-api:1"],
+            "provides": [f"revela-sensor-api:{SENSOR_API}",
+                         f"revela-algo-api:{SENSOR_API}"],
             "sources": ["revela_isp.c"],
         }, indent=2) + "\n",
         "revela_sensor_api.h": SENSOR_API_H,
@@ -364,7 +417,7 @@ def main() -> int:
             tar.addfile(info, io.BytesIO(b))
     print(f"{args.out}: revela-isp {args.version}, "
           f"map of {sum(len(b['registers']) for b in regmap['blocks'])} "
-          f"registers baked, provides revela-sensor-api:1")
+          f"registers baked, provides revela-sensor-api:{SENSOR_API}")
     return 0
 
 

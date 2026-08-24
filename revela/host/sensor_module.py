@@ -25,6 +25,8 @@ import tarfile
 import time
 from pathlib import Path
 
+from revela.host.bridge_module import SENSOR_API
+
 from .bridge_module import SENSOR_API_H
 
 
@@ -55,6 +57,8 @@ def _facts_c(description: dict | None) -> list:
         f"    .gain_max_code = {int(gain.get('code_max', 0))},",
         f"    .exposure_min_lines = {int(coarse.get('min', 0))},",
         f"    .exposure_max_margin = {int(coarse.get('max_margin', 0))},",
+        f"    .integration_default_lines = "
+        f"{max(int(coarse.get('min', 0)), int(description.get('timing', {}).get('frame_length_lines', 0)) - int(coarse.get('max_margin', 0)))},",
         f"    .delay_exposure = {int(delays.get('exposure', 0))},",
         f"    .delay_analog_gain = {int(delays.get('analogue_gain', 0))},",
         f"    .delay_digital_gain = {int(delays.get('digital_gain', 0))},",
@@ -154,7 +158,7 @@ def main() -> int:
             "name": f"sensor-{args.sensor}", "version": args.version,
             "kind": "picam2hdmi-module", "abi": 1,
             "slot": "sensor",
-            "requires": "revela-sensor-api:1",
+            "requires": f"revela-sensor-api:{SENSOR_API}",
             "sources": [src],
         }, indent=2) + "\n",
         "revela_sensor_api.h": SENSOR_API_H,
@@ -168,7 +172,8 @@ def main() -> int:
             info.mtime = int(time.time())
             tar.addfile(info, io.BytesIO(b))
     print(f"{out}: sensor-{args.sensor} {args.version}, "
-          f"{len(values)} profile values, requires revela-sensor-api:1")
+          f"{len(values)} profile values, "
+          f"requires revela-sensor-api:{SENSOR_API}")
     return 0
 
 
