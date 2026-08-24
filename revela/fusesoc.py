@@ -23,6 +23,7 @@ A consuming core file uses it as:
 from __future__ import annotations
 
 import sys
+import json
 from pathlib import Path
 
 
@@ -137,6 +138,27 @@ def emit(design, output_dir, name: str | None = None, control: bool = True,
     # instantiates it needs and would otherwise re-derive by building
     # the design a second time.
     written["latency"] = generated.latency
+    # Also not a file, and the reason this is published at all: the width
+    # of the word each output carries is TRACED, so an integrator that
+    # writes it down instead of reading it has a second owner of a fact
+    # that changes whenever the models do.
+    written["boundary"] = generated.meta["boundary"]
+    # ...and on disk too, because the integrator here is a shell script
+    # and a block design, neither of which can import Python.
+    written["build"] = output_dir / f"{pipeline.name}_build.json"
+    written["build"].write_text(json.dumps({
+        "toplevel": generated.top,
+        "latency": generated.latency,
+        # What the cores were BUILT around, which is the maximum they can
+        # process: the line buffers are this deep and the pointwise cores
+        # reframe every line from it. An integrator handed a wider frame
+        # must crop before this pack sees it -- the cores receive neither
+        # the stream's end-of-line nor the header's width, so they cannot
+        # notice, and the failure is a sheared picture with the CFA phase
+        # inverted on alternate rows rather than an error.
+        "geometry": {"width": pipeline.width, "height": pipeline.height},
+        "boundary": generated.meta["boundary"],
+    }, indent=2) + "\n")
     return written
 
 

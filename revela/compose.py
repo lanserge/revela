@@ -691,7 +691,20 @@ class Pipeline:
         modules.append((self.name, top["verilog"]))
 
         meta = {"nodes": [s.path for s in self.datapath],
-                "generated": sorted(built), "nets": top["nets"]}
+                "generated": sorted(built), "nets": top["nets"],
+                # What the core's boundaries actually carry. The INPUT is
+                # the one declared stream fact -- the spec IS that
+                # declaration. Every OUTPUT is traced: a three-channel word
+                # is three fields wide because the models packed it that
+                # way, not because anyone wrote the number down. Published
+                # so an integrator reads the width instead of restating it,
+                # which is how a 30-bit slice survives into a 36-bit build.
+                "boundary": {
+                    "inputs": {n: {"data_bits": self.spec.data_bits}
+                               for n in self.inputs},
+                    "outputs": {n: self._output_boundary(built, n)
+                                for n in self.outputs},
+                }}
         name = self.name
         if control:
             wrapper = self._control_top(top, built)
@@ -898,6 +911,28 @@ class Pipeline:
                     return StreamType(int(result.core.out_bits),
                                       ("sof", "eol", "last"))
         return StreamType(self.spec.data_bits, ("sof", "eol", "last"))
+
+    def _output_boundary(self, built, name) -> dict:
+        """What an output port carries, in the terms an integrator needs.
+
+        The total width alone is not enough to slice: a 36-bit word is
+        three 12-bit channels here, but that is a TRACED fact, not a law
+        that the width can be divided by three to recover. So the channel
+        count is published beside the width, and whoever unpacks the word
+        reads both rather than dividing and hoping."""
+        channels = 1
+        for source, sink in self.edges:
+            if sink.node is None and sink.port == name and source.node:
+                result = built.get(source.node)
+                if result is not None:
+                    channels = int((result.core["interface"].get("output") or {})
+                                   .get("channels", 1))
+                break
+        data_bits = self._output_stream(built, name).data_bits
+        out = {"data_bits": data_bits, "channels": channels}
+        if channels and data_bits % channels == 0:
+            out["channel_bits"] = data_bits // channels
+        return out
 
     def _instances(self, built) -> list:
         """One np2hw Instance per generated block, with its parameter bindings."""
