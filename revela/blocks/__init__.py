@@ -210,6 +210,13 @@ class Block:
     # the base block. {"gain": {"frac": 12}} -- the same dict the design JSON
     # carries and describe() recovers, so a variant knows its own recipe.
     overrides: dict = field(default_factory=dict)
+    # How this block changes the datapath width, when it does. Almost no
+    # block does: samples in, samples out, same width, and the default None
+    # says exactly that. A display curve is the exception -- it is where a
+    # wide linear signal becomes display values -- and it answers from the
+    # SAME declaration the hardware is built from, so there is still one
+    # owner of the number. Called as out_depth(bit_depth, paramset).
+    out_depth: object = None
     # Why this block cannot be traced yet, if it cannot. Empty means it can.
     # Stated as a REASON rather than a flag, because "declared but not built" is
     # a fact about np2hw's current reach and the reader deserves to know which.
@@ -522,7 +529,8 @@ def configblock(name, *, version, description, params=(), stats=()):
 
 
 def ispblock(*, version, description, name=None, params=(), stats=(),
-             consumes=(), inputs=(), outputs=(), context=(), not_traceable=""):
+             consumes=(), inputs=(), outputs=(), context=(), not_traceable="",
+             out_depth=None):
     """Declare an ISP block. The decorated function IS the block's model.
 
         @ispblock(
@@ -559,6 +567,7 @@ def ispblock(*, version, description, name=None, params=(), stats=(),
             outputs=tuple(outputs),
             context=tuple(context),
             not_traceable=not_traceable,
+            out_depth=out_depth,
         )
 
     return decorate

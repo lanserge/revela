@@ -27,17 +27,32 @@ shadow fidelity per design, not a different block.
 The knots and the datapath
 --------------------------
 
-``knots`` holds ``2**K + 1`` values, one bit WIDER than the datapath: the
-identity ramp's top knot is ``2**bit_depth`` itself, one past full scale,
-and storing it exactly is what makes reset a true pass-through (the classic
-LUT off-by-one lives at the top segment). The declaration therefore requires
-``bits == bit_depth + 1`` and the model REFUSES a mismatch, naming the
-override to write -- a 10-bit design says ``{"knots": {"bits": 11}}``.
+Gamma is where the pipeline stops being linear light and becomes DISPLAY
+values, and it is the last block that makes RGB. So it is also where the
+datapath narrows: the wide linear signal the sensor chain carries -- headroom
+for black level, white balance, demosaic and the colour matrix -- lands on the
+display's 8 bits HERE, chosen by the curve, rather than being truncated
+somewhere downstream. Truncation after a curve is a second, linear
+quantisation applied on top of the one the curve already made; doing it in the
+knots means the curve decides which levels survive.
 
-At reset the table IS the identity ramp (``default_ramp``), so an
-unconfigured pipeline passes the image through untouched, whatever the knot
-count -- the same bring-up argument as blacklevel's zero offsets and
-whitebalance's unity gains.
+The output depth therefore has ONE owner: the knot declaration. ``knots``
+holds ``2**K + 1`` values, one bit WIDER than the OUTPUT, because the top
+knot is ``2**out_bits`` itself -- one past full scale -- and storing it
+exactly is what keeps the top segment honest (the classic LUT off-by-one
+lives there). Default is ``bits = 9``, so gamma outputs 8 bits. A design
+driving a deeper display says ``{"knots": {"bits": 11}}`` and gets 10-bit
+output; nothing else states the number.
+
+The INPUT depth is unrelated and stays whatever the chain traced: it picks
+the segment (``S = bit_depth - log2(knots - 1)``), so a wider input buys
+finer interpolation within the same table.
+
+At reset the table is the ramp (``default_ramp``), which spans 0 to
+``2**out_bits`` across the knots -- so an unconfigured pipeline passes the
+image through, scaled to the output range and otherwise untouched. Same
+bring-up argument as blacklevel's zero offsets and whitebalance's unity
+gains: the picture is there before anything is configured.
 
 Where the values come from
 --------------------------
@@ -76,7 +91,7 @@ def _knots_param() -> Param:
     """ONE declaration of the knot register, used by both curve blocks."""
     return Param(
         name="knots",
-        bits=13,                       # bit_depth + 1; see the docstring
+        bits=9,                        # out_bits + 1; see the docstring
         shape=(KNOTS_DEFAULT,),
         default_ramp=True,
         configurable=("bits", "shape"),
@@ -84,12 +99,25 @@ def _knots_param() -> Param:
             "Tone curve knots at uniform input spacing: knot i is the "
             "output for input i * 2**S, and between knots the hardware "
             "interpolates linearly on the input's low S bits. One bit "
-            "wider than the datapath so the identity ramp's top knot "
-            "(full scale + 1) is exact. Reset is the identity ramp: an "
-            "unconfigured pipeline passes the image through. Written by "
+            "wider than the OUTPUT so the ramp's top knot (full scale + "
+            "1) is exact -- and it is this width that sets the output "
+            "depth, 8 bits by default. Reset is the ramp: an unconfigured "
+            "pipeline passes the image through, scaled. Written by "
             "the host from a target curve via knots_from_curve()"
         ),
     )
+
+
+def _out_bits(paramset) -> int:
+    """The output depth, read from the knot declaration that owns it.
+
+    The same number ``_curve`` saturates to, reached from the declaration
+    rather than restated, so a design that overrides the knot width moves
+    the model and the hardware together."""
+    for param in paramset.params:
+        if param.name == "knots":
+            return param.bits - 1
+    raise ValueError("a curve block without a knots declaration")
 
 
 def _curve(value, p, bit_depth):
@@ -101,12 +129,19 @@ def _curve(value, p, bit_depth):
         raise ValueError(
             f"gamma needs 2**k + 1 knots for a bit-slice segment index; "
             f"{count} knots is {segments} segments")
-    if p.decl.knots.bits != bit_depth + 1:
+    # The knot width OWNS the output depth: one bit wider than what
+    # leaves, so the top knot (full scale + 1) is storable exactly.
+    out_bits = p.decl.knots.bits - 1
+    if out_bits < 1:
         raise ValueError(
-            f"knots are {p.decl.knots.bits}-bit but the datapath is "
-            f"{bit_depth}-bit; declare knots one bit wider so the identity "
-            f"ramp's top knot is exact -- this design wants "
-            f'{{"knots": {{"bits": {bit_depth + 1}}}}}')
+            f"knots are {p.decl.knots.bits}-bit, which leaves no output; "
+            'knots are one bit wider than the output depth, so 8-bit '
+            'display output wants {"knots": {"bits": 9}}')
+    if out_bits > bit_depth:
+        raise ValueError(
+            f"knots are {p.decl.knots.bits}-bit, asking for {out_bits}-bit "
+            f"output from a {bit_depth}-bit input; a curve shapes the levels "
+            "it was given and cannot invent precision")
     shift = bit_depth - (segments.bit_length() - 1)
     if shift <= 0:
         raise ValueError(
@@ -117,7 +152,7 @@ def _curve(value, p, bit_depth):
     base = knots[seg].astype(np.int32)
     step = knots[seg + 1].astype(np.int32) - base
     out = base + ((step * frac) >> shift)
-    return saturate(out, bit_depth)
+    return saturate(out, out_bits)
 
 
 @ispblock(
@@ -128,8 +163,14 @@ def _curve(value, p, bit_depth):
                        "on RGB; it is in the Bayer chain because that is the "
                        "chain that exists."),),
     outputs=(StreamPort("out",
-                        "Tone-mapped samples, same width as the input."),),
+                        "Display-encoded samples at the output depth the "
+                        "knot declaration sets -- 8 bits by default, because "
+                        "this is the block that makes RGB for a display."),),
     params=[_knots_param()],
+    # The output depth, from the SAME declaration the arithmetic reads:
+    # knots are one bit wider than what leaves. Stated here so the model
+    # chain narrows exactly where the hardware does.
+    out_depth=lambda bit_depth, paramset: _out_bits(paramset),
 )
 def gamma(pixel, p, ctx, bit_depth: int):
     """THE model. Segment by bit-slice, gather two knots, integer lerp.
@@ -155,6 +196,10 @@ def gamma(pixel, p, ctx, bit_depth: int):
     outputs=(StreamPort("out",
                         "Tone-mapped RGB, same width per channel."),),
     params=[_knots_param()],
+    # The output depth, from the SAME declaration the arithmetic reads:
+    # knots are one bit wider than what leaves. Stated here so the model
+    # chain narrows exactly where the hardware does.
+    out_depth=lambda bit_depth, paramset: _out_bits(paramset),
 )
 def rgb_gamma(pixel, p, ctx, bit_depth: int):
     """THE model. The same curve, once per channel, one knot table.

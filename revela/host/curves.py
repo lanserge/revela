@@ -7,18 +7,23 @@ host designing a curve is exactly where it belongs. A curve is sampled at
 the knot positions, quantised once, and written to the registers -- the
 knots are the whole contract between the float world and the integer one.
 
-The scale convention matches the block's identity ramp: an input fraction
-x in [0, 1] maps to round(curve(x) * 2**bit_depth), so curve(x) = x lands
-every knot exactly on the reset ramp -- including the top knot at
-2**bit_depth itself, which is why the registers are one bit wider than the
-datapath.
+The scale convention matches the block's reset ramp: an input fraction x
+in [0, 1] maps to round(curve(x) * 2**out_bits), so curve(x) = x lands
+every knot exactly on the ramp -- including the top knot at 2**out_bits
+itself, which is why the registers are one bit wider than the output.
+
+OUT_BITS, not the datapath width. The curve is where the pipeline stops
+being linear light and becomes display values, so the knots are in the
+units that LEAVE the block -- 8 bits for a display, by default. The input
+width does not appear here at all: it chooses which knot a pixel lands
+between, never what the knot is worth.
 """
 from __future__ import annotations
 
 import numpy as np
 
 
-def knots_from_curve(curve, count: int = 33, bit_depth: int = 12) -> np.ndarray:
+def knots_from_curve(curve, count: int = 33, out_bits: int = 8) -> np.ndarray:
     """Quantised knot VALUES for ``curve`` -- an array, not register writes.
 
     Sampling and quantisation are this module's business; naming is the
@@ -30,15 +35,16 @@ def knots_from_curve(curve, count: int = 33, bit_depth: int = 12) -> np.ndarray:
         curve: a callable [0, 1] -> [0, 1]. Values are clipped to the range,
             because a register cannot hold an opinion outside it.
         count: knot count, matching the block instance's declared shape.
-        bit_depth: the datapath width the instance runs at.
+        out_bits: the depth the block OUTPUTS at -- the knot declaration's
+            width minus one, since the top knot is full scale plus one.
     """
-    scale = 1 << bit_depth
+    scale = 1 << out_bits
     positions = np.linspace(0.0, 1.0, count)
     values = np.clip([float(curve(float(x))) for x in positions], 0.0, 1.0)
     return np.array([int(round(v * scale)) for v in values], dtype=np.int64)
 
 
-def knots_from_table(x, y, count: int = 33, bit_depth: int = 12) -> np.ndarray:
+def knots_from_table(x, y, count: int = 33, out_bits: int = 8) -> np.ndarray:
     """The same, from measured (x, y) samples in [0, 1] -- resampled onto the
     uniform knot positions with ``np.interp``, which is precisely where
     numpy's own linear interpolation belongs in this project: on the host,
@@ -46,7 +52,7 @@ def knots_from_table(x, y, count: int = 33, bit_depth: int = 12) -> np.ndarray:
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
     return knots_from_curve(lambda v: float(np.interp(v, x, y)),
-                            count=count, bit_depth=bit_depth)
+                            count=count, out_bits=out_bits)
 
 
 def srgb(x: float) -> float:

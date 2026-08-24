@@ -292,6 +292,15 @@ def run_model(chain, frame: np.ndarray, values, context: dict,
                     for name in stage.block.params.consumes if name in context}
         frame = stage.block.run(frame, values.get(stage.path),
                                 bit_depth=bit_depth, **consumed)
+        # The width a block hands on is the next block's input. Nearly
+        # every block passes it through; the one that narrows says so, and
+        # the hardware narrows with it. Walking the chain at ONE width was
+        # right until a block changed it, and then the model and the RTL
+        # disagreed about the mark's palette -- 3856 against 241, which is
+        # the same number shifted by the four bits nobody had told the
+        # model about.
+        if stage.block.out_depth is not None:
+            bit_depth = int(stage.block.out_depth(bit_depth, stage.paramset))
     return frame
 
 
@@ -445,12 +454,27 @@ def run_rtl(chain, frame: np.ndarray, values, context: dict,
     port_values = _port_values(twin, scraped, values, context,
                                width, height, bit_depth)
 
-    # The output word is whatever the trace packed; the port width says so.
+    # The output word is whatever the trace packed, and the trace SAYS so:
+    # channels and lane width are published on the boundary. Dividing the
+    # word by the INPUT depth was the old way, and it silently mis-unpacked
+    # any block that narrows -- a display curve mapping 12-bit linear onto
+    # 8-bit RGB reads back as two 12-bit lanes instead of three 8-bit ones,
+    # and the twin then reports a model/RTL mismatch that is really a
+    # mismatch between two readings of the same word.
+    out = generated.meta["boundary"]["outputs"]["chain_out"]
+    out_bits, out_channels = out["data_bits"], out["channels"]
+    out_lane = out.get("channel_bits", out_bits // max(1, out_channels))
+    # The port is the other statement of that width; if the two disagree,
+    # one of them is wrong and neither is worth guessing between.
     out_match = re.search(
         r"output\s+(?:wire|reg)?\s*(?:\[(\d+):0\])?\s*chain_out_data",
         top_text)
-    out_bits = int(out_match.group(1) or 0) + 1
-    out_channels = out_bits // bit_depth
+    scraped_bits = int(out_match.group(1) or 0) + 1
+    if scraped_bits != out_bits:
+        raise ValueError(
+            f"the chain's output port is {scraped_bits} bits but its traced "
+            f"boundary says {out_bits}; the generator and its own report "
+            "disagree about the same word")
     words = _pack(frame, in_channels, bit_depth)
 
     with tempfile.TemporaryDirectory() as scratch:
@@ -469,7 +493,7 @@ def run_rtl(chain, frame: np.ndarray, values, context: dict,
                 f" {done.stderr.strip()}")
         got = np.array([int(line, 16) for line in
                         (scratch / "out.txt").read_text().split()], np.uint64)
-    return _unpack(got, height, width, out_channels, bit_depth)
+    return _unpack(got, height, width, out_channels, out_lane)
 
 
 def _pack(frame: np.ndarray, channels: int, bit_depth: int) -> np.ndarray:
