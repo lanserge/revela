@@ -88,6 +88,41 @@ DRAM round-trip. One pixel per clock, and backpressure composes all the way back
 to the sensor interface. AXI4-Stream Video appears only as an adapter at the
 pipeline boundary, where you are talking to somebody else's IP.
 
+## Where the pixels come from
+
+revela generates an ISP, not a receiver: something upstream has to put raw
+Bayer on that `valid/ready` stream. Nothing here requires a particular
+source — the pipeline takes samples and its context, whatever produced
+them — but there is a complete path that works today, and it is worth
+naming because the pieces are designed to fit:
+
+| piece | what it does |
+| --- | --- |
+| [bayerlink](https://github.com/bayerlink/bayerlink) | the wire format: raw Bayer over an ordinary video link, self-described by a header line — geometry, CFA phase and depth travel with the frame |
+| [`np2hw.video_in`](https://github.com/lanserge/np2hw) | the receiver: decodes that link and aligns sample depth on the way in, so downstream the depth is a build fact |
+| **revela** | the ISP: this project |
+| [bayerlink-fpga](https://github.com/bayerlink/bayerlink-fpga) | all three on a PYNQ-Z2, with the board glue — the worked example |
+| [picam2hdmi](https://github.com/bayerlink/picam2hdmi) | a source at the other end: a Raspberry Pi, genlocked, any libcamera sensor |
+
+Two things make the seam work, and both are worth knowing before wiring
+anything to this ISP:
+
+**The boundary is traced, not declared.** `revela generate` writes
+`<name>_build.json` beside the Verilog: each output's `data_bits`,
+`channels` and `channel_bits`, the geometry the cores were built around,
+and the latency. **Read it — do not restate it.** A three-channel word is
+three fields wide because the models packed it that way, not because
+anyone chose the number, and an integrator that writes the width down is
+correct until the day the pipeline changes and then produces a picture
+rather than an error.
+
+**The geometry in that file is a maximum.** The cores get neither the
+stream's end-of-line nor the header's width, so a frame wider than they
+were built for is not something they can notice — it shears, with the CFA
+phase inverted on alternate rows and no status bit anywhere. Whoever hands
+them a wider one must crop first; bayerlink-fpga's shim shows one way,
+cropping to the built width and saying so in a sticky `truncated`.
+
 ## Quick start
 
 ```bash
