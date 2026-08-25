@@ -74,6 +74,15 @@ sensor ─▶ [ blacklevel ] ─▶ [ lsc ] ─▶ [ demosaic ] ─▶ [ ccm ] �
   pipe @ 0x0000 ── width, height, window, bayer_phase, bit_depth ──▶ (wires to all)
 ```
 
+The pipeline context has one owner and reaches every block as wires, never
+as a copy per block: a resolution change is one write, not N that must all
+land in the same frame. Where each fact comes FROM is the design's to
+declare — anything named in `stream.context` arrives as an input port
+carried by the stream itself and gets **no register**, because a register
+holding a second copy of a header fact is a second answer to one question.
+What stays a register is what is genuinely a choice: a crop window is
+software's to pick, a line length is not.
+
 Blocks are chained by a direct `valid/ready` stream — no bus between stages, no
 DRAM round-trip. One pixel per clock, and backpressure composes all the way back
 to the sensor interface. AXI4-Stream Video appears only as an adapter at the
