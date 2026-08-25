@@ -1,3 +1,5 @@
+# Copyright 2026 Serge Rabyking
+# SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
 """Prepare the Revela mark for the ISP: crop to content, scale from
 vector, and measure what each size would cost in fabric."""
 import subprocess

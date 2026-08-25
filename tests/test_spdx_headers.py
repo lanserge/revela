@@ -11,23 +11,44 @@ from __future__ import annotations
 
 import ast
 import re
+import tomllib
 from pathlib import Path
 
 import pytest
 
 PROJECT_ROOT = Path(__file__).parent.parent
 
-# The exact two lines every .py file must begin with. The year is free so that
-# files are not churned annually, and the holder is free so that a CLA-signing
-# contributor could in principle appear -- but the SPDX line is fixed.
-HEADER = re.compile(
-    r"^# Copyright \d{4}(-\d{4})? \S.*\n"
-    r"# SPDX-License-Identifier: Apache-2\.0 WITH SHL-2\.1\s*\n"
-)
+# The identifier is READ, not written here. It lives in the packaging
+# metadata -- the same place this project keeps its version -- so the
+# licence has one owner and this test cannot drift from what is actually
+# published. The year is free so files are not churned annually, and the
+# holder is free so a CLA-signing contributor could appear.
+def declared_licence() -> str:
+    data = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text())
+    licence = data.get("project", {}).get("license")
+    if isinstance(licence, dict):                    # the older table form
+        licence = licence.get("text")
+    assert licence, "pyproject.toml declares no licence to check against"
+    return licence
+
+
+def header_pattern() -> re.Pattern:
+    return re.compile(
+        r"^# Copyright \d{4}(-\d{4})? \S.*\n"
+        r"# SPDX-License-Identifier: " + re.escape(declared_licence()) + r"\s*\n")
 
 # revela/ is the requirement. tests/ and examples/ are held to it too: they are
 # distributed in the sdist and are just as much part of the licensed work.
 CHECKED_ROOTS = ("revela", "tests", "examples")
+# Source that is not Python. A licence check scoped to one language, in
+# source DIRECTORIES only, misses whatever else is source -- the FuseSoC
+# core file beside them went uncovered for exactly that reason.
+OTHER_SUFFIXES = (".c", ".h", ".v", ".sv", ".sh", ".tcl", ".xdc", ".core")
+ROOT_FILES = ("revela.core",)
+# JSON carries no comment syntax, so a pipeline description cannot hold a
+# header and is covered by the repository's LICENSE files instead. Named
+# here so the gap is a decision rather than an oversight.
+NO_COMMENT_SYNTAX = (".json",)
 
 
 def python_files() -> list[Path]:
@@ -37,6 +58,19 @@ def python_files() -> list[Path]:
         if directory.is_dir():
             files.extend(sorted(p for p in directory.rglob("*.py")
                                 if "__pycache__" not in p.parts))
+    return files
+
+
+def other_files() -> list[Path]:
+    files: list[Path] = []
+    for root in CHECKED_ROOTS:
+        directory = PROJECT_ROOT / root
+        if directory.is_dir():
+            files.extend(sorted(p for p in directory.rglob("*")
+                                if p.suffix in OTHER_SUFFIXES
+                                and "__pycache__" not in p.parts))
+    files.extend(PROJECT_ROOT / n for n in ROOT_FILES
+                 if (PROJECT_ROOT / n).is_file())
     return files
 
 
@@ -53,14 +87,38 @@ def test_there_are_files_to_check():
 def test_file_has_spdx_header(path: Path):
     text = path.read_text(encoding="utf-8")
     relative = path.relative_to(PROJECT_ROOT)
-    assert HEADER.match(text), (
+    assert header_pattern().match(text), (
         f"{relative} does not start with the required licence header.\n"
         f"Expected the file to begin with:\n\n"
         f"    # Copyright <year> <author>\n"
-        f"    # SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1\n\n"
+        f"    # SPDX-License-Identifier: {declared_licence()}\n\n"
         f"Found instead:\n\n"
         + "".join(f"    {line}\n" for line in text.splitlines()[:3])
     )
+
+
+@pytest.mark.parametrize(
+    "path", other_files(), ids=lambda p: str(p.relative_to(PROJECT_ROOT)))
+def test_non_python_file_states_the_licence(path: Path):
+    """The same requirement, one line looser about WHERE the header sits.
+
+    A FuseSoC core file must open with ``CAPI=2:`` and an HTML page with its
+    doctype, so the identifier cannot always be the first thing in the file
+    -- only among the first things."""
+    head = "".join(path.read_text(encoding="utf-8",
+                                  errors="replace").splitlines(True)[:6])
+    relative = path.relative_to(PROJECT_ROOT)
+    found = re.search(r"SPDX-License-Identifier:\s*(.+?)\s*"
+                      r"(?:-->|\*/)?\s*$", head, re.M)
+    assert found, (
+        f"{relative} has no SPDX-License-Identifier in its first lines; "
+        f"every source file states the licence it is under.\n"
+        f"Expected: SPDX-License-Identifier: {declared_licence()}")
+    assert found.group(1) == declared_licence(), (
+        f"{relative} claims {found.group(1)!r} but this project publishes as "
+        f"{declared_licence()!r} (pyproject.toml). A file under different "
+        "terms is a decision, not a typo -- make it deliberately or fix the "
+        "header.")
 
 
 def _is_path_join(node):
