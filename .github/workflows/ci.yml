@@ -9,23 +9,10 @@
 
 name: CI
 
-# SUSPENDED while the repository is private: Actions on a private repository
-# bill against the account's minutes, and this workflow builds Verilator
-# simulations across a three-version Python matrix on every push. Manual runs
-# still work (workflow_dispatch), so the claim can be re-proven on demand.
-#
-# When the repository goes public -- gated on the working FPGA example --
-# restore the automatic triggers by replacing this block with:
-#
-#   on:
-#     push:
-#       branches: [main]
-#     pull_request:
-#     workflow_dispatch:
-#
-# Nothing else in this file changes. The suite itself still runs locally on
-# every change: `pytest` is the same claim without the badge.
 on:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 concurrency:
