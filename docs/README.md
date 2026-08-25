@@ -8,8 +8,8 @@
   questions a commercial evaluator asks.
 - **[THIRD-PARTY.md](THIRD-PARTY.md)** — every dependency and its licence, and
   why the simulators' terms do not reach your design.
-- **[RELEASING.md](RELEASING.md)** — publishing to PyPI, and why np2hw has to
-  go first.
+- **[RELEASING.md](RELEASING.md)** — publishing the four packages to PyPI, the
+  order the dependency graph forces, and why a direct reference is refused.
 
 ## Generated documentation
 
