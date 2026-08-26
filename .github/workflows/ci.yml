@@ -27,7 +27,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        # 3.14 is deliberately absent, and it is not this package that
+        # cannot go there: cocotb 2.0.1 refuses to build above 3.13
+        # ("only supports a maximum Python version of 3.13"), and cocotb
+        # is what runs the bit-exact model-vs-RTL tests. revela itself
+        # imports and runs on 3.14; there is simply no way to PROVE the
+        # central claim there yet. Add it back when cocotb does.
+        python-version: ["3.11", "3.12", "3.13"]
 
     steps:
       - uses: actions/checkout@v4
