@@ -28,12 +28,16 @@ dependencies = [
     # is that one NumPy model drives both. From PyPI, so the dependency is
     # pinnable, hashable and scannable; co-development installs it editable
     # over the top (pip install -e ../np2hw).
-    # 0.5.0 is the floor, not a preference: the blocks bound the datapath
-    # with saturate(), which 0.4.0 does not have, so an older np2hw cannot
-    # import them at all. 0.4.0 was already required for the adaptive
-    # demosaic, whose arithmetic the phase-stencil emitter cuts into
-    # several pipeline stages; 0.3.0 refuses to generate it.
-    "np2hw>=0.5.0",
+    # 0.5.1 is the floor, and each digit of it is load-bearing. 0.5.0
+    # brought saturate(), which the blocks use to bound the datapath, so
+    # an older np2hw cannot import them at all -- and 0.4.0 was already
+    # required for the adaptive demosaic, whose arithmetic the
+    # phase-stencil emitter cuts into several pipeline stages, which
+    # 0.3.0 refuses to generate. The .1 is the arm handshake: 0.5.0 wired
+    # arm_req and arm_ack without declaring them, so the control top a
+    # board instantiates does not pass a lint, and this project's CI
+    # lints exactly that module.
+    "np2hw>=0.5.1",
 ]
 
 [project.optional-dependencies]
