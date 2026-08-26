@@ -75,6 +75,12 @@ def pixel_chain(pipeline, start: str | None = None, stop: str | None = None):
                 f"pipeline {pipeline.name!r} has inputs {list(pipeline.inputs)}; "
                 "name the injection point with --from")
         first = _sole_consumer(pipeline, Endpoint(None, pipeline.inputs[0]))
+    elif start in pipeline.inputs:
+        # A PIPELINE INPUT by name, which is what the refusal above tells a
+        # caller to supply and therefore what they will type. Accepting only
+        # `instance.port` here meant the advice named a form the code would
+        # not take.
+        first = _sole_consumer(pipeline, Endpoint(None, start))
     else:
         instance, port = _split_port(start)
         stage = pipeline.stage(instance)

@@ -82,17 +82,26 @@ def emit(design, output_dir, name: str | None = None, control: bool = True,
             0, 1 << pipeline.spec.bit_depth,
             size=(pipeline.height, pipeline.width), dtype=np.uint16)
         context = {"bayer_phase": 2}
-        chain = runner.pixel_chain(pipeline, None, None)
-        model = runner.run_model(chain, frame, values, context,
+        # EVERY input's chain, not "the" chain. Asking for the sole input
+        # was right for a mono pipeline and refused outright on a stereo
+        # one -- which is the design that most wants proving, since it is
+        # the one where a leg can be wrong on its own. A pipeline with two
+        # sensors has two chains, and both are verified before anything is
+        # emitted.
+        for name in pipeline.inputs:
+            chain = runner.pixel_chain(pipeline, name, None)
+            model = runner.run_model(chain, frame, values, context,
+                                     pipeline.spec.bit_depth)
+            rtl = runner.run_rtl(chain, frame, values, context,
                                  pipeline.spec.bit_depth)
-        rtl = runner.run_rtl(chain, frame, values, context,
-                             pipeline.spec.bit_depth)
-        if not np.array_equal(model, rtl):
-            raise ValueError(
-                f"{pipeline.name}: the generated RTL DIFFERS from the "
-                "model; refusing to emit an unverified pack")
-        print(f"{pipeline.name}: twin bit-exact with the model "
-              f"({model.size} words)")
+            if not np.array_equal(model, rtl):
+                raise ValueError(
+                    f"{pipeline.name}: the generated RTL DIFFERS from the "
+                    f"model on the chain from {name!r}; refusing to emit "
+                    "an unverified pack")
+            where = "" if len(pipeline.inputs) == 1 else f" from {name}"
+            print(f"{pipeline.name}: twin bit-exact with the model"
+                  f"{where} ({model.size} words)")
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
