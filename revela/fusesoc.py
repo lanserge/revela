@@ -28,7 +28,8 @@ from pathlib import Path
 
 
 def emit(design, output_dir, name: str | None = None, control: bool = True,
-         clock_mhz: float | None = None, verify: bool = True) -> dict:
+         clock_mhz: float | None = None, verify: bool = True,
+         sync_memory: bool = False) -> dict:
     """Build a design and write its pack: Verilog, maps, manifest.
 
     Args:
@@ -108,7 +109,8 @@ def emit(design, output_dir, name: str | None = None, control: bool = True,
 
     generated = pipeline.generate(
         control=control,
-        clk_ns=None if clock_mhz is None else 1000.0 / clock_mhz)
+        clk_ns=None if clock_mhz is None else 1000.0 / clock_mhz,
+        sync_memory=sync_memory)
     written = {
         "verilog": output_dir / f"{pipeline.name}.v",
         "regmap": output_dir / f"{pipeline.name}_regmap.json",
@@ -167,6 +169,10 @@ def emit(design, output_dir, name: str | None = None, control: bool = True,
         # inverted on alternate rows rather than an error.
         "geometry": {"width": pipeline.width, "height": pipeline.height},
         "boundary": generated.meta["boundary"],
+        # Every memory the pack infers, per stage: instance, the seam
+        # module it sits behind (or null), width, depth, and whether its
+        # read is synchronous. An integrator binding macros starts here.
+        "memories": generated.meta.get("memories", {}),
     }, indent=2) + "\n")
     return written
 
@@ -201,7 +207,8 @@ def main(argv=None) -> int:
          name=str(data.get("vlnv") or "") or None,
          control=bool(parameters.get("control", True)),
          clock_mhz=None if clock is None else float(clock),
-         verify=bool(parameters.get("verify", True)))
+         verify=bool(parameters.get("verify", True)),
+         sync_memory=bool(parameters.get("sync_memory", False)))
     return 0
 
 

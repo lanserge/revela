@@ -437,7 +437,8 @@ class Block:
                       for bit in self.context})
 
     def generate(self, spec, width: int, height: int, module_name: str,
-                 clk_ns: float | None = None) -> "Generated":
+                 clk_ns: float | None = None,
+                 sync_memory: bool = False) -> "Generated":
         """Trace the model into Verilog. Generic: every block uses this one.
 
         There is no per-block generator and no hand-written Verilog anywhere in
@@ -486,7 +487,8 @@ class Block:
         _, result = to_ir(traced, image, *context, *registers,
                           channels=spec.channels)
         core = np2hw_generate(result, module_name=module_name,
-                              clk_ns=clk_ns, label=self.name)
+                              clk_ns=clk_ns, label=self.name,
+                              sync_memory=sync_memory)
 
         verilog = "\n".join([
             *spdx_header(
@@ -508,7 +510,11 @@ class Block:
             latency=1,
             meta={"line_buffers": core.line_buffers,
                   "shift_depth": core.shift_depth,
-                  "out_bits": core.out_bits, "bit_depth": spec.bit_depth},
+                  "out_bits": core.out_bits, "bit_depth": spec.bit_depth,
+                  # what this block's memories are and whether each is
+                  # behind np2hw's seam -- the fact an integrator binding
+                  # macros needs, published rather than grepped for
+                  "memories": list(core.get("memories", ()))},
         )
 
 def configblock(name, *, version, description, params=(), stats=()):

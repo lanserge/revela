@@ -85,6 +85,12 @@ def main(argv=None) -> int:
     generate.add_argument("--no-verify", action="store_true",
                           help="skip the Verilator twin -- only for flows "
                                "that prove the same thing elsewhere")
+    generate.add_argument("--sync-memory", action="store_true",
+                          help="refuse any block whose line buffers read "
+                               "combinationally: every memory in the pack "
+                               "must sit behind np2hw's seam, where a "
+                               "memory macro can be bound. The pack for "
+                               "silicon, not for an FPGA")
     generate.set_defaults(handler=_generate)
 
     arguments = parser.parse_args(argv)
@@ -155,7 +161,8 @@ def _generate(arguments) -> int:
     written = fusesoc.emit(arguments.design, arguments.out,
                            control=not arguments.no_control,
                            clock_mhz=arguments.clock_mhz,
-                           verify=not arguments.no_verify)
+                           verify=not arguments.no_verify,
+                           sync_memory=arguments.sync_memory)
     if arguments.clock_mhz is not None:
         print(f"timing: every pointwise stage fits "
               f"{1000.0 / arguments.clock_mhz:.1f} ns "

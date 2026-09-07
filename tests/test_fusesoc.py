@@ -20,6 +20,7 @@ from revela import designs, fusesoc
 
 ROOT = Path(__file__).resolve().parent.parent
 MONO = ROOT / "pipelines" / "mono" / "imx219" / "basic" / "pipeline.json"
+COLOR = ROOT / "pipelines" / "mono" / "imx219" / "color" / "pipeline.json"
 
 
 def test_emit_writes_a_pack_identical_to_a_direct_build(tmp_path):
@@ -160,6 +161,36 @@ def test_cli_generate_emits_the_pack(tmp_path):
                      "--no-verify"]) == 0
     assert (out / "tiny_pack.v").exists()
     assert (out / "tiny_pack_regmap.json").exists()
+
+
+def test_sync_memory_admits_the_isp_and_publishes_its_memories(tmp_path):
+    """Every memory the ISP infers sits behind np2hw's seam.
+
+    ``sync_memory=True`` is the promise a pack bound for silicon makes: no
+    line buffer reads combinationally, so each can be bound to a macro by
+    module name. The demosaic pipeline is the one that infers memories at
+    all, so it is the one that has to pass -- and the build report has to
+    say what was inferred, because an integrator binds against the report,
+    not against a grep of the Verilog.
+    """
+    written = fusesoc.emit(COLOR, tmp_path, verify=False, sync_memory=True)
+    memories = json.loads(written["build"].read_text())["memories"]
+    assert memories, "a demosaic pipeline infers line buffers"
+    entries = [m for stage in memories.values() for m in stage]
+    assert all(m["read"] == "sync" for m in entries)
+    assert all(m["module"].endswith("_linebuf") for m in entries)
+    verilog = written["verilog"].read_text()
+    for entry in entries:
+        assert f"module {entry['module']} #(" in verilog
+
+    # the flag refuses; it never changes what is emitted
+    plain = fusesoc.emit(COLOR, tmp_path / "plain", verify=False)
+    assert plain["verilog"].read_text() == verilog
+
+    # a pointwise-only pack has nothing to bind, and says so
+    tiny = fusesoc.emit(_tiny_design(), tmp_path / "tiny", verify=False,
+                        sync_memory=True)
+    assert json.loads(tiny["build"].read_text())["memories"] == {}
 
 
 def test_a_diverging_twin_refuses_the_whole_pack(tmp_path, monkeypatch):

@@ -611,7 +611,8 @@ class Pipeline:
     # -- generation ------------------------------------------------------------ #
 
     def generate(self, control: bool = True,
-                 clk_ns: float | None = None) -> Generated:
+                 clk_ns: float | None = None,
+                 sync_memory: bool = False) -> Generated:
         """Emit every block's Verilog, and hand the netlist to np2hw to compose.
 
         revela emits no Verilog. It describes: which instances exist, how they
@@ -658,7 +659,8 @@ class Pipeline:
             in_w, in_h = self._incoming_geometry(stage, built)
             result = stage.block.generate(
                 self.spec.with_stream(*self._incoming_stream(stage, built)),
-                in_w, in_h, module_name=name, clk_ns=clk_ns)
+                in_w, in_h, module_name=name, clk_ns=clk_ns,
+                sync_memory=sync_memory)
             modules.extend(result.modules)
             built[stage.path] = seen[name] = result
 
@@ -704,7 +706,14 @@ class Pipeline:
                                for n in self.inputs},
                     "outputs": {n: self._output_boundary(built, n)
                                 for n in self.outputs},
-                }}
+                },
+                # Every memory the pipeline infers, per stage, and whether
+                # it is behind np2hw's seam. An integrator binding macros
+                # reads this; sync_memory=True is the promise that every
+                # entry here says "sync".
+                "memories": {path: g.meta["memories"]
+                             for path, g in built.items()
+                             if g.meta.get("memories")}}
         name = self.name
         if control:
             wrapper = self._control_top(top, built)
