@@ -18,7 +18,12 @@ Pre-1.0, so the block API and the map format can still change. See
   nobody and `pip install revela` could not complete. The same API ships
   as np2hw 0.6.1 and the floor now points there. No revela code changed.
 
-## 0.3.0
+## 0.3.0 (withdrawn)
+
+Removed from PyPI: its `np2hw>=0.6.0` floor named a version that was
+itself withdrawn, so this release could not be installed. **0.3.1 is
+this release with the floor corrected and no code changes** — what
+follows describes what shipped there.
 
 ### Added
 
