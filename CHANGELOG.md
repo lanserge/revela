@@ -8,6 +8,43 @@ widths** an integrator wires to.
 Pre-1.0, so the block API and the map format can still change. See
 `docs/RELEASING.md` for which version numbers must be bumped when.
 
+## 0.3.0
+
+### Added
+
+- **`sync_memory`, threaded to where a pack is built.** np2hw 0.6.0 puts
+  every line buffer behind a module a memory macro can be bound to, and
+  refuses the emitters whose line buffers read combinationally — no SRAM
+  implements a combinational read. That ask now reaches through
+  `Block.generate`, `Pipeline.generate`, `emit()`, the FuseSoC
+  generator's parameters and **`revela generate --sync-memory`**, so a
+  pack bound for silicon is built under the promise that no memory in it
+  is unbindable.
+
+  The promise is refusal-only. A pack generated with the flag is
+  byte-identical to one generated without; what differs is that the
+  second could have contained something no macro implements, and the
+  first could not have been written.
+
+- **`memories` in `<name>_build.json`.** Per stage: the instance, the
+  seam module it sits behind (or null), width, depth, and whether the
+  read is synchronous. An integrator binding macros starts from the
+  build report, not from a grep of the Verilog — the same reason the
+  boundary is published there.
+
+### Changed
+
+- **The np2hw floor is `>=0.6.0`**, because `Block.generate` passes
+  `sync_memory` on every call and an older np2hw raises `TypeError` on
+  the first block a pipeline builds. The previous floor said 0.5.1 and
+  was wrong; CI caught it on a clean install, which is the only place it
+  can be caught — a co-development checkout has np2hw installed editable
+  and therefore always satisfies any floor.
+
+The register map is untouched: `MAP_FORMAT_VERSION` stays 4, and a pack
+built by this version is byte-identical to one built by 0.2.0 for a
+design that does not ask for the flag.
+
 ## 0.2.0
 
 ### Added

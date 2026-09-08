@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "revela"
-version = "0.2.0"
+version = "0.3.0"
 description = "An image signal processing pipeline written in NumPy, from which synthesisable Verilog is generated"
 readme = "README.md"
 requires-python = ">=3.11"
