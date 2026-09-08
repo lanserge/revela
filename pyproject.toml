@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "revela"
-version = "0.3.0"
+version = "0.3.1"
 description = "An image signal processing pipeline written in NumPy, from which synthesisable Verilog is generated"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -36,11 +36,13 @@ dependencies = [
     # 0.3.0 refuses to generate. 0.5.1 was the arm handshake: 0.5.0 wired
     # arm_req and arm_ack without declaring them, so the control top a
     # board instantiates does not pass a lint, and this project's CI
-    # lints exactly that module. And 0.6.0 is `generate(sync_memory=)`,
+    # lints exactly that module. And 0.6.1 is `generate(sync_memory=)`,
     # which Block.generate passes on every call -- an older np2hw raises
     # TypeError on the first block a pipeline builds, so this floor is
     # the difference between a package that works and one that imports.
-    "np2hw>=0.6.0",
+    # 0.6.0 carried the same API but was withdrawn before it was
+    # announced, and a withdrawn version resolves for nobody.
+    "np2hw>=0.6.1",
 ]
 
 [project.optional-dependencies]

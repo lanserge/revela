@@ -8,11 +8,21 @@ widths** an integrator wires to.
 Pre-1.0, so the block API and the map format can still change. See
 `docs/RELEASING.md` for which version numbers must be bumped when.
 
+## 0.3.1
+
+### Fixed
+
+- **The np2hw floor names a version that exists.** 0.3.0 declared
+  `np2hw>=0.6.0`; that release was withdrawn before it was announced and
+  PyPI does not return a deleted version, so the floor resolved for
+  nobody and `pip install revela` could not complete. The same API ships
+  as np2hw 0.6.1 and the floor now points there. No revela code changed.
+
 ## 0.3.0
 
 ### Added
 
-- **`sync_memory`, threaded to where a pack is built.** np2hw 0.6.0 puts
+- **`sync_memory`, threaded to where a pack is built.** np2hw 0.6.1 puts
   every line buffer behind a module a memory macro can be bound to, and
   refuses the emitters whose line buffers read combinationally — no SRAM
   implements a combinational read. That ask now reaches through
