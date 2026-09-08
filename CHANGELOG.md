@@ -13,17 +13,21 @@ Pre-1.0, so the block API and the map format can still change. See
 ### Fixed
 
 - **The np2hw floor names a version that exists.** 0.3.0 declared
-  `np2hw>=0.6.0`; that release was withdrawn before it was announced and
-  PyPI does not return a deleted version, so the floor resolved for
-  nobody and `pip install revela` could not complete. The same API ships
-  as np2hw 0.6.1 and the floor now points there. No revela code changed.
+  `np2hw>=0.6.0`, and np2hw 0.6.0 was withdrawn from the index. While
+  nothing at or above that bound was published, `pip install revela`
+  could not complete. np2hw 0.6.1 clears the bound arithmetically — a
+  floor is a lower bound, not a name — so what this release really
+  changes is that the number written down is one a reader can go and
+  fetch. No revela code changed.
 
 ## 0.3.0 (withdrawn)
 
-Removed from PyPI: its `np2hw>=0.6.0` floor named a version that was
-itself withdrawn, so this release could not be installed. **0.3.1 is
-this release with the floor corrected and no code changes** — what
-follows describes what shipped there.
+Removed from PyPI. Its `np2hw>=0.6.0` floor pointed at a release that had
+itself been withdrawn, and while nothing at or above that bound existed
+this version could not be installed. np2hw 0.6.1 later cleared the bound,
+but 0.3.0 had already been removed and a burned version does not come
+back. **0.3.1 is this release with the floor corrected and no code
+changes** — what follows describes what shipped there.
 
 ### Added
 
