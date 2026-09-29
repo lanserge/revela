@@ -372,6 +372,11 @@ revela/
                   from the frame's own shape -- the first block whose table
                   is data rather than coefficients, and the first to prove
                   Rom() lands in block RAM
+    tofquad.py    complete; time-of-flight phase + amplitude by CORDIC from
+                  the last four frames as channels of one word, each routed
+                  onto the quadrature by the phase tag it carries
+    tofrange.py   complete; phase to perpendicular depth, the lens as
+                  registers over the raster's own counters (coords())
     demosaic/
       bilinear.py complete; CFA-position-selected taps on one shared window,
                   three channels out via np.stack -- the model never packs

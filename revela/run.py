@@ -438,12 +438,21 @@ def run_rtl(chain, frame: np.ndarray, values, context: dict,
     from revela.compose import Pipeline
     from revela.stream import StreamSpec
 
+    from revela.blocks import pipe as pipe_block
+
     height, width = frame.shape[:2]
     in_channels = 1 if frame.ndim == 2 else int(frame.shape[-1])
+    # A context with no register exists only where the stream delivers it,
+    # so the twin takes from its "stream" -- the values the caller passes --
+    # every stream-only context its chain consumes.
+    consumed = {name for stage in chain for name in stage.block.params.consumes}
+    from_stream = tuple(c.name for c in pipe_block.CONTEXT
+                        if c.origin == "stream" and c.name in consumed)
     twin = Pipeline("chain",
                     StreamSpec(bit_depth=bit_depth, channels=in_channels),
                     width, height,
-                    inputs=("chain_in",), outputs=("chain_out",))
+                    inputs=("chain_in",), outputs=("chain_out",),
+                    context_from_stream=from_stream)
     for stage in chain:
         twin.add(stage.path, stage.block)
     source = "chain_in"
@@ -456,7 +465,6 @@ def run_rtl(chain, frame: np.ndarray, values, context: dict,
 
     top_text = dict(generated.modules)[generated.top]
     scraped = _scrape_ports(top_text)
-    binary = _twin_binary(verilog, generated.top, scraped)
     port_values = _port_values(twin, scraped, values, context,
                                width, height, bit_depth)
 
@@ -481,6 +489,8 @@ def run_rtl(chain, frame: np.ndarray, values, context: dict,
             f"the chain's output port is {scraped_bits} bits but its traced "
             f"boundary says {out_bits}; the generator and its own report "
             "disagree about the same word")
+    binary = _twin_binary(verilog, generated.top, scraped,
+                          in_bits=in_channels * bit_depth, out_bits=out_bits)
     words = _pack(frame, in_channels, bit_depth)
 
     with tempfile.TemporaryDirectory() as scratch:
@@ -498,15 +508,17 @@ def run_rtl(chain, frame: np.ndarray, values, context: dict,
                 f"the RTL twin did not complete the frame: {done.stdout.strip()}"
                 f" {done.stderr.strip()}")
         got = np.array([int(line, 16) for line in
-                        (scratch / "out.txt").read_text().split()], np.uint64)
+                        (scratch / "out.txt").read_text().split()], dtype=object)
     return _unpack(got, height, width, out_channels, out_lane)
 
 
 def _pack(frame: np.ndarray, channels: int, bit_depth: int) -> np.ndarray:
+    """Stream words as Python integers: a word of eight 16-bit channels is 128
+    bits, and a 64-bit numpy word would drop the top half without a sound."""
+    frame = frame.astype(np.int64).astype(object)
     if channels == 1:
-        return frame.astype(np.uint64).ravel()
-    planes = [frame[..., c].astype(np.uint64) << (c * bit_depth)
-              for c in range(channels)]
+        return frame.ravel()
+    planes = [frame[..., c] << (c * bit_depth) for c in range(channels)]
     return sum(planes).ravel()
 
 
@@ -540,12 +552,21 @@ def _port_values(twin, scraped: list[str], values, context, width, height,
     read of the declarations, not a parallel naming scheme. The refusal on
     an uncovered port is what keeps it honest.
     """
+    from revela.blocks import pipe as pipe_block
+
     ports = {}
-    ctx = {"width": width, "height": height,
-           "window_x0": 0, "window_y0": 0,
-           "window_x1": width, "window_y1": height,
-           "bit_depth": bit_depth,
-           "bayer_phase": context.get("bayer_phase", 0)}
+    # Every context `pipe` declares, read from its declarations rather than
+    # listed here: geometry and depth are this run's facts, anything else is
+    # the caller's value or the declared reset. A list kept here would be a
+    # second copy of pipe.CONTEXT, and the first context added there would
+    # meet a port this file had never heard of.
+    known = {"width": width, "height": height,
+             "window_x0": 0, "window_y0": 0,
+             "window_x1": width, "window_y1": height,
+             "bit_depth": bit_depth}
+    ctx = {c.name: known[c.name] if c.name in known
+           else context.get(c.name, c.default)
+           for c in pipe_block.CONTEXT}
     for stage in twin.stages:
         if stage.path == "pipe":
             continue
@@ -567,11 +588,37 @@ def _port_values(twin, scraped: list[str], values, context, width, height,
     return chosen
 
 
-def _twin_binary(verilog: str, top: str, scraped: list[str]) -> Path:
+def _port_code(port: str, bits: int, direction: str) -> str:
+    """C++ moving one stream port to or from 32-bit chunks, for its width.
+
+    Verilator gives a port of up to 64 bits as one integer and a wider one as
+    an array of 32-bit words, least significant first; the chunks here use
+    that same order, so the wide case is a copy."""
+    if direction == "in":
+        if bits <= 32:
+            return f"    top->{port} = w[0];"
+        if bits <= 64:
+            return f"    top->{port} = ((uint64_t)w[1] << 32) | w[0];"
+        return f"    for (int k = 0; k < IW; k++) top->{port}[k] = w[k];"
+    if bits <= 32:
+        return f"    w[0] = top->{port};"
+    if bits <= 64:
+        return (f"    uint64_t v = top->{port};\n"
+                "    w[0] = (uint32_t)v; w[1] = (uint32_t)(v >> 32);")
+    return f"    for (int k = 0; k < OW; k++) w[k] = top->{port}[k];"
+
+
+def _twin_binary(verilog: str, top: str, scraped: list[str],
+                 in_bits: int, out_bits: int) -> Path:
     """Compile the twin, or reuse the cached build for this exact structure."""
     assign = "\n".join(f'    top->{port} = take("{port}");'
                        for port in scraped)
-    harness = _HARNESS.replace("@TOP@", top).replace("@ASSIGN@", assign)
+    harness = (_HARNESS.replace("@TOP@", top).replace("@ASSIGN@", assign)
+               .replace("@IN_WORDS@", str(-(-in_bits // 32)))
+               .replace("@OUT_WORDS@", str(-(-out_bits // 32)))
+               .replace("@SET_IN@", _port_code("chain_in_data", in_bits, "in"))
+               .replace("@GET_OUT@", _port_code("chain_out_data", out_bits,
+                                                "out")))
     key = hashlib.sha256((verilog + harness).encode()).hexdigest()[:16]
     build = CACHE_ROOT / key
     binary = build / "obj_dir" / f"V{top}"
@@ -603,16 +650,45 @@ _HARNESS = r"""#include "V@TOP@.h"
 #include <vector>
 #include <map>
 
+// Stream words of any width travel as 32-bit chunks, least significant
+// first -- the layout Verilator itself gives a port wider than 64 bits.
+static const int IW = @IN_WORDS@, OW = @OUT_WORDS@;
+
+static void parse_words(const char* hex, uint32_t* out, int nwords) {
+    long len = (long)std::strlen(hex);
+    for (int w = 0; w < nwords; w++) {
+        long end = len - 8L * w, start = end - 8;
+        out[w] = 0;
+        if (end <= 0) continue;
+        if (start < 0) start = 0;
+        char chunk[9];
+        std::memcpy(chunk, hex + start, end - start);
+        chunk[end - start] = 0;
+        out[w] = (uint32_t)std::strtoul(chunk, nullptr, 16);
+    }
+}
+
+static void set_in(V@TOP@* top, const uint32_t* w) {
+@SET_IN@
+}
+
+static void get_out(V@TOP@* top, uint32_t* w) {
+@GET_OUT@
+}
+
 int main(int argc, char** argv) {
     Verilated::commandArgs(argc, argv);
     if (argc != 5) { std::fprintf(stderr, "in out ports total\n"); return 1; }
     auto* top = new V@TOP@;
     long total = std::atol(argv[4]);
 
-    std::vector<uint64_t> mem(total);
+    std::vector<uint32_t> mem((size_t)total * IW);
     FILE* fi = std::fopen(argv[1], "r");
-    for (long i = 0; i < total; i++)
-        if (std::fscanf(fi, "%llx", (unsigned long long*)&mem[i]) != 1) return 1;
+    char hex[1024];
+    for (long i = 0; i < total; i++) {
+        if (std::fscanf(fi, "%1023s", hex) != 1) return 1;
+        parse_words(hex, &mem[(size_t)i * IW], IW);
+    }
     std::fclose(fi);
 
     std::map<std::string, uint64_t> port;
@@ -632,24 +708,27 @@ int main(int argc, char** argv) {
     int sending = 0;
     top->rst = 1; top->chain_in_valid = 0;
     top->chain_in_eol = 0; top->chain_in_last = 0; top->chain_out_ready = 1;
-    top->chain_in_data = mem[0]; top->chain_in_sof = 1;
+    set_in(top, &mem[0]); top->chain_in_sof = 1;
     for (int i = 0; i < 4; i++) { top->clk = 0; top->eval(); top->clk = 1; top->eval(); }
     top->rst = 0; sending = 1; top->chain_in_valid = 1;
 
     for (long guard = 0; guard < 4 * total + 4096; guard++) {
         top->clk = 0; top->eval();
         int ready = top->chain_in_ready, valid = top->chain_out_valid;
-        uint64_t data = top->chain_out_data;
+        uint32_t data[OW];
+        get_out(top, data);
         top->clk = 1; top->eval();
         if (sending && ready) {
             if (idx == total - 1) { sending = 0; top->chain_in_valid = 0; }
             else idx++;
         }
         if (valid) {
-            std::fprintf(fo, "%llx\n", (unsigned long long)data);
+            std::fprintf(fo, "%x", data[OW - 1]);
+            for (int w = OW - 2; w >= 0; w--) std::fprintf(fo, "%08x", data[w]);
+            std::fprintf(fo, "\n");
             if (++got == total) break;
         }
-        top->chain_in_data = mem[idx];
+        set_in(top, &mem[(size_t)idx * IW]);
         top->chain_in_sof = (idx == 0);
     }
     std::fclose(fo);

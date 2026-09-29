@@ -244,7 +244,11 @@ one np2hw trace of its NumPy model. `bilinear` is the first block whose tap
 combination is selected by CFA position over a shared line-buffered window,
 and the first to emit a three-channel stream — its model ends in
 `np.stack([r, g, b], axis=-1)`, and the wire packing belongs to the stream
-layer alone.
+layer alone. `tofquad` and `tofrange` are complete the same way: time-of-flight
+phase and amplitude by CORDIC, from the last four frames of the sensor's phase
+cycle carried as channels of one word, then perpendicular depth in millimetres
+from the phase and the lens -- composed, the pair is bit-exact with its
+generated Verilog.
 `pipe`, `stats`, the register map with its AXI4-Lite control plane, address
 allocation, build-time register overrides, the sensor schema and the
 composition layer are implemented. The remaining blocks (`lsc`, `defect`,

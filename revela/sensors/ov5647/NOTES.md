@@ -4,8 +4,9 @@ The reference sensor's fitted values, and where each number came
 from. A profile without provenance is a superstition; these are the
 receipts.
 
-**Pedestal 16** (10-bit scale): measured 15 in the dark on this
-module; 16 keeps a one-code guard.
+**Pedestal 16** at the sensor's 10 bits: measured 15 in the dark on this
+module; 16 keeps a one-code guard. The profile writes it as -64, in the
+12-bit datapath's units.
 
 **White balance (Q8.8: r 491, gr 256, gb 256, b 305)**: fitted from
 the slope of a ColorChecker's neutral ramp in daylight — the RAMP,

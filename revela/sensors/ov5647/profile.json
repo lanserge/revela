@@ -1,8 +1,8 @@
 {
-  "blacklevel.offset_0_0": -16,
-  "blacklevel.offset_0_1": -16,
-  "blacklevel.offset_1_0": -16,
-  "blacklevel.offset_1_1": -16,
+  "blacklevel.offset_0_0": -64,
+  "blacklevel.offset_0_1": -64,
+  "blacklevel.offset_1_0": -64,
+  "blacklevel.offset_1_1": -64,
   "whitebalance.gain_0_0": 491,
   "whitebalance.gain_0_1": 256,
   "whitebalance.gain_1_0": 256,

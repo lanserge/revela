@@ -190,9 +190,20 @@ class Pipeline:
         # itself holds the flattened equivalents.
         self.boundary_edges: list[tuple[str, str]] = []
         for name in context_from_stream:
-            pipe_block.resolve(name)        # raises with the available names
+            if pipe_block.resolve(name).origin == "register":
+                raise ValueError(
+                    f"{name!r} cannot arrive with the stream: it is software's "
+                    "choice, not a fact a transport carries, so it stays a "
+                    "register")
         self.context_from_stream = frozenset(context_from_stream)
         self.add("pipe", pipe_block.pipe)
+
+    def contexts(self) -> tuple:
+        """The context signals this pipeline HAS: every register-backed one,
+        and a stream-only one where the stream delivers it. One answer, read
+        by the ports, the binding and the pass-through alike."""
+        return tuple(c for c in pipe_block.CONTEXT
+                     if c.origin != "stream" or c.name in self.context_from_stream)
 
     # -- composition ---------------------------------------------------------- #
 
@@ -220,7 +231,13 @@ class Pipeline:
 
         block = block.configure(registers)
         for signal in block.params.consumes:
-            pipe_block.resolve(signal)      # raises with the available names
+            context = pipe_block.resolve(signal)    # raises with the names
+            if (context.origin == "stream"
+                    and signal not in self.context_from_stream):
+                raise ValueError(
+                    f"{path!r} consumes {signal!r}, which changes every frame "
+                    "and so has no register: it must arrive with the stream. "
+                    "List it in the pipeline's stream.context")
 
         if any(stage.path == path for stage in self.stages):
             raise ValueError(
@@ -600,7 +617,7 @@ class Pipeline:
         bind = {f"ctx_{ctx.name}":
                 (f"ctx_{ctx.name}" if ctx.name in self.context_from_stream
                  else f"param_pipe_{ctx.name}")
-                for ctx in pipe_block.CONTEXT}
+                for ctx in self.contexts()}
         for path, result in built.items():
             stage = self.stage(path)
             for name, _ in result.params:
@@ -726,7 +743,7 @@ class Pipeline:
         return Generated(
             top=name,
             modules=tuple(modules),
-            consumes=tuple(pipe_block.context_names()),
+            consumes=tuple(c.name for c in self.contexts()),
             latency=sum(r.latency for r in built.values()),
             meta=meta,
         )
@@ -744,7 +761,7 @@ class Pipeline:
 
         return control_wrap(
             top, self.address_map(), bind=self.control_bind(built),
-            passthrough=[(f"ctx_{c.name}", c.bits) for c in pipe_block.CONTEXT
+            passthrough=[(f"ctx_{c.name}", c.bits) for c in self.contexts()
                          if c.name in self.context_from_stream],
             module_name=f"{self.name}_ctrl",
             addr_bits=self.allocator.address_bits(),
@@ -873,7 +890,7 @@ class Pipeline:
                  comment=f"Pipeline context, owned by `pipe` at base 0 and fanned "
                          f"out as a wire -- never duplicated per block. "
                          f"{ctx.description}")
-            for ctx in pipe_block.CONTEXT
+            for ctx in self.contexts()
         ]
         # The coefficients are written from another clock -- see COMMIT in
         # blocks/pipe.py. These two carry the whole crossing: the file

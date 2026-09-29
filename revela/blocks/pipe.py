@@ -71,24 +71,28 @@ CONTEXT = (
         bits=16,
         default=0,
         description="Left edge of the active window, in pixels from the line start",
+        origin="register",
     ),
     Context(
         name="window_y0",
         bits=16,
         default=0,
         description="Top edge of the active window, in lines from the frame start",
+        origin="register",
     ),
     Context(
         name="window_x1",
         bits=16,
         default=1920,
         description="Right edge of the active window, exclusive",
+        origin="register",
     ),
     Context(
         name="window_y1",
         bits=16,
         default=1080,
         description="Bottom edge of the active window, exclusive",
+        origin="register",
     ),
     Context(
         name="bayer_phase",
@@ -105,6 +109,19 @@ CONTEXT = (
         description="Bits per component actually delivered by the sensor. The datapath "
                     "is BUILT for a maximum; this reports what is in use, so software "
                     "can scale without a rebuild",
+    ),
+    Context(
+        name="frame_phase",
+        bits=4,
+        default=0,
+        description="The live frame's position in the sensor's capture loop -- a "
+                    "time-of-flight reference phase, an HDR exposure slot -- the "
+                    "temporal twin of bayer_phase. Unlike bayer_phase it advances "
+                    "every frame, so software never writes it: the receiver derives "
+                    "it as (frame counter + offset) mod loop length, the loop length "
+                    "and offset being the sensor's, set once. A block reads the "
+                    "position of the frame i back as (frame_phase - i) mod length",
+        origin="stream",
     ),
 )
 
@@ -142,7 +159,11 @@ pipe = configblock(
     "pipe",
     version=(1, 0),
     description="Pipeline-wide context, fanned out to blocks as wires.",
-    params=[ctx.as_param() for ctx in CONTEXT] + [COMMIT],
+    # A stream-only context has no register -- nothing software writes could
+    # keep up with it -- so it takes no address, and the map of every
+    # pipeline that does not use it is untouched.
+    params=[ctx.as_param() for ctx in CONTEXT if ctx.origin != "stream"]
+    + [COMMIT],
 )
 
 CONTEXT_BY_NAME = {ctx.name: ctx for ctx in CONTEXT}

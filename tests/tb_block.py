@@ -88,7 +88,9 @@ async def bit_exact_against_model(dut):
 
     for trial_number, trial in enumerate(case["trials"]):
         rnd = random.Random(trial["seed"])
-        frame = np.array(trial["frame"], dtype=np.uint64).reshape(height, width)
+        # Python ints, not a 64-bit numpy word: a word of eight 16-bit
+        # channels is 128 bits, and uint64 would not even hold it.
+        frame = np.array(trial["frame"], dtype=object).reshape(height, width)
         values = trial.get("values", {})
         context = trial.get("context", {})
 
@@ -120,9 +122,9 @@ async def bit_exact_against_model(dut):
         if expected.ndim == 3:
             spec_out = StreamSpec(bit_depth=bit_depth,
                                   channels=expected.shape[-1])
-            expected = np.apply_along_axis(
-                lambda px: spec_out.pack(px.tolist()), -1,
-                expected.astype(np.int64)).astype(np.uint64)
+            expected = np.array(
+                [[spec_out.pack(px) for px in row]
+                 for row in expected.astype(np.int64).tolist()], dtype=object)
 
         # The wire carries the model's own input words; the framing they get
         # is np2hw's statement, made where the flags' meaning lives.

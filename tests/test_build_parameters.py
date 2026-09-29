@@ -82,7 +82,8 @@ def test_refused_attributes_name_what_is_allowed():
 # Through the design JSON
 # --------------------------------------------------------------------------- #
 
-def test_a_design_override_reaches_the_map_the_rtl_and_the_docs():
+@requires_verilator
+def test_a_design_override_reaches_the_map_the_rtl_and_the_docs(rng):
     pipeline = designs.build(_design_with_override(frac=12))
     blocks = {b["path"]: b for b in pipeline.register_map()["blocks"]}
     wb = blocks["whitebalance"]
@@ -91,8 +92,24 @@ def test_a_design_override_reaches_the_map_the_rtl_and_the_docs():
     assert formats["gain_0_0"] == "u4.12"
     assert {r["name"]: r["default"] for r in wb["registers"]}["gain_0_0"] == 4096
 
-    verilog = pipeline.generate(control=False).verilog
-    assert "stage0 >> 12" in verilog, "the trace must use the overridden shift"
+    # The RTL, checked by what it computes rather than by how a compiler
+    # happens to spell it: a gain of 1.5 in the overridden u4.12 must give
+    # exactly the model's output, which it does only if the shift of 12
+    # reached the hardware.
+    from revela.run import pixel_chain, run_model, run_rtl
+    stages = pixel_chain(pipeline)
+    one_and_a_half = (1 << 12) + (1 << 11)
+    gains = {r["name"]: one_and_a_half for r in wb["registers"]
+             if r["name"].startswith("gain_")}
+    values = {path: {r["name"]: r["default"] for r in block["registers"]}
+              for path, block in blocks.items()}
+    values["whitebalance"].update(gains)
+    context = {"bayer_phase": 0}
+    frame = raw_frame(rng, WIDTH, HEIGHT, BIT_DEPTH)
+    model = run_model(stages, frame, values, context, BIT_DEPTH)
+    rtl = run_rtl(stages, frame, values, context, BIT_DEPTH)
+    np.testing.assert_array_equal(rtl, model)
+    assert (model != frame).any(), "a gain of 1.5 changed nothing: no test"
 
 
 def test_two_variants_of_one_block_are_two_types_not_one():

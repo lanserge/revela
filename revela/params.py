@@ -441,6 +441,9 @@ class Param:
 # Context -- pipeline-wide facts, fanned out as wires
 # --------------------------------------------------------------------------- #
 
+CONTEXT_ORIGINS = ("register", "either", "stream")
+
+
 @dataclass(frozen=True)
 class Context:
     """A pipeline-wide fact owned by the ``pipe`` block and consumed as a wire.
@@ -456,11 +459,23 @@ class Context:
     default: int = 0
     signed: bool = False
     description: str = ""
+    #: Where the value may come from, because the kinds are genuinely
+    #: different. ``"register"``: always software's CHOICE -- a crop window --
+    #: so never taken from a stream. ``"either"``: a register, or a fact a
+    #: transport's header carries (width, Bayer phase). ``"stream"``: a fact
+    #: that changes every frame, so no register could ever hold it -- software
+    #: configures, it does not maintain -- and it exists in a pipeline only
+    #: where the stream delivers it.
+    origin: str = "either"
 
     def __post_init__(self) -> None:
         _check_name(self.name, "context signal")
         if not self.description:
             raise ValueError(f"context {self.name!r}: description is required")
+        if self.origin not in CONTEXT_ORIGINS:
+            raise ValueError(
+                f"context {self.name!r}: origin {self.origin!r} is not one of "
+                f"{CONTEXT_ORIGINS}")
 
     def as_param(self) -> Param:
         """The CSR backing this context signal inside the ``pipe`` block.
