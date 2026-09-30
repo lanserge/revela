@@ -82,7 +82,7 @@
       "name": "isp",
       "module": "revela_isp",
       "var": "isp",
-      "design": "pipeline.json",
+      "design": "revela.boards.pynq_z2.isp:revela_isp_core",
       "params": {
         "WIDTH": "p_isp_width",
         "SAMPLE_BITS": "p_sample_bits",

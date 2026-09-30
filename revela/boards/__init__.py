@@ -19,23 +19,15 @@ drawn between our own blocks, checkhwh the design as built.
 """
 from __future__ import annotations
 
-import importlib
-import json
 from pathlib import Path
 
 
 def resolve(ref: str) -> tuple[dict, Path]:
-    """A JSON block by reference, `package.module:block`, and the folder
-    it lives in (where the files it names are). Resolved through
-    importlib, so a checkout and an installed wheel behave the same."""
-    module, sep, name = ref.partition(":")
-    package, dot, leaf = module.rpartition(".")
-    if not (sep and dot and name):
-        raise ValueError(f"{ref!r} is not a block reference "
-                         "(package.module:block)")
-    folder = Path(importlib.import_module(package).__file__).resolve().parent
-    source = folder / f"{leaf}.json"
-    blocks = json.loads(source.read_text())["blocks"]
-    if name not in blocks:
-        raise KeyError(f"{ref}: {source} defines {sorted(blocks)}")
-    return blocks[name], folder
+    """A JSON block by reference, `package.module:block`, and the folder it
+    lives in (where the files it names are). The one resolver is the
+    composition loader's; this is it, for a primitive."""
+    from revela.designs.composite import find
+    found = find(ref)
+    if found.kind not in ("primitive", "composite"):
+        raise ValueError(f"{ref} is a {found.kind}, not a JSON block")
+    return found.obj, found.folder

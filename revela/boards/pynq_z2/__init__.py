@@ -46,6 +46,28 @@ def constraints() -> list[Path]:
             *(primitive(name)["constraints"] for name in d["primitives"])]
 
 
+def isp_ref() -> str:
+    """The ISP this design builds, by reference: the isp instance's."""
+    isp = next(i for i in design()["instances"] if i["name"] == "isp")
+    return isp["design"]
+
+
+def isp_name() -> str:
+    """The ISP's name: its generated modules and pack are named after it."""
+    return isp_ref().rpartition(":")[2]
+
+
+def isp_stream() -> dict:
+    """The facts of the stream entering the ISP -- bits, max_width,
+    max_height, context -- as the composite states them where it enters."""
+    from revela.designs.composite import load
+    streams = load(isp_ref()).streams
+    if len(streams) != 1:
+        raise ValueError(f"{isp_ref()}: this board feeds one stream, and the "
+                         f"ISP takes {sorted(streams)}")
+    return next(iter(streams.values()))
+
+
 def hdl_dirs(out: Path) -> list[Path]:
     """Every directory holding this design's Verilog: the board's own
     glue, the receiver's, and what the build generated."""

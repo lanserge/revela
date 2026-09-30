@@ -5,7 +5,9 @@
 The sensor package is a DRIVER: it writes its own sensor's
 registers (integration time, gains -- through the camera subdev the
 bridge already holds open) and carries the sensor's facts as data,
-including the fitted ISP profile as semantic key/value pairs. It
+including the fitted ISP profile as semantic key/value pairs, keyed
+``<composite>/<path relative to it>`` because a sensor's tuning is for
+a composite (bayer_isp), not for any one design. It
 never touches an ISP register and never sees a register map -- the
 revela ISP package (the policy owner) calls it through
 revela_sensor_api.h and does all far-end writing itself.
@@ -14,8 +16,9 @@ The generator mechanics live here in the open; the fitted profiles
 and per-sensor descriptor data this consumes are the sensor
 library's (revela-sensor-data).
 
-    python -m revela.host.sensor_module \\
-        --sensor ov5647 --profile profile.json --out sensor-ov5647.tar.gz
+    python -m revela.host.sensor_module --sensor ov5647 \\
+        [--profile revela.sensors.ov5647.profile:ov5647] \\
+        --out sensor-ov5647.tar.gz
 """
 import argparse
 import io
@@ -123,32 +126,41 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--sensor", required=True)
     parser.add_argument("--profile", default=None,
-                        help="fitted values, semantic keys (block.param); "
-                             "omit to use the built-in library "
-                             "(revela/sensors/<sensor>/profile.json -- "
-                             "ov5647 ships free as the reference; other "
-                             "sensors' data lives in revela-sensor-data)")
+                        help="the fitted profile, by reference "
+                             "(package.module:name); omit for the built-in "
+                             "library's, revela.sensors.<sensor>.profile:"
+                             "<sensor> -- ov5647 ships free as the "
+                             "reference; other sensors' data lives in "
+                             "revela-sensor-data")
+    parser.add_argument("--library", action="append", metavar="DIR",
+                        help="a directory to find libraries in, for this "
+                             "run: where a profile outside any installed "
+                             "package lives")
     parser.add_argument("--version", default="0.1")
     parser.add_argument("--out", default=None)
     args = parser.parse_args()
     out = args.out or f"sensor-{args.sensor}.tar.gz"
 
-    if args.profile:
-        profile_path = Path(args.profile)
-    else:
-        profile_path = (Path(__file__).parent.parent / "sensors"
-                        / args.sensor / "profile.json")
-        if not profile_path.exists():
-            print(f"no built-in profile for {args.sensor!r}: the free "
-                  "library carries the reference sensor only; other "
-                  "sensors' data comes from revela-sensor-data "
-                  "(--profile PATH)", file=sys.stderr)
-            return 2
-    values = {k: v for k, v in json.loads(profile_path.read_text()).items()
-              if not k.startswith("_")}
+    from revela.designs import profile
+    from revela.designs.composite import CompositionError, add_libraries
+    add_libraries(args.library)
+    ref = args.profile or f"revela.sensors.{args.sensor}.profile:{args.sensor}"
+    try:
+        fitted = profile.resolve(ref)
+    except CompositionError as error:
+        if args.profile:
+            raise
+        print(f"no built-in profile for {args.sensor!r} ({error}): the free "
+              "library carries the reference sensor only; other sensors' "
+              "data comes from revela-sensor-data (--profile REF)",
+              file=sys.stderr)
+        return 2
+    values = {f"{fitted.for_ref}/{key}": value
+              for key, value in profile.relative(fitted).items()}
     # The laws travel with the calibration: same sensor, same package.
     description = None
-    facts_path = profile_path.parent / "sensor.json"
+    facts_path = (Path(__file__).parent.parent / "sensors" / args.sensor
+                  / "sensor.json")
     if facts_path.exists():
         from revela import sensors
         description = sensors.load(args.sensor)

@@ -69,7 +69,12 @@ def main(argv=None) -> int:
                     "NumPy models under Verilator, and emit the pack: "
                     "Verilog, register map, SystemRDL, FuseSoC core "
                     "manifest. Refuses to emit anything unverified.")
-    generate.add_argument("design", help="pipeline description (pipeline.json)")
+    generate.add_argument("design", help="pipeline description (pipeline.json) "
+                                         "or a composite, package.module:name")
+    generate.add_argument("--library", action="append", metavar="DIR",
+                          help="a directory to find libraries in, for this "
+                               "run: a reference a.b:name then also looks "
+                               "for DIR/a/b.json. Repeatable")
     generate.add_argument("--out", default=".",
                           help="directory the pack lands in (default: here)")
     generate.add_argument("--clock-mhz", type=float, default=None,
@@ -157,6 +162,9 @@ def _run(arguments) -> int:
 
 def _generate(arguments) -> int:
     from revela import fusesoc
+    from revela.designs.composite import add_libraries
+
+    add_libraries(arguments.library)
 
     written = fusesoc.emit(arguments.design, arguments.out,
                            control=not arguments.no_control,

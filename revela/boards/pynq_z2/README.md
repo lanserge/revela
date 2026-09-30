@@ -12,7 +12,7 @@ it reads the pipeline's published contract and never restates it.
 |---|---|---|
 | receiver | `bayerlink_in`, the DDC slave, link reset, the dvi2rgb front end | [bayerlink-fpga](https://github.com/bayerlink/bayerlink-fpga) |
 | jacks | `hdmi_in` (front end, its configuration here, pins) and `hdmi_out` (transmitter, pins): the board's primitives, one JSON block and one constraints fragment each | this board |
-| ISP | `pipeline.json`, generated and proved bit-exact by revela | this repository |
+| ISP | `isp.json` (`revela_isp_core`), a composite of revela's blocks, generated and proved bit-exact | this repository |
 | raster, tee, grabber | np2hw's scanout, tee and FIFOs, the glue in `hdl/` | this board |
 | block design | `bd.tcl`, `design.json` (the datapath), the constraints | this board |
 
@@ -45,7 +45,8 @@ using a stale one. In order:
    from the `hdmi_in` primitive, writes the receiver's Verilog and
    `receiver.tcl`: the files to add, and the front end `bd.tcl` builds
    with `bayerlink_frontend`.
-3. `revela generate pipeline.json` builds the ISP and proves it.
+3. `revela generate revela.boards.pynq_z2.isp:revela_isp_core` builds the
+   ISP and proves it.
 4. `scanout.py` and `tee.py` emit the raster and the output tee.
 5. `params.py` writes `params.tcl` from the design, the board, its
    primitives and the ISP's traced contract, including the constraints
@@ -98,7 +99,7 @@ the offset; the reader that judges it corrects for it.
 Measure it with the grabber and a known pattern: stream one of the
 protocol's test patterns from the source (`bench/mkpattern.py`
 authors one AT YOUR PIPELINE'S OWN DEPTH, which is the depth in
-pipeline.json and nowhere else; a pattern authored at any other
+the ISP composite's input port and nowhere else; a pattern authored at any other
 depth is refused in a way that looks like a geometry fault and is not), `bench/grab.py` a frame, and read the
 roll off the known landmarks in the file. The display is direct and
 never carries the offset; only grabbed frames do, and the reader
@@ -126,13 +127,15 @@ Nothing runs the loop: power-on defaults enable the picture, so a
 board with the bitstream loaded IS the camera's display -- software
 is a set of visitors (`bench/load.py` once at boot,
 `bench/status.py` when curious, `bench/grab.py` to capture,
-`bench/calibrate.py` until parameters arrive over the cable from
-the sensor's owner). `clocking.md` tells the board's
-clocks-and-rates story: the cable in, and its two crossings.
+`bench/calibrate.py` to write values by hand; a sensor's profile
+otherwise arrives over the cable, from the source's packages).
+`clocking.md` tells the board's clocks-and-rates story: the cable in,
+and its two crossings.
 
 The ARM block was a placeholder, and it has been replaced:
-`pipeline.json` describes a revela pipeline -- black level, white
-balance, Hamilton-Adams demosaic, colour matrix, tone curve -- and
+`isp.json` describes a revela pipeline -- the standard ISP,
+`bayer_isp` (black level, white balance, Hamilton-Adams demosaic,
+colour matrix), then a display curve and the mark -- and
 revela generates it through np2hw, depth-checks every stage against
 the clock (`--clock-mhz`; a too-deep stage is CUT into pipeline stages
 by the traced depth model, and the one refusal left -- a single
@@ -144,6 +147,32 @@ the receiver and the output tee; a control bit selects the stream's
 consumer (the judge's capture path, or the ISP), and the ARM has no
 standing job at all: pixels do not touch software, and neither does
 the picture's survival. The camera is on the TV, in colour.
+
+## Profiles: what the Pi writes
+
+The ISP comes up neutral; the Pi writes its values over the cable at
+every link-up. They come from two profiles, each keyed relative to the
+block it is for:
+
+| profile | for | holds |
+|---|---|---|
+| `revela.boards.pynq_z2.isp:display` | this design | the 2.2 display curve: the same for every sensor here |
+| `revela.sensors.ov5647.profile:ov5647` | `bayer_isp` | what was measured on the sensor: pedestal, balance, matrix |
+
+The register map records where each composite sits (`isp` is the
+`bayer_isp`), so each resolves to this build's absolute keys. The Pi's
+two packages carry one each -- build them as a pair, since the ISP
+package bakes this build's map:
+
+```sh
+python3 -m revela.host.bridge_module --regmap build/pynq_z2/hdl/revela_isp_core_regmap.json \
+    --profile revela.boards.pynq_z2.isp:display --out revela-isp.tar.gz
+python3 -m revela.host.sensor_module --sensor ov5647 --out sensor-ov5647.tar.gz
+```
+
+The ISP package writes the design's values, then the sensor package's,
+anchored at every `bayer_isp` in the build. Without a Pi, `bench/calibrate.py`
+writes the same resolved values from the board itself (see its docstring).
 
 ## Porting to another board
 

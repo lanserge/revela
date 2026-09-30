@@ -1,0 +1,302 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/lanserge/revela/revela/designs/blocks.schema.json",
+  "title": "revela library file",
+  "description": "One JSON file of a library: named BLOCKS, each a COMPOSITE (it has nodes) or a PRIMITIVE (it does not), and named PROFILES, each the register values for one block. Everything is referenced as package.module:name, where package.module names this file, and a name means one thing in a file. No address may appear anywhere: addresses are allocated, never declared.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "blocks": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "if": {
+          "required": [
+            "nodes"
+          ]
+        },
+        "then": {
+          "$ref": "#/$defs/composite"
+        },
+        "else": {
+          "$ref": "#/$defs/primitive"
+        }
+      }
+    },
+    "profiles": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/profile"
+      }
+    }
+  },
+  "$defs": {
+    "name": {
+      "description": "An identifier. min, max and abs are reserved: expressions call them.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "not": {
+        "enum": [
+          "min",
+          "max",
+          "abs"
+        ]
+      }
+    },
+    "reference": {
+      "description": "A block, from the top of the import path: package.module:block. The module is a Python file (a leaf) or a JSON file of this schema.",
+      "type": "string",
+      "pattern": "^[a-z_][a-z0-9_]*(\\.[a-z_][a-z0-9_]*)+:[a-z_][a-z0-9_]*$"
+    },
+    "value": {
+      "description": "A number or an array is a literal; a string is ALWAYS an expression, in Python syntax, over the parameters in the scope of the composite it is written in.",
+      "oneOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/literal"
+          }
+        }
+      ]
+    },
+    "literal": {
+      "oneOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/literal"
+          }
+        }
+      ]
+    },
+    "settings": {
+      "description": "Keys are paths relative to the node: a parameter of the node itself (bit_depth), or of something inside it (ccm.m).",
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/value"
+      }
+    },
+    "ports": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "$ref": "#/$defs/name"
+          },
+          "context": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/name"
+            }
+          },
+          "bits": {
+            "$ref": "#/$defs/value",
+            "description": "An input's sample depth: a fact of the stream entering, stated where it enters and traced from there."
+          },
+          "max_width": {
+            "$ref": "#/$defs/value",
+            "description": "The widest frame the stream entering may carry. What each block needs of it -- a line buffer's depth -- follows from the stream that reaches it."
+          },
+          "max_height": {
+            "$ref": "#/$defs/value",
+            "description": "The tallest frame the stream entering may carry; what a block that stores frames sizes its store from."
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "endpoint": {
+      "description": "A port of this composite (in), or a port of one of its nodes (ccm.in).",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)?$"
+    },
+    "composite": {
+      "type": "object",
+      "required": [
+        "nodes"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "parameters": {
+          "description": "This composite's own build parameters: its interface. Declared once, here; set by whatever instantiates it.",
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/name"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "description": {
+                "type": "string"
+              },
+              "default": {
+                "$ref": "#/$defs/literal"
+              }
+            }
+          }
+        },
+        "inputs": {
+          "$ref": "#/$defs/ports"
+        },
+        "outputs": {
+          "$ref": "#/$defs/ports"
+        },
+        "nodes": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/name"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "block"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "block": {
+                "$ref": "#/$defs/reference"
+              },
+              "description": {
+                "type": "string"
+              },
+              "domain": {
+                "$ref": "#/$defs/name"
+              },
+              "build": {
+                "$ref": "#/$defs/settings"
+              },
+              "values": {
+                "$ref": "#/$defs/settings"
+              }
+            }
+          }
+        },
+        "connections": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "$ref": "#/$defs/endpoint"
+              },
+              {
+                "$ref": "#/$defs/endpoint"
+              }
+            ],
+            "minItems": 2,
+            "maxItems": 2
+          }
+        }
+      }
+    },
+    "primitive": {
+      "description": "A leaf described in JSON: a board resource carrying its own facts and constraints. Its fields are its own; only the structural ones are checked here.",
+      "type": "object",
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "addresses"
+            ]
+          },
+          {
+            "required": [
+              "connections"
+            ]
+          }
+        ]
+      },
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "parameters": {
+          "$ref": "#/$defs/composite/properties/parameters"
+        },
+        "inputs": {
+          "$ref": "#/$defs/ports"
+        },
+        "outputs": {
+          "$ref": "#/$defs/ports"
+        }
+      }
+    },
+    "profile": {
+      "description": "Register values for one block, keyed by paths relative to it: a register of the block itself or of anything inside it (ccm.m), as a literal of the register's shape -- or a node inside it (isp), set to another profile by reference, which is included there. A value set here wins over one an included profile sets.",
+      "type": "object",
+      "required": [
+        "for",
+        "values"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "for": {
+          "$ref": "#/$defs/reference"
+        },
+        "values": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+          },
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/literal"
+              },
+              {
+                "$ref": "#/$defs/reference"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "anyOf": [
+    {
+      "required": [
+        "blocks"
+      ]
+    },
+    {
+      "required": [
+        "profiles"
+      ]
+    }
+  ]
+}

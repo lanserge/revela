@@ -14,12 +14,19 @@ the sensor package through the driver ABI it publishes
 the ISP build: the other does.
 
 The exporter bakes the register map into C at export time -- the
-device parses nothing -- and the profile keys are revela's stable
-block.param names, so a sensor package survives any register
-relayout.
+device parses nothing. A sensor package's profile keys are SCOPED,
+``<composite>/<path relative to it>`` -- the sensor's tuning is for
+bayer_isp, whichever design contains it -- and this package anchors
+them at every instance of that composite the register map records, so
+a sensor package survives any register relayout and any design.
+
+The design's own settings -- its display curve, say -- are a profile
+for the design, resolved against the map here and baked in: written at
+link-up, before the sensor's tuning.
 
     python -m revela.host.bridge_module \\
-        --regmap revela_isp_core_regmap.json --out revela-isp.tar.gz
+        --regmap revela_isp_core_regmap.json \\
+        --profile revela.boards.pynq_z2.isp:display --out revela-isp.tar.gz
 """
 import argparse
 import io
@@ -32,7 +39,13 @@ from pathlib import Path
 # The driver ABI's version, and the ONE place it is written. It was in
 # five: a #define, two manifests and two banners, which agreed until the
 # struct grew a field and four of them did not notice.
-SENSOR_API = 2
+#   3  profile keys are scoped, <composite>/<relative path>, not
+#      absolute block.param names.
+SENSOR_API = 3
+
+# The algorithm ABI's version, and the one place it is written. The
+# manifest used to publish SENSOR_API under this name.
+ALGO_API = 1
 
 SENSOR_API_H = '''\
 /* The driver ABI between the revela ISP package (policy, the only
@@ -47,8 +60,10 @@ SENSOR_API_H = '''\
 
 #define REVELA_SENSOR_API {SENSOR_API}
 
-/* fitted ISP parameters, by revela's stable block.param names --
- * semantic keys, never addresses; NULL key terminates */
+/* fitted ISP parameters, keyed <composite>/<path relative to it>
+ * ("revela.blocks.bayer_isp:bayer_isp/ccm.m_0_0") -- semantic keys,
+ * never addresses, anchored by the ISP package wherever that
+ * composite sits in its build; NULL key terminates */
 struct revela_profile_entry {
     const char *key;
     int32_t value;
@@ -126,7 +141,7 @@ ALGO_API_H = '''\
 #include <stdint.h>
 #include "revela_sensor_api.h"
 
-#define REVELA_ALGO_API 1
+#define REVELA_ALGO_API {ALGO_API}
 
 struct bridge_frame;   /* ../../bridge.h */
 
@@ -155,14 +170,40 @@ const struct revela_algo *revela_algo(void);
 
 #endif
 '''
+ALGO_API_H = ALGO_API_H.replace("{ALGO_API}", str(ALGO_API))
 
 
-def generate_isp_c(regmap: dict) -> str:
+def scoped_rows(regmap: dict) -> list[tuple[str, int, int]]:
+    """Every register as each composite containing it names it:
+    ``<composite ref>/<path relative to the instance>``. A composite
+    instanced twice gives a key two rows, and a profile for it lands in
+    both."""
+    rows = []
+    for c in regmap.get("composites", []):
+        prefix = c["path"] + "." if c["path"] else ""
+        for b in regmap["blocks"]:
+            for r in b["registers"]:
+                key = f"{b['path']}.{r['name']}"
+                if key.startswith(prefix):
+                    rows.append((f"{c['block']}/{key[len(prefix):]}",
+                                 r["address"], r["bits"]))
+    return rows
+
+
+def generate_isp_c(regmap: dict, design: dict | None = None) -> str:
+    """The ISP package's C. ``design`` is the design's own settings as
+    absolute keys (a flattened profile), written at every link-up."""
     rows = []
     for b in regmap["blocks"]:
         for r in b["registers"]:
             rows.append((f"{b['path']}.{r['name']}", r["address"], r["bits"]))
     commit_addr = dict((k, a) for k, a, _ in rows)["pipe.commit"]
+    where = {k: (a, bits) for k, a, bits in rows}
+    design = design or {}
+    unknown = sorted(set(design) - set(where))
+    if unknown:
+        raise ValueError(f"design values for registers this map does not "
+                         f"have: {unknown}")
 
     L = []
     w = L.append
@@ -188,6 +229,37 @@ def generate_isp_c(regmap: dict) -> str:
     w("};")
     w(f"static const uint16_t revela_commit = 0x{commit_addr:04X};")
     w("")
+    w("/* the same registers as each composite containing them names")
+    w(" * them: where a sensor profile's scoped keys land */")
+    w("static const struct { const char *key; uint16_t reg; uint8_t bits; }")
+    w("revela_scoped[] = {")
+    for key, a, bits in sorted(scoped_rows(regmap), key=lambda x: (x[1], x[0])):
+        w(f'    {{ "{key}", 0x{a:04X}, {bits} }},')
+    w('    { 0, 0, 0 },')
+    w("};")
+    w("")
+    w("/* the design's own settings, resolved against this map at export */")
+    w("static const struct { uint16_t reg; uint8_t bits; int32_t value; }")
+    w("revela_design[] = {")
+    for key, value in design.items():
+        a, bits = where[key]
+        w(f"    {{ 0x{a:04X}, {bits}, {value} }},  /* {key} */")
+    w("    { 0, 0, 0 },")
+    w("};")
+    w("")
+    w("/* every block's ID-and-version word, as this map expects it:")
+    w(" * read at link-up, before anything is written */")
+    w("static const struct { const char *path; uint16_t reg; uint32_t value; }")
+    w("revela_ids[] = {")
+    for b in regmap["blocks"]:
+        iv = b["id_version"]
+        w(f'    {{ "{b["path"]}", 0x{iv["address"]:04X}, 0x{iv["value"]:08X}u }},')
+    w("    { 0, 0, 0 },")
+    w("};")
+    w("/* set only once the far end has proved it runs this build: no")
+    w(" * writer -- link-up, panel, algo -- touches it before that */")
+    w("static int map_ok;")
+    w("")
     w("/* both companion packages are optional by construction: a")
     w(" * weak reference resolves to NULL when none is compiled in */")
     w("__attribute__((weak)) extern const struct revela_sensor_driver *")
@@ -198,6 +270,7 @@ def generate_isp_c(regmap: dict) -> str:
     w("/* semantic ISP access lent to the algo package: the one")
     w(" * writer translates keys to registers; nobody else may */")
     w("static int isp_set(const char *key, int32_t value) {")
+    w("    if (!map_ok) return -1;")
     w("    for (unsigned i = 0;")
     w("         i < sizeof revela_map / sizeof *revela_map; i++) {")
     w("        if (strcmp(revela_map[i].key, key)) continue;")
@@ -209,6 +282,7 @@ def generate_isp_c(regmap: dict) -> str:
     w("    return -1;")
     w("}")
     w("static int isp_get(const char *key, int32_t *value) {")
+    w("    if (!map_ok) return -1;")
     w("    for (unsigned i = 0;")
     w("         i < sizeof revela_map / sizeof *revela_map; i++) {")
     w("        if (strcmp(revela_map[i].key, key)) continue;")
@@ -220,6 +294,7 @@ def generate_isp_c(regmap: dict) -> str:
     w("    return -1;")
     w("}")
     w("static int isp_commit(void) {")
+    w("    if (!map_ok) return -1;")
     w("    return bridge_ddc_write(revela_commit, 1);")
     w("}")
     w("")
@@ -268,6 +343,7 @@ def generate_isp_c(regmap: dict) -> str:
     w("}")
     w("")
     w("void bridge_link_hook(const struct bridge_link *l) {")
+    w("    map_ok = 0;")
     w("    if (!l->up || !l->edid) return;")
     w("    int ours = 0;")
     w("    for (int i = 0; i + 9 < 256; i++)")
@@ -277,34 +353,68 @@ def generate_isp_c(regmap: dict) -> str:
       'leaving it alone\\n");')
     w("        return;")
     w("    }")
-    w("    if (!revela_sensor) {")
-    w('        printf("revela: no sensor package installed -- the far '
-      'end keeps its defaults\\n");')
-    w("        return;")
+    w("    /* THE BUILD CHECK. The EDID says the far end is a bayerlink")
+    w("     * receiver; it does not say it is running the build this")
+    w("     * map was cut from. Every block's ID-and-version word does,")
+    w("     * so all of them are read before one register is written --")
+    w("     * a different bitstream would otherwise take every value at")
+    w("     * whatever now sits at these addresses, and say applied. */")
+    w("    for (unsigned i = 0; revela_ids[i].path; i++) {")
+    w("        uint32_t v;")
+    w("        if (bridge_ddc_read(revela_ids[i].reg, &v) < 0) {")
+    w('            printf("revela: the far end did not answer reading %s\'s '
+      'ID; nothing written\\n", revela_ids[i].path);')
+    w("            return;")
+    w("        }")
+    w("        if (v != revela_ids[i].value) {")
+    w('            printf("revela: %s reads ID 0x%08X, this package was built '
+      'for 0x%08X -- the bitstream is not the build this map came from; '
+      'nothing written, re-export the package from the loaded build\\n",')
+    w("                   revela_ids[i].path, (unsigned)v,")
+    w("                   (unsigned)revela_ids[i].value);")
+    w("            return;")
+    w("        }")
     w("    }")
-    w("    const struct revela_sensor_driver *drv = revela_sensor();")
-    w("    if (!drv || drv->api != REVELA_SENSOR_API || !drv->profile) {")
-    w('        printf("revela: sensor package present but unusable '
-      '(api %d)\\n", drv ? drv->api : -1);')
-    w("        return;")
-    w("    }")
+    w("    map_ok = 1;")
+    w("")
     w("    int wrote = 0, unknown = 0, failed = 0;")
-    w("    for (const struct revela_profile_entry *e = drv->profile;")
-    w("         e->key; e++) {")
+    w("    /* the design's settings first -- they are this package's, and")
+    w("     * written whether or not a sensor package is installed --")
+    w("     * then the sensor's tuning: a value the sensor measured wins */")
+    w("    for (unsigned i = 0; revela_design[i].bits; i++) {")
+    w("        uint32_t mask = revela_design[i].bits >= 32 ? 0xFFFFFFFFu")
+    w("            : ((1u << revela_design[i].bits) - 1u);")
+    w("        if (bridge_ddc_write(revela_design[i].reg,")
+    w("                             ((uint32_t)revela_design[i].value) & mask) == 0)")
+    w("            wrote++;")
+    w("        else failed++;")
+    w("    }")
+    w("    const struct revela_sensor_driver *drv =")
+    w("        revela_sensor ? revela_sensor() : 0;")
+    w("    if (!revela_sensor)")
+    w('        printf("revela: no sensor package installed -- the design\'s '
+      'settings only\\n");')
+    w("    else if (!drv || drv->api != REVELA_SENSOR_API || !drv->profile) {")
+    w('        printf("revela: sensor package present but unusable '
+      '(api %d, this package speaks %d)\\n", drv ? drv->api : -1, '
+      'REVELA_SENSOR_API);')
+    w("        drv = 0;")
+    w("    }")
+    w("    for (const struct revela_profile_entry *e = drv ? drv->profile : 0;")
+    w("         e && e->key; e++) {")
     w("        int hit = 0;")
-    w("        for (unsigned i = 0;")
-    w("             i < sizeof revela_map / sizeof *revela_map; i++) {")
-    w("            if (strcmp(revela_map[i].key, e->key)) continue;")
+    w("        /* every row: a composite instanced twice takes it twice */")
+    w("        for (unsigned i = 0; revela_scoped[i].key; i++) {")
+    w("            if (strcmp(revela_scoped[i].key, e->key)) continue;")
     w("            hit = 1;")
     w("            uint32_t mask =")
-    w("                revela_map[i].bits >= 32")
+    w("                revela_scoped[i].bits >= 32")
     w("                    ? 0xFFFFFFFFu")
-    w("                    : ((1u << revela_map[i].bits) - 1u);")
+    w("                    : ((1u << revela_scoped[i].bits) - 1u);")
     w("            uint32_t v = ((uint32_t)e->value) & mask;")
-    w("            if (bridge_ddc_write(revela_map[i].reg, v) == 0)")
+    w("            if (bridge_ddc_write(revela_scoped[i].reg, v) == 0)")
     w("                wrote++;")
     w("            else failed++;")
-    w("            break;")
     w("        }")
     w("        if (!hit) unknown++;")
     w("    }")
@@ -314,10 +424,11 @@ def generate_isp_c(regmap: dict) -> str:
     w("        if (bridge_ddc_read(revela_commit, &c) < 0) break;")
     w('    printf("revela: %s: %d registers restored over the cable'
       '%s%s, commit %s\\n",')
-    w("           drv->name, wrote,")
+    w('           drv ? drv->name : "design only", wrote,')
     w('           failed ? " (some FAILED)" : "",')
     w('           unknown ? " (some keys unknown to this build)" : "",')
     w('           c ? "PENDING" : "applied");')
+    w("    if (!drv) return;           /* an algo package needs a driver */")
     w("")
     w("    /* the algorithm package, if any, comes up AFTER the far")
     w("     * end is calibrated, with the driver and the semantic ISP")
@@ -353,8 +464,9 @@ def generate_isp_c(regmap: dict) -> str:
     w("        if (isp_set(key, (int32_t)v) == 0)")
     w('            snprintf(reply, cap, "ok");')
     w("        else")
-    w('            snprintf(reply, cap, "err set %s: unknown key, or the '
-      'cable did not answer", key);')
+    w('            snprintf(reply, cap, "err set %s: unknown key, the '
+      'cable did not answer, or the far end is not the build this '
+      'package was cut from", key);')
     w("        return;")
     w("    }")
     w('    if (sscanf(cmd, "get %63s", key) == 1) {')
@@ -363,8 +475,9 @@ def generate_isp_c(regmap: dict) -> str:
     w('            snprintf(reply, cap, "ok %ld", (long)value);')
     w("            return;")
     w("        }")
-    w('        snprintf(reply, cap, "err get %s: unknown key, or the cable '
-      'did not answer", key);')
+    w('        snprintf(reply, cap, "err get %s: unknown key, the cable '
+      'did not answer, or the far end is not the build this package '
+      'was cut from", key);')
     w("        return;")
     w("    }")
     w('    if (!strcmp(cmd, "commit")) {')
@@ -372,7 +485,8 @@ def generate_isp_c(regmap: dict) -> str:
     w('            snprintf(reply, cap, "ok");')
     w("        else")
     w('            snprintf(reply, cap, "err commit: the cable did not '
-      'answer");')
+      'answer, or the far end is not the build this package was cut '
+      'from");')
     w("        return;")
     w("    }")
     w('    snprintf(reply, cap, "err unknown command; this module speaks: '
@@ -384,23 +498,35 @@ def generate_isp_c(regmap: dict) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--regmap", required=True)
+    parser.add_argument("--profile", default=None,
+                        help="the design's own settings: a profile for the "
+                             "design (package.module:name), baked in")
+    parser.add_argument("--library", action="append", metavar="DIR",
+                        help="a directory to find libraries in, for this "
+                             "run (see revela.designs.composite)")
     parser.add_argument("--version", default="0.1")
     parser.add_argument("--out", default="revela-isp.tar.gz")
     args = parser.parse_args()
 
     regmap = json.loads(Path(args.regmap).read_text())
+    design = {}
+    if args.profile:
+        from revela.designs import profile
+        from revela.designs.composite import add_libraries
+        add_libraries(args.library)
+        design = profile.flatten(profile.resolve(args.profile), regmap)
     files = {
         "manifest.json": json.dumps({
             "name": "revela-isp", "version": args.version,
             "kind": "picam2hdmi-module", "abi": 1,
             "slot": "isp",
             "provides": [f"revela-sensor-api:{SENSOR_API}",
-                         f"revela-algo-api:{SENSOR_API}"],
+                         f"revela-algo-api:{ALGO_API}"],
             "sources": ["revela_isp.c"],
         }, indent=2) + "\n",
         "revela_sensor_api.h": SENSOR_API_H,
         "revela_algo_api.h": ALGO_API_H,
-        "revela_isp.c": generate_isp_c(regmap),
+        "revela_isp.c": generate_isp_c(regmap, design),
         # The map rides the package VERBATIM: the panel renders its
         # widgets from it (min/max/widget/choices are stated per
         # register), and because the C table above is generated from

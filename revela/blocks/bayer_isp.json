@@ -1,0 +1,87 @@
+{
+  "blocks": {
+    "bayer_isp": {
+      "description": "Raw Bayer in, linear RGB in the target colour space out. For any Bayer sensor: geometry and CFA phase arrive with the stream, tuning arrives at run time. Output encoding (a tone curve) and anything the design adds belong to the design, not here.",
+      "parameters": {
+        "bit_depth": {
+          "description": "Depth samples arrive at here; the receiver scales the wire depth to it. Traced through every block from here."
+        },
+        "max_width": {
+          "description": "Widest frame any sensor served may send: what the demosaic's line buffers are sized from."
+        },
+        "max_height": {
+          "description": "Tallest frame any sensor served may send."
+        }
+      },
+      "inputs": [
+        {
+          "name": "in",
+          "bits": "bit_depth",
+          "max_width": "max_width",
+          "max_height": "max_height",
+          "context": [
+            "width",
+            "height",
+            "bayer_phase",
+            "bit_depth"
+          ],
+          "description": "Raw Bayer, up to max_width x max_height at bit_depth. The context facts ride with the stream, latched at each frame's start, never registers."
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "description": "Linear RGB, three channels in one word: R low, G mid, B high. Width traced, not declared."
+        }
+      ],
+      "nodes": {
+        "blacklevel": {
+          "block": "revela.blocks.blacklevel:blacklevel",
+          "description": "Remove the sensor pedestal per CFA colour, before anything multiplies the signal."
+        },
+        "whitebalance": {
+          "block": "revela.blocks.whitebalance:whitebalance",
+          "description": "Per-CFA-colour gain, the AWB loop's actuator. Before demosaic: interpolating unbalanced planes bakes the imbalance into all three channels."
+        },
+        "ha_green": {
+          "block": "revela.blocks.demosaic.hamilton_adams:ha_green",
+          "description": "Hamilton-Adams green reconstruction, direction-adaptive; emits the (raw, green) word the chroma stage differences against."
+        },
+        "ha_rb": {
+          "block": "revela.blocks.demosaic.hamilton_adams:ha_rb",
+          "description": "Red and blue as colour differences against the reconstructed green."
+        },
+        "ccm": {
+          "block": "revela.blocks.ccm:ccm",
+          "description": "Sensor RGB into the target colour space."
+        }
+      },
+      "connections": [
+        [
+          "in",
+          "blacklevel.in"
+        ],
+        [
+          "blacklevel.out",
+          "whitebalance.in"
+        ],
+        [
+          "whitebalance.out",
+          "ha_green.in"
+        ],
+        [
+          "ha_green.out",
+          "ha_rb.in"
+        ],
+        [
+          "ha_rb.out",
+          "ccm.in"
+        ],
+        [
+          "ccm.out",
+          "out"
+        ]
+      ]
+    }
+  }
+}

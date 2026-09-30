@@ -48,10 +48,12 @@ read_build() { python3 -c "import json,sys;print(json.load(open('$here/design.js
 # direct-to-glass is whole. 148.5-class modes (1080p60) free-run --
 # the store path shows each frame twice, as a standard TV signal.
 MODE=$(read_build mode)
-# The ISP's geometry and depth belong to the DESIGN (pipeline.json
-# owns them); the receiver aligns samples to that depth, so BITS is
-# READ from the description, never chosen here.
-BITS=$(python3 -c 'import json; print(json.load(open("'"$here"'/pipeline.json"))["stream"]["bit_depth"])')
+# The ISP's geometry and depth belong to the DESIGN: its composite
+# states them on its input port, where the stream enters. The receiver
+# aligns samples to that depth, so BITS is READ from there, never
+# chosen here.
+ISP=$(python3 -c "from revela.boards.pynq_z2 import isp_ref; print(isp_ref())")
+BITS=$(python3 -c "from revela.boards.pynq_z2 import isp_stream; print(isp_stream()['bits'])")
 # 155, not 148.5: cutting for a few MHz more than the clock will run
 # is what makes the cut placement DETERMINISTIC -- at exactly 148.5
 # the estimator's 70ps of optimism decided whether a register moved,
@@ -94,7 +96,7 @@ python3 -m bayerlink_fpga "$FRONTEND" --config "$FE_CONFIG" --out "$OUT" \
     --bits "$BITS" --link-mode "$(read_build link_mode)"
 
 echo "== ISP (revela pipeline, twin-verified before it emits)"
-python3 -m revela generate "$here/pipeline.json" \
+python3 -m revela generate "$ISP" \
     --out "$OUT/hdl" --clock-mhz "$ISP_MHZ"
 
 echo "== display raster (np2hw scanout)"
@@ -107,7 +109,7 @@ GENLOCK=$(python3 -c "print(1 if $OUT_MHZ < 100 else 0)")
 # No --window: the picture starts filling the mode's active area, and
 # where it sits after that is WRITTEN, not built -- the raster's own
 # geometry still comes from the mode table, its one owner. (The ISP's
-# geometry is the design's, in pipeline.json -- a different fact,
+# geometry is the design's, in its composite -- a different fact,
 # deliberately independent: the ISP takes what the header brings at
 # run time.)
 python3 -m revela.boards.pynq_z2.scanout --out "$OUT" --mode "$MODE" \

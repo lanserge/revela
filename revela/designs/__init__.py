@@ -2,6 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
 """Pipeline descriptions: build a pipeline from JSON instead of from Python.
 
+This module reads the FLAT description format: one file, blocks named by
+their short name, one level of subsystems. The hierarchical format --
+composites of composites, blocks referenced as ``package.module:block``,
+settings as expressions -- is loaded by :mod:`revela.designs.composite`, and
+the pipelines move to it; this format stays until they have.
+
 A description is a NETLIST: named block instances, and the connections between
 their ports. It is an **input** -- written by hand today, and by a pipeline
 builder later, since a graph of named ports is exactly what a GUI edits.
@@ -63,7 +69,11 @@ def validate(description: dict) -> None:
 
 
 def load(path: str | Path, validate_description: bool = True):
-    """Build a :class:`revela.pipeline.Pipeline` from a description file."""
+    """Build a :class:`revela.pipeline.Pipeline` from a description file, or
+    from a composite named by reference (``package.module:block``)."""
+    if ":" in str(path) and not Path(path).exists():
+        from revela.designs import composite
+        return composite.to_pipeline(composite.load(str(path)))
     description = json.loads(Path(path).read_text())
     if validate_description:
         validate(description)

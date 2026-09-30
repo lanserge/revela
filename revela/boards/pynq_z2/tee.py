@@ -34,8 +34,8 @@ def payload_bits(out: Path) -> int:
     FIFO, and the first ISP to trace more than 30 bits would have had
     its FLAGS cut off the top instead.
     """
-    design = json.loads((HERE / "pipeline.json").read_text())
-    contract = out / "hdl" / f"{design['name']}_build.json"
+    from revela.boards.pynq_z2 import isp_name
+    contract = out / "hdl" / f"{isp_name()}_build.json"
     if not contract.exists():
         sys.exit(f"tee.py: {contract.name} is missing -- generate the "
                  "ISP first. The width this tee carries is the ISP's traced "

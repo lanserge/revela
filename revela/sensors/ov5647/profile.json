@@ -1,53 +1,47 @@
 {
-  "blacklevel.offset_0_0": -64,
-  "blacklevel.offset_0_1": -64,
-  "blacklevel.offset_1_0": -64,
-  "blacklevel.offset_1_1": -64,
-  "whitebalance.gain_0_0": 491,
-  "whitebalance.gain_0_1": 256,
-  "whitebalance.gain_1_0": 256,
-  "whitebalance.gain_1_1": 305,
-  "ccm.m_0_0": 547,
-  "ccm.m_0_1": -167,
-  "ccm.m_0_2": -124,
-  "ccm.m_1_0": -124,
-  "ccm.m_1_1": 494,
-  "ccm.m_1_2": -115,
-  "ccm.m_2_0": -34,
-  "ccm.m_2_1": -140,
-  "ccm.m_2_2": 431,
-  "rgb_gamma.knots_0": 0,
-  "rgb_gamma.knots_1": 53,
-  "rgb_gamma.knots_2": 72,
-  "rgb_gamma.knots_3": 87,
-  "rgb_gamma.knots_4": 100,
-  "rgb_gamma.knots_5": 110,
-  "rgb_gamma.knots_6": 120,
-  "rgb_gamma.knots_7": 128,
-  "rgb_gamma.knots_8": 136,
-  "rgb_gamma.knots_9": 144,
-  "rgb_gamma.knots_10": 151,
-  "rgb_gamma.knots_11": 158,
-  "rgb_gamma.knots_12": 164,
-  "rgb_gamma.knots_13": 170,
-  "rgb_gamma.knots_14": 176,
-  "rgb_gamma.knots_15": 182,
-  "rgb_gamma.knots_16": 187,
-  "rgb_gamma.knots_17": 192,
-  "rgb_gamma.knots_18": 197,
-  "rgb_gamma.knots_19": 202,
-  "rgb_gamma.knots_20": 207,
-  "rgb_gamma.knots_21": 212,
-  "rgb_gamma.knots_22": 216,
-  "rgb_gamma.knots_23": 220,
-  "rgb_gamma.knots_24": 224,
-  "rgb_gamma.knots_25": 229,
-  "rgb_gamma.knots_26": 233,
-  "rgb_gamma.knots_27": 237,
-  "rgb_gamma.knots_28": 241,
-  "rgb_gamma.knots_29": 245,
-  "rgb_gamma.knots_30": 248,
-  "rgb_gamma.knots_31": 252,
-  "rgb_gamma.knots_32": 256,
-  "_gamma_units": "The knots are in the units gamma OUTPUTS, which the knot declaration owns: 0..2**out_bits, so 0..256 for the 8-bit display output. Rescaled from a 0..1024 fit on 2026-08-23, when gamma became the block that narrows 12-bit linear to 8-bit display. A curve in the wrong units does not fail loudly -- the values truncate into the register and the tone curve becomes a sawtooth."
+  "profiles": {
+    "ov5647": {
+      "description": "The reference sensor's fitted tuning, for any design built on bayer_isp: pedestal, white balance, colour matrix. Where each number came from is NOTES.md, beside this file.",
+      "for": "revela.blocks.bayer_isp:bayer_isp",
+      "values": {
+        "blacklevel.offset": [
+          [
+            -64,
+            -64
+          ],
+          [
+            -64,
+            -64
+          ]
+        ],
+        "whitebalance.gain": [
+          [
+            491,
+            256
+          ],
+          [
+            256,
+            305
+          ]
+        ],
+        "ccm.m": [
+          [
+            547,
+            -167,
+            -124
+          ],
+          [
+            -124,
+            494,
+            -115
+          ],
+          [
+            -34,
+            -140,
+            431
+          ]
+        ]
+      }
+    }
+  }
 }

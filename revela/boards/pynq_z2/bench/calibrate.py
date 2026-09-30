@@ -11,8 +11,19 @@ profiles, this script does the write locally: the map answers
 where, the profile answers what, the commit lands it at a frame
 boundary.
 
-    python3 calibrate.py --bit rx.bit \
-        --map revela_isp_core_regmap.json --values profile.json
+The values are ABSOLUTE keys, which this board has no revela to
+compute. Resolve each profile against the build's map where revela
+is installed -- the design's own settings, then the sensor's tuning,
+anchored wherever its composite sits -- and give them here in that
+order; a later file wins:
+
+    python3 -m revela.designs.profile revela.boards.pynq_z2.isp:display \
+        --map revela_isp_core_regmap.json > display.json
+    python3 -m revela.designs.profile revela.sensors.ov5647.profile:ov5647 \
+        --map revela_isp_core_regmap.json > sensor.json
+
+    python3 calibrate.py --bit rx.bit --map revela_isp_core_regmap.json \
+        --values display.json --values sensor.json
 """
 import argparse
 import json
@@ -27,7 +38,9 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--bit", default="rx.bit")
     parser.add_argument("--map", default="revela_isp_core_regmap.json")
-    parser.add_argument("--values", default="revela_isp.defaults.json")
+    parser.add_argument("--values", action="append", required=True,
+                        help="absolute key -> value JSON; repeat, later "
+                             "files win")
     args = parser.parse_args()
 
     overlay = Overlay(args.bit, download=False)
@@ -40,7 +53,19 @@ def main() -> int:
     addr = {f"{b['path']}.{r['name']}": (r["address"], r["bits"])
             for b in rmap["blocks"] for r in b["registers"]}
     wrote = 0
-    for key, val in json.loads(Path(args.values).read_text()).items():
+    values = {}
+    for path in args.values:
+        values.update(json.loads(Path(path).read_text()))
+    # A key this build does not have is refused, not skipped: a values
+    # file resolved against another build would otherwise write nothing
+    # and report success.
+    unknown = sorted(set(values) - set(addr))
+    if unknown:
+        print(f"{len(unknown)} key(s) this map does not have, e.g. "
+              f"{unknown[:3]}; resolve the profiles against THIS build's "
+              "map (see the docstring)", file=sys.stderr)
+        return 2
+    for key, val in values.items():
         if key in addr:
             a, bits = addr[key]
             csr.write(a, (val + (1 << bits)) % (1 << bits))

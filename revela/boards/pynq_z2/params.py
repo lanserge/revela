@@ -11,7 +11,8 @@ silent connection of the low bits.
 
 So the numbers are generated, from these owners and no others:
 
-  pipeline.json   THE DESIGN. What the ISP is, independent of any board.
+  the ISP         THE DESIGN. What the ISP is, independent of any board:
+                  the composite design.json's isp instance names.
   board.json      THE TARGET. What this silicon is, independent of any
                   design; the jacks are the board's primitives
                   (hdmi_in, hdmi_out), each owning its own facts.
@@ -40,7 +41,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 
-from revela.boards.pynq_z2 import constraints, primitive  # noqa: E402
+from revela.boards.pynq_z2 import (constraints, isp_name,  # noqa: E402
+                                   primitive)
 
 
 def main() -> int:
@@ -49,12 +51,10 @@ def main() -> int:
                         help="the build directory: the ISP's contract is "
                              "read from its hdl/, params.tcl is written "
                              "to its generated/")
-    parser.add_argument("--design", type=Path, default=HERE / "pipeline.json")
     args = parser.parse_args()
 
     board_name = HERE.name
     board = json.loads((HERE / "board.json").read_text())
-    design = json.loads(args.design.read_text())
     # THIS BUILD's choices, from the file that owns them. They used to be
     # shell defaults, which meant the bitstream on the bench corresponded
     # to an environment nobody recorded; now a variant build is a diff.
@@ -66,7 +66,7 @@ def main() -> int:
     # exists only after the ISP has been built -- which is the point: the
     # harness cannot state the ISP's widths before the ISP has traced
     # them.
-    contract_path = args.out / "hdl" / f"{design['name']}_build.json"
+    contract_path = args.out / "hdl" / f"{isp_name()}_build.json"
     if not contract_path.exists():
         return fail(f"{contract_path.name} is missing: generate the ISP "
                     "before its parameters, because its boundary is "

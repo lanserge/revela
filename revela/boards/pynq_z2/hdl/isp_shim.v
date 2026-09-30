@@ -4,7 +4,7 @@
 // This board's shim around the revela design pack: the header latch and
 // the AXI4-Lite port carried to the boundary, nothing else. The pack
 // itself (revela_isp_core.v, in the build directory) is generated and
-// verified by revela from pipeline.json; this file is hand-shaped
+// verified by revela from its composite (isp.json); this is hand-shaped
 // board glue, like tee_shim.v. The literals below -- the sample width,
 // the reset geometry, the core's name -- restate that design's facts, so
 // the two files change together or not at all.

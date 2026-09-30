@@ -18,15 +18,16 @@ is placed at base 0 by convention, because a host bringing up an unknown
 bitstream has to start reading somewhere, but nothing in the code special-cases
 it: :mod:`revela.compose` allocates it through the same path as the rest.
 
-Why these are registers and not build-time constants
-----------------------------------------------------
+Why these are run-time facts and not build-time constants
+---------------------------------------------------------
 
-Bayer phase is two bits. Making it a register costs almost nothing and lets ONE
+Bayer phase is two bits. Making it run-time -- a register, or the stream's own
+header -- costs almost nothing and lets ONE
 bitstream serve every sensor, every flip, and every mirror setting. Generating a
 different pipeline per sensor would turn the verification matrix into sensors x
-modes, and a matrix like that does not stay green. Only bit depth (datapath
-width) and maximum line length (line buffer sizing) are build-time, because they
-are structural.
+modes, and a matrix like that does not stay green. Only the depth samples
+arrive at and the widest and tallest frame are build-time, because they are
+structural: the datapath's width and the line buffers' size.
 """
 from __future__ import annotations
 

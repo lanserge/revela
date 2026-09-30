@@ -70,7 +70,10 @@ from revela.stream import StreamSpec
 #      `widget` (choice | checkbox | fixed | slider, derived from the
 #      declaration by one rule), and `choices` when the register selects
 #      among named values rather than measuring a quantity.
-MAP_FORMAT_VERSION = 4
+#   5  `composites`: every composite instance the design was built from,
+#      by path and reference ("" for the design itself), so a profile
+#      keyed relative to a composite can be anchored wherever it sits.
+MAP_FORMAT_VERSION = 5
 
 
 # One end of a connection. np2hw's: the netlist is np2hw's structure, and a
@@ -196,6 +199,9 @@ class Pipeline:
                     "choice, not a fact a transport carries, so it stays a "
                     "register")
         self.context_from_stream = frozenset(context_from_stream)
+        # [{"path", "block"}] -- the composite instances a hierarchical
+        # design was built from; empty for a flat description.
+        self.composites: list[dict] = []
         self.add("pipe", pipe_block.pipe)
 
     def contexts(self) -> tuple:
@@ -439,6 +445,7 @@ class Pipeline:
         return {
             "map_format_version": MAP_FORMAT_VERSION,
             "name": self.name,
+            "composites": list(self.composites),
             "generator": "revela",
             "licence": "Apache-2.0 WITH SHL-2.1",
             "geometry": {"width": self.width, "height": self.height},
