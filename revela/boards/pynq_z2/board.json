@@ -1,0 +1,8 @@
+{
+  "part": "xc7z020clg400-1",
+  "board_part": "tul.com.tw:pynq-z2:part0:1.0",
+  "capture": true,
+  "capture_note": "this board CAN host the bring-up capture path: a PS with a spare HP port for a DMA writing received frames to DDR. Whether a given build INCLUDES it is design.json's capture; this says only what is possible here",
+  "ps_clk_mhz": 142.857143,
+  "ps_clk_note": "FCLK0, and every AXI clock here. 142.86 rather than 100 so the island and the display merge into one clock and a fractional MMCM is retired."
+}

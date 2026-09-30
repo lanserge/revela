@@ -1,0 +1,172 @@
+{
+  "schema_version": 1,
+  "name": "rx",
+  "description": "The board's pixel datapath: which of our own blocks carry the stream, what width each is built at, and how they connect. The ISP appears here as ONE instance referencing its own description -- it is the deliverable, this is the harness testing it, and nothing here may restate its boundary.",
+  "notes": [
+    "Only the DATAPATH is described here. Clocks, resets, vendor IP and the AXI automation stay in bd.tcl: a declarative model of Vivado's interconnect automation would be a worse version of something that already works.",
+    "Every param value names a variable from the generated params.tcl, so the number still has exactly one owner and this file only says WHICH owner.",
+    "Every instance names its clock domain, and an edge between two domains is refused unless it declares a crossing. The crossing from pixel to island is the vendor clock converter, wired in bd.tcl by interface nets -- so no edge here crosses, and that is checked rather than assumed."
+  ],
+  "primitives": {
+    "hdmi_in": "revela.boards.pynq_z2.hdmi_in:hdmi_in",
+    "hdmi_out": "revela.boards.pynq_z2.hdmi_out:hdmi_out"
+  },
+  "primitives_note": "The board's blocks this design is built from, by reference. Each carries its own facts and constraints; the build collects the constraints of every primitive named here, beside the design's own.",
+  "constraints": "design.xdc",
+  "build": {
+    "mode": "1080p30",
+    "mode_note": "The output raster. A 74.25-class mode genlocks to the stream; a 148.5-class one free-runs. Checked against the board's own clock constraint.",
+    "link_mode": "1080p30",
+    "link_mode_note": "The raster this receiver ADVERTISES in its EDID -- payload plus one header row. Nothing on this board depends on it: the receiver starts on the clock recovered from the link, finds pixels with DE, and takes width, height, CFA phase and depth from the header in the first line. Nor does the bench source read it: picam2hdmi builds its own DRM_MODE_TYPE_USERDEF modeline and dictates it. So this is a courtesy to any OTHER source that honours EDID, and its one real requirement is that it be legal for this frontend -- which is checked, because inviting a source to send a clock the receiver cannot lock would be a genuine fault rather than a decoration.",
+    "isp_mhz": 155,
+    "isp_mhz_note": "The clock the pipeline is CUT for -- deliberately above the clock it will run at, because generation margin is what makes the cut placement deterministic. Measured: +0.196 MET, repeatably.",
+    "capture": false,
+    "capture_note": "The link-judge path: byte-exact frames to DDR so the ARM can convict a cable or a lane map. Episodic instrument, off by default. The board says whether it is POSSIBLE; this says whether this build has it.",
+    "rx_fifo": 256,
+    "max_line_bytes": 4096,
+    "receiver_note": "The receiver's capacity, PINNED: the verified bitstream was built at these and a different depth is a different design.",
+    "fill": "0x101010",
+    "fill_note": "What the raster paints outside the picture. A product choice: neither the board's nor the ISP's."
+  },
+  "instances": [
+    {
+      "name": "blrx",
+      "module": "bayerlink_rx",
+      "var": "rx",
+      "description": "The receiver. Its output depth is a build fact; the depth on the WIRE is the header's, run-time, and it has already scaled to this one.",
+      "domain": "pixel"
+    },
+    {
+      "name": "sw",
+      "module": "stream_switch",
+      "var": "sw",
+      "when": "capture",
+      "params": {
+        "SAMPLE_BITS": "p_sample_bits"
+      },
+      "description": "One stream, two consumers, a register deciding which. Exists only when the capture path is built.",
+      "domain": "pixel"
+    },
+    {
+      "name": "shim",
+      "module": "rx_axis",
+      "var": "shim",
+      "when": "capture",
+      "params": {
+        "SAMPLE_BITS": "p_sample_bits"
+      },
+      "description": "The judge's branch, dressed as AXIS for the capture DMA.",
+      "domain": "pixel"
+    },
+    {
+      "name": "isp_in_shim",
+      "module": "rx_axis",
+      "var": "iin",
+      "params": {
+        "SAMPLE_BITS": "p_sample_bits"
+      },
+      "description": "The island's ingress: the elastic stream dressed as AXIS for the clock converter.",
+      "domain": "pixel"
+    },
+    {
+      "name": "isp_unpack",
+      "module": "axis_unpack",
+      "var": "iun",
+      "params": {
+        "SAMPLE_BITS": "p_sample_bits"
+      },
+      "description": "...and undressed again on the island side. One layout, owned by rx_axis, both directions.",
+      "domain": "island"
+    },
+    {
+      "name": "isp",
+      "module": "revela_isp",
+      "var": "isp",
+      "design": "pipeline.json",
+      "params": {
+        "WIDTH": "p_isp_width",
+        "SAMPLE_BITS": "p_sample_bits",
+        "DATA_BITS": "p_isp_out_bits"
+      },
+      "description": "THE DELIVERABLE. Its boundary widths and the geometry it was BUILT around all come from what it published, never from here. The width matters twice: the pack cannot process a wider line, and it cannot notice one either, so this shim crops to it. Its input width is the SAMPLE_BITS every block upstream is built at -- one sample per beat, so one number.",
+      "domain": "island"
+    },
+    {
+      "name": "isp_tee",
+      "module": "tee_shim",
+      "var": "tsh",
+      "params": {
+        "DATA_BITS": "p_isp_out_bits"
+      },
+      "description": "One ISP stream, two switchable consumers. Never stalls: a consumer that falls behind tears its own branch and says so.",
+      "domain": "island"
+    },
+    {
+      "name": "isp_out",
+      "module": "isp_axis",
+      "var": "iax",
+      "params": {
+        "DATA_BITS": "p_isp_out_bits"
+      },
+      "description": "Branch B: the store, an AXIS video stream for the VDMA.",
+      "domain": "island"
+    },
+    {
+      "name": "isp_dir",
+      "module": "isp_axis",
+      "var": "idx",
+      "params": {
+        "DATA_BITS": "p_isp_out_bits"
+      },
+      "description": "Branch A: direct to the raster. Latency to glass is lines.",
+      "domain": "island"
+    }
+  ],
+  "edges": [
+    {
+      "from": "blrx/out",
+      "to": "sw/in",
+      "when": "capture"
+    },
+    {
+      "from": "sw/a",
+      "to": "shim/in",
+      "when": "capture"
+    },
+    {
+      "from": "@isp_src",
+      "to": "isp_in_shim/in",
+      "select": {
+        "capture": "sw/b",
+        "default": "blrx/out"
+      },
+      "description": "With capture the ISP reads the switch's B side; without it there is no switch and it reads the receiver."
+    },
+    {
+      "from": "isp_unpack/out",
+      "to": "isp/in"
+    },
+    {
+      "from": "isp/out",
+      "to": "isp_tee/in"
+    },
+    {
+      "from": "isp_tee/b",
+      "to": "isp_out/in"
+    },
+    {
+      "from": "isp_tee/a",
+      "to": "isp_dir/in"
+    }
+  ],
+  "domains": {
+    "pixel": {
+      "clock": "$rx_pclk",
+      "description": "Recovered from the HDMI link, and named by the receiver's front end. It STOPS when the cable is pulled, which is why nothing addressable may live here."
+    },
+    "island": {
+      "clock": "$islck",
+      "description": "The board's own clock. Answers to the board, never to the cable."
+    }
+  }
+}

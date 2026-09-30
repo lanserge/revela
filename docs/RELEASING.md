@@ -1,8 +1,8 @@
 # Releasing
 
-Four packages publish to PyPI, and one repository is tagged without
-publishing anything. They are separate releases, but **the order is not
-free**: a package cannot be uploaded before the packages it depends on
+Four packages publish to PyPI, and bayerlink-fpga is a package that
+publishes once its own publish workflow exists. They are separate
+releases, but **the order is not free**: a package cannot be uploaded before the packages it depends on
 exist on the index at the version it asks for.
 
 ## The order, and where it comes from
@@ -13,19 +13,16 @@ Read it off the dependency graph rather than remembering it:
 | --- | --- | --- |
 | `bayerlink` | numpy | first — nothing internal |
 | `np2hw` | numpy; `bayerlink` only as an extra | first — nothing internal required |
-| `revela` | `np2hw>=0.5.0` | after np2hw |
+| `revela` | `np2hw>=0.6.1` | after np2hw |
 | `picam2hdmi` | `bayerlink>=0.5.0` | after bayerlink |
-| `bayerlink-fpga` | pins all three exactly | tagged last, after all three are on PyPI |
+| `bayerlink-fpga` | `np2hw>=0.6.1`, `bayerlink>=0.5.0` | after np2hw and bayerlink |
 
 A workable sequence is therefore **bayerlink → np2hw → revela →
-picam2hdmi → tag bayerlink-fpga**. bayerlink and np2hw are independent of
-each other and may go in either order.
-
-`bayerlink-fpga` publishes no package. Its tag exists to say which
-generator versions the recorded bitstream was built from, since the
-repository's claim is that those versions produce byte-identical Verilog.
-Tagging it before they are installable would point at versions nobody
-can fetch.
+picam2hdmi**, with bayerlink-fpga anywhere after np2hw and bayerlink.
+bayerlink and np2hw are independent of each other and may go in either
+order. revela's board design (`revela/boards/pynq_z2`) instantiates
+bayerlink-fpga's receiver, so a release of revela whose board build is to
+install from PyPI needs bayerlink-fpga published first.
 
 ## Why a direct reference is refused
 

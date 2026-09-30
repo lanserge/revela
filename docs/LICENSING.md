@@ -102,6 +102,18 @@ normally fine — until a procurement or legal process requires otherwise.
 
 ## 5. What does the commercial licence add?
 
+**It covers the ISP**: the blocks in `revela/blocks/`, the pipelines and
+composites built from them, the generator code that turns them into hardware,
+and the Verilog generated from them -- everything that does not depend on which
+board it runs on.
+
+**It does not cover the boards.** `revela/boards/` holds the designs used to
+run the ISP on particular hardware: block designs, constraints, board glue,
+bench scripts. They are the harness, not the product. They, the bitstreams
+built from them, and what those bitstreams pull in -- the bayerlink receiver
+from bayerlink-fpga, vendor IP from the board and FPGA vendors -- are available
+under their own open terms only.
+
 It adds terms, not code. **The commercial tier is the same models and the same
 generator; there is no separate fork with better arithmetic.**
 
@@ -126,10 +138,14 @@ openly stays released; a later commercial tier cannot retract it.
 
 ## 6. Contributions
 
-Contributors keep their copyright and grant a licence in — sublicensable and
-transferable — which is what makes the dual offer possible. See
-[CLA.md](../CLA.md), section 5 in particular, and
+Contributors to the ISP keep their copyright and grant a licence in —
+sublicensable and transferable — which is what makes the dual offer possible.
+See [CLA.md](../CLA.md), section 5 in particular, and
 [CONTRIBUTING.md](../CONTRIBUTING.md).
+
+Contributions to `revela/boards/` need no CLA: the boards are outside the
+commercial licence, so they are contributed and used under the open licence
+alone.
 
 ## 7. Third-party components
 

@@ -1,19 +1,29 @@
 # Contributing to revela
 
 Thank you for considering it. Please read this before opening a pull request —
-in particular the CLA section, which is not optional, and the licence
-provenance rules, which will get a contribution rejected on sight if missed.
+in particular the CLA section, which is not optional for the ISP, and the
+licence provenance rules, which will get a contribution rejected on sight if
+missed.
 
 ## Contributor Licence Agreement
 
-**Every contributor must sign the [CLA](CLA.md) before a pull request is merged.**
+**Every contributor must sign the [CLA](CLA.md) before a pull request is
+merged, for everything outside `revela/boards/`.** That is the ISP and what
+travels with it: `revela/blocks/`, the pipelines, the generator code, sensor
+descriptions, profiles, tests and documentation.
 
-Why: revela is released openly under the Solderpad Hardware License v2.1, and a
-**commercial licence with support and indemnity is offered alongside it** — which
-means licensing the whole work, contributions included, on terms other than the
-open ones. The CLA is what makes that possible, by granting the maintainer a
-sublicensable and transferable licence rather than leaving each file's terms
-fixed by whoever wrote it.
+**Board contributions need no CLA.** `revela/boards/` holds the designs that run
+the ISP on particular hardware — the harness, not the product — and the
+commercial licence does not cover it. A pull request touching only
+`revela/boards/` is contributed under the Solderpad licence alone. One that also
+touches the ISP needs the CLA for that part.
+
+Why the ISP needs it: revela is released openly under the Solderpad Hardware
+License v2.1, and a **commercial licence with support and indemnity is offered
+alongside it for the ISP** — which means licensing the ISP, contributions
+included, on terms other than the open ones. The CLA is what makes that
+possible, by granting the maintainer a sublicensable and transferable licence
+rather than leaving each file's terms fixed by whoever wrote it.
 
 **It is a licence, not an assignment. You keep your copyright.** You also keep
 the right to use your own contribution for anything you like. In exchange:

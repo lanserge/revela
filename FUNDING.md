@@ -41,6 +41,9 @@ you get is not useful:
 
 - **It is not a different codebase.** The commercial tier is the same models and
   the same generator. There is no secret fork with better arithmetic.
+- **It does not cover the boards.** The licensed work is the ISP. The board
+  designs in `revela/boards/`, and the bitstreams built from them, are the
+  harness used to run it, available under the open licence only.
 - **It does not remove your obligations under the open licence** for anything you
   obtained under it, and it does not retroactively change the terms of code
   already released.

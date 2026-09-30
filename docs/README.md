@@ -8,8 +8,11 @@
   questions a commercial evaluator asks.
 - **[THIRD-PARTY.md](THIRD-PARTY.md)** — every dependency and its licence, and
   why the simulators' terms do not reach your design.
-- **[RELEASING.md](RELEASING.md)** — publishing the four packages to PyPI, the
-  order the dependency graph forces, and why a direct reference is refused.
+- **[RELEASING.md](RELEASING.md)** — publishing the packages to PyPI, the order
+  the dependency graph forces, and why a direct reference is refused.
+- **[pipeline-schema-research.md](pipeline-schema-research.md)** — the research the
+  composite format came from; dated, and kept as the record of why it is shaped
+  as it is.
 
 ## Generated documentation
 

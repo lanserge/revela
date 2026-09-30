@@ -1,0 +1,21 @@
+# The board is a bitstream; this oneshot is the one thing a volatile
+# FPGA cannot do for itself -- being programmed after power-on. It
+# loads and EXITS: nothing stays resident, and the picture, the
+# genlock and the link recovery are the fabric's alone. Install:
+#   sudo cp load-bitstream.service /etc/systemd/system/
+#   sudo systemctl enable load-bitstream
+# with rx.bit and rx.hwh in /home/xilinx/.
+[Unit]
+Description=bayerlink ISP bitstream loader (oneshot)
+After=multi-user.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/xilinx
+ExecStart=/usr/local/share/pynq-venv/bin/python3 /home/xilinx/load.py --bit /home/xilinx/rx.bit
+Environment=BOARD=Pynq-Z2 XILINX_XRT=/usr
+User=root
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

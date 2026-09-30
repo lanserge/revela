@@ -101,7 +101,8 @@ naming because the pieces are designed to fit:
 | [bayerlink](https://github.com/bayerlink/bayerlink) | the wire format: raw Bayer over an ordinary video link, self-described by a header line — geometry, CFA phase and depth travel with the frame |
 | [`np2hw.video_in`](https://github.com/lanserge/np2hw) | the receiver: decodes that link and aligns sample depth on the way in, so downstream the depth is a build fact |
 | **revela** | the ISP: this project |
-| [bayerlink-fpga](https://github.com/bayerlink/bayerlink-fpga) | all three on a PYNQ-Z2, with the board glue — the worked example |
+| [bayerlink-fpga](https://github.com/bayerlink/bayerlink-fpga) | that receiver on real FPGAs, with its TMDS front ends |
+| [`revela/boards/pynq_z2`](revela/boards/pynq_z2) | all of them on a PYNQ-Z2, with the board glue — the worked example |
 | [picam2hdmi](https://github.com/bayerlink/picam2hdmi) | a source at the other end: a Raspberry Pi, genlocked, any libcamera sensor |
 
 Two things make the seam work, and both are worth knowing before wiring
@@ -120,7 +121,7 @@ rather than an error.
 stream's end-of-line nor the header's width, so a frame wider than they
 were built for is not something they can notice — it shears, with the CFA
 phase inverted on alternate rows and no status bit anywhere. Whoever hands
-them a wider one must crop first; bayerlink-fpga's shim shows one way,
+them a wider one must crop first; the PYNQ-Z2 board's shim shows one way,
 cropping to the built width and saying so in a sticky `truncated`.
 
 ## Quick start
@@ -295,8 +296,9 @@ Every dependency and its licence: [docs/THIRD-PARTY.md](docs/THIRD-PARTY.md).
 
 ## Contributing
 
-Contributions require a signed [CLA](CLA.md) before a pull request is merged —
-see [CONTRIBUTING.md](CONTRIBUTING.md). It is a licence grant, not an assignment:
+Contributions to the ISP require a signed [CLA](CLA.md) before a pull request is
+merged; board designs under `revela/boards/` do not — see
+[CONTRIBUTING.md](CONTRIBUTING.md). It is a licence grant, not an assignment:
 you keep your copyright. Two things that will get a sensor contribution rejected
 on sight: register tables transcribed out of the Linux kernel media drivers (they
 are GPL-2.0 and incompatible with this licence), and per-unit calibration data
