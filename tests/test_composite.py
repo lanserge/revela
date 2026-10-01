@@ -240,7 +240,7 @@ def test_a_register_value_from_build_parameters_is_a_constant(library):
 
 @pytest.mark.parametrize("text, message", [
     ("1 / 2", "true division"),
-    ("1.5", "every parameter is an integer"),
+    ("1.5", "a constant is an integer"),
     ("__import__('os')", "Call is not allowed"),
     ("a[0]", "Subscript is not allowed"),
     ("1 +", "is not an expression"),
@@ -400,12 +400,42 @@ def test_the_bridge_refuses_what_is_not_an_isp_block(library):
         to_pipeline(load(f"{lib}.m:d"))
 
 
-def test_the_bridge_refuses_reset_values_it_cannot_carry(library):
+def test_a_designs_values_are_the_register_files_reset_values(library):
+    """One place, three readers: the register map, the model's defaults and
+    the generated register file's reset all carry what the design set."""
+    d = chain(("wb", WB), ("gamma", "revela.blocks.gamma:gamma"))
+    d["inputs"][0].update(bits=12, max_width=64, max_height=32)
+    d["nodes"]["wb"]["values"] = {"gain": [[300, 256], [256, 301]]}
+    d["nodes"]["gamma"]["values"] = {"knots": list(range(0, 264, 8))[::-1]}
+    lib = library({"m": {"d": d}})
+    pipeline = to_pipeline(load(f"{lib}.m:d"))
+    regmap = pipeline.register_map()
+    default = {f"{b['path']}.{r['name']}": r["default"]
+               for b in regmap["blocks"] for r in b["registers"]}
+    assert default["wb.gain_0_0"] == 300 and default["wb.gain_1_1"] == 301
+    assert default["gamma.knots_0"] == 256 and default["gamma.knots_32"] == 0
+    assert pipeline.stage("wb").paramset.defaults()["gain_1_1"] == 301
+    verilog = pipeline.generate(control=True).verilog
+    assert "reg_wb_gain_0_0<=300;" in verilog
+    assert "reg_gamma_knots_0<=256;" in verilog
+
+
+def test_undeclared_values_keep_their_declared_reset(library):
     d = chain(("wb", WB))
     d["inputs"][0].update(bits=12, max_width=64, max_height=32)
-    d["nodes"]["wb"]["values"] = {"gain": [[300, 256], [256, 300]]}
     lib = library({"m": {"d": d}})
-    with pytest.raises(CompositionError, match="does not take reset values"):
+    regmap = to_pipeline(load(f"{lib}.m:d")).register_map()
+    gain = {r["name"]: r["default"] for b in regmap["blocks"]
+            if b["path"] == "wb" for r in b["registers"]}
+    assert set(gain.values()) == {256}          # unity, as declared
+
+
+def test_the_bridge_refuses_a_register_that_follows_another(library):
+    d = chain(("left", WB), ("right", WB))
+    d["inputs"][0].update(bits=12, max_width=64, max_height=32)
+    d["nodes"]["right"]["values"] = {"gain": "left.gain"}
+    lib = library({"m": {"d": d}})
+    with pytest.raises(CompositionError, match="sharing one register"):
         to_pipeline(load(f"{lib}.m:d"))
 
 
@@ -512,15 +542,16 @@ def test_a_design_without_the_profiles_block_is_refused(library):
         profiles.flatten(profiles.resolve(f"{lib}.tuning:sensor"), flat_design)
 
 
-def test_the_shipped_profiles_resolve_against_the_board():
+def test_the_board_resets_to_its_curve_and_the_sensor_profile_fits_it():
     regmap = to_pipeline(
         load("revela.boards.pynq_z2.isp:revela_isp_core")).register_map()
-    display = profiles.flatten(
-        profiles.resolve("revela.boards.pynq_z2.isp:display"), regmap)
+    knots = [r["default"] for b in regmap["blocks"] if b["path"] == "rgb_gamma"
+             for r in b["registers"]]
+    # The 2.2 curve, not the declared ramp: bright in the shadows.
+    assert len(knots) == 33 and knots[:4] == [0, 53, 72, 87] and \
+        knots[-1] == 256
     sensor = profiles.flatten(
         profiles.resolve("revela.sensors.ov5647.profile:ov5647"), regmap)
-    assert len(display) == 33 and all(k.startswith("rgb_gamma.knots_")
-                                      for k in display)
     assert len(sensor) == 17 and all(k.startswith("isp.") for k in sensor)
 
 
@@ -575,3 +606,166 @@ def test_a_library_that_is_not_a_directory_is_refused(tmp_path):
     from revela.designs.composite import add_libraries
     with pytest.raises(CompositionError, match="not a directory"):
         add_libraries([tmp_path / "nowhere"])
+
+
+def test_a_reset_value_outside_its_register_is_refused_at_the_block():
+    from revela.blocks.whitebalance import whitebalance
+    with pytest.raises(ValueError, match="reset value 70000 outside"):
+        whitebalance.configure(resets={"gain": [[70000, 256], [256, 256]]})
+
+
+# -- the shorthand ---------------------------------------------------------- #
+
+def test_a_module_alone_names_the_block_called_after_its_file():
+    from revela.designs.composite import canonical
+    assert find("revela.blocks.bayer_isp").ref == \
+        "revela.blocks.bayer_isp:bayer_isp"
+    assert find("revela.blocks.ccm").obj is find("revela.blocks.ccm:ccm").obj
+    assert canonical("revela.blocks.gamma:rgb_gamma") == \
+        "revela.blocks.gamma:rgb_gamma"
+    with pytest.raises(CompositionError, match="has no 'hamilton_adams'"):
+        find("revela.blocks.demosaic.hamilton_adams")
+
+
+def test_short_and_full_references_are_one_block_everywhere(library):
+    """A profile written for the short form anchors where the map records
+    the full one: references are compared in one form."""
+    lib = library(lambda lib: {
+        "design": {"pair": _pair()},
+        "tuning": {"profiles": {"s": {
+            "for": "revela.blocks.bayer_isp",
+            "values": {"whitebalance.gain": GAIN}}}}})
+    regmap = to_pipeline(load(f"{lib}.design:pair")).register_map()
+    flat = profiles.flatten(profiles.resolve(f"{lib}.tuning:s"), regmap)
+    assert len(flat) == 8
+
+
+# -- designs for a toolchain: when, pins, vendor settings ------------------- #
+
+IP = "revela.boards.zynq7.ip"
+
+
+def test_a_node_whose_when_is_false_is_not_built(library):
+    d = {"parameters": {"extra": {"default": 0}},
+         "nodes": {"a": {"block": f"{IP}:xlconstant"},
+                   "b": {"block": f"{IP}:xlconstant", "when": "extra"}},
+         "connections": []}
+    lib = library({"m": {"d": d}})
+    assert list(load(f"{lib}.m:d").instances) == ["a"]
+    assert list(load(f"{lib}.m:d", build={"extra": 1}).instances) == ["a", "b"]
+
+
+def test_a_connection_to_a_node_not_built_must_carry_the_same_when(library):
+    d = {"parameters": {"extra": {"default": 0}},
+         "nodes": {"a": {"block": f"{IP}:xlconstant"},
+                   "b": {"block": f"{IP}:util_vector_logic", "when": "extra"}},
+         "connections": [["a.dout", "b.Op1"]]}
+    lib = library({"m": {"d": d}})
+    with pytest.raises(CompositionError, match="guard the connection"):
+        load(f"{lib}.m:d")
+    d["connections"] = [{"from": "a.dout", "to": "b.Op1", "when": "extra"}]
+    lib = library({"m": {"d": d}})
+    assert load(f"{lib}.m:d").edges == []
+    assert load(f"{lib}.m:d", build={"extra": 1}).edges == [("a.dout", "b.Op1")]
+
+
+def test_pins_are_gathered_and_are_the_fpgas_so_their_names_are_global(library):
+    jack = {"pins": [{"name": "led", "dir": "O"}],
+            "nodes": {"k": {"block": f"{IP}:xlconstant"}},
+            "connections": [["k.dout", "led"]]}
+    def files(lib):
+        top = {"nodes": {"j1": {"block": f"{lib}.jack:jack"},
+                         "j2": {"block": f"{lib}.jack:jack"}},
+               "connections": []}
+        return {"jack": {"jack": jack}, "top": {"top": top}}
+    lib = library(files)
+    with pytest.raises(CompositionError, match="pin led is also"):
+        load(f"{lib}.top:top")
+    one = library(lambda lib: {"jack": {"jack": jack}, "top": {"top": {
+        "nodes": {"j": {"block": f"{lib}.jack:jack"}}, "connections": []}}})
+    design = load(f"{one}.top:top")
+    assert design.pins == {"led": {"dir": "O"}}
+    assert design.edges == [("j.k.dout", "@led")]
+
+
+def test_vendor_settings_are_open_and_config_is_verbatim(library):
+    d = {"parameters": {"n": {"default": 3}},
+         "nodes": {"c": {"block": f"{IP}:xlconcat", "build": {"NUM_PORTS": "n + 1"},
+                         "config": {"IN0_WIDTH": "No_buffer"}}},
+         "connections": []}
+    lib = library({"m": {"d": d}})
+    c = load(f"{lib}.m:d").instances["c"]
+    assert c.build == {"NUM_PORTS": 4} and c.config == {"IN0_WIDTH": "No_buffer"}
+
+
+def test_config_on_a_leaf_that_is_not_vendor_ip_is_refused(library):
+    d = chain(("wb", WB))
+    d["nodes"]["wb"]["config"] = {"x": 1}
+    lib = library({"m": {"d": d}})
+    with pytest.raises(CompositionError, match="not vendor IP"):
+        load(f"{lib}.m:d")
+
+
+def test_a_default_may_be_derived_and_a_word_is_quoted(library):
+    d = {"parameters": {"khz": {"default": 74250},
+                        "genlock": {"default": "1 if khz < 100000 else 0"},
+                        "clock": {"default": "'/a/b' if genlock else '/c/d'"}},
+         "nodes": {"k": {"block": f"{IP}:xlconstant"}}, "connections": []}
+    lib = library({"m": {"d": d}})
+    assert load(f"{lib}.m:d").parameters == {
+        "khz": 74250, "genlock": 1, "clock": "/a/b"}
+    assert load(f"{lib}.m:d", build={"khz": 148500}).parameters["clock"] == "/c/d"
+
+
+def test_a_name_that_is_both_a_parameter_and_a_node_is_refused(library):
+    d = {"parameters": {"k": {"default": 1}},
+         "nodes": {"k": {"block": f"{IP}:xlconstant"}}, "connections": []}
+    lib = library({"m": {"d": d}})
+    with pytest.raises(CompositionError, match="both a parameter and a node"):
+        load(f"{lib}.m:d")
+
+
+# -- composites a function writes ------------------------------------------- #
+
+GEN = '''
+def pair(config):
+    ports = [{"name": n, **({"when": "extra"} if n == config["optional"] else {})}
+             for n in config["names"]]
+    nodes = {f"k_{n}": dict({"block": "revela.boards.zynq7.ip:xlconstant"},
+                            **({"when": "extra"} if n == config["optional"] else {}))
+             for n in config["names"]}
+    conns = [dict({"from": f"k_{n}.dout", "to": n},
+                  **({"when": "extra"} if n == config["optional"] else {}))
+             for n in config["names"]]
+    return {"parameters": {"extra": {"description": "x"}},
+            "outputs": ports, "nodes": nodes, "connections": conns}
+pair.composite = True
+
+def broken(config):
+    return {"nodes": {}}
+broken.composite = True
+'''
+
+
+def test_a_function_can_write_a_composite_from_its_config(library):
+    lib = library(lambda lib: {"m": {"d": {
+        "parameters": {"extra": {"default": 0}},
+        "nodes": {"g": {"block": f"{lib}.gen:pair", "build": {"extra": "extra"},
+                        "config": {"names": ["a", "b"], "optional": "b"}},
+                  "sink": {"block": f"{IP}:xlconcat"}},
+        "connections": [["g.a", "sink.In0"],
+                        {"from": "g.b", "to": "sink.In1", "when": "extra"}]}}},
+        python={"gen": GEN})
+    d = load(f"{lib}.m:d")
+    assert sorted(d.instances) == ["g.k_a", "sink"]
+    assert d.edges == [("g.k_a.dout", "sink.In0")]
+    d = load(f"{lib}.m:d", build={"extra": 1})
+    assert sorted(d.instances) == ["g.k_a", "g.k_b", "sink"]
+
+
+def test_a_written_composite_is_checked_like_one_written_by_hand(library):
+    lib = library(lambda lib: {"m": {"d": {
+        "nodes": {"g": {"block": f"{lib}.gen:broken"}}, "connections": []}}},
+        python={"gen": GEN})
+    with pytest.raises(CompositionError, match="wrote a composite that is not one"):
+        load(f"{lib}.m:d")

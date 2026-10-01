@@ -1,0 +1,310 @@
+# Copyright 2026 Serge Rabyking
+# SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
+"""A design's block design, for Vivado: from the loaded JSON to Tcl.
+
+Nothing here knows a board or a design. The hierarchy is loaded by
+revela.designs.composite and flattened; this renders what it holds, in
+phases, because order is not structure:
+
+  project     the part, the board, the IP catalogues, every source and
+              constraints file the design's blocks name
+  cells       every leaf, in declaration order: vendor IP by its VLNV with
+              its properties, our modules by name with their parameters,
+              and a procedure where a leaf is built by one (a PS whose
+              board preset must be applied before its configuration)
+  pins        the FPGA's ports
+  nets        every connection: a stream between two of our modules is an
+              interface net (its six signals where one is tapped
+              elsewhere), a declared interface an interface net, anything
+              else a net -- each net made in one command, however many
+              composites it crossed
+  late        procedures that work on the connected design -- the bus
+  finish      validate, save, the wrapper
+
+A leaf names its Vivado implementation (``"vivado": {...}``); another
+toolchain is another implementation of the same leaves, rendered by its own
+emitter from the same design.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+from revela.boards.rtl import (BUNDLE, STREAM_BUS, module_ports,
+                                     module_sources, stream_groups,
+                                     undeclared_streams)
+
+
+def tcl(value) -> str:
+    """A JSON value as a Tcl word."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, list):
+        return "[list " + " ".join(tcl(v) for v in value) + "]"
+    if isinstance(value, dict):
+        return "[dict create " + " ".join(
+            f"{tcl(k)} {tcl(v)}" for k, v in value.items()) + "]"
+    return "{" + str(value) + "}"
+
+
+class EmitError(ValueError):
+    pass
+
+
+def emit(design, *, out: Path, part: str, board_part: str,
+         board_files: Path, ip_repos: list[Path]) -> str:
+    out = Path(out)
+    leaves = design.instances
+    cell = {}
+    for path in leaves:
+        name = path.rpartition(".")[2]
+        if name in cell.values():
+            other = next(p for p, n in cell.items() if n == name)
+            raise EmitError(f"{path} and {other} would both be the Vivado "
+                            f"cell {name!r}; a block design has one cell by "
+                            "a name")
+        cell[path] = name
+
+    def vivado(inst) -> dict:
+        obj = inst.leaf if isinstance(inst.leaf, dict) else {}
+        v = obj.get("vivado")
+        if v is None:
+            raise EmitError(f"{inst.path} ({inst.ref}) has no Vivado "
+                            "implementation")
+        return v
+
+    # Sources: every module leaf's, beside it or generated into the build.
+    sources, sources_seen = [], set()
+    for inst in leaves.values():
+        obj = inst.leaf if isinstance(inst.leaf, dict) else {}
+        files = [inst.folder / f for f in obj.get("sources", [])]
+        files += [out / "hdl" / f for f in obj.get("generated", [])]
+        for f in files:
+            f = f.resolve()
+            if f not in sources_seen:
+                sources_seen.add(f)
+                sources.append(f)
+
+    # Our modules' ports, at the widths this design builds them, and the
+    # streams each DECLARES -- read from the RTL, never restated. A block
+    # design answers a width mismatch with a warning and a silent
+    # connection of the low bits, so every wire between our own modules
+    # is checked here, before Vivado starts.
+    rtl = module_sources(sorted({f.parent for f in sources}))
+    problems = []
+    ports, streams = {}, {}
+    for path, inst in leaves.items():
+        v = vivado(inst)
+        if "module" not in v:
+            continue
+        module = v["module"]
+        if module not in rtl:
+            problems.append(f"{path}: module {module} is in none of the "
+                            "design's sources")
+            continue
+        ports[path] = module_ports(rtl[module], module, dict(inst.build))
+        missing = undeclared_streams(rtl[module], module, ports[path])
+        if missing:
+            problems.append(
+                f"{path} ({module}): port group(s) {sorted(missing)} carry a "
+                f"valid/ready handshake and declare no interface; add the "
+                f"X_INTERFACE_INFO attributes naming {STREAM_BUS}")
+        groups, partial = stream_groups(rtl[module], module, ports[path])
+        for prefix, signals in partial.items():
+            problems.append(f"{path} ({module}): {prefix!r} has {signals} -- "
+                            f"a stream is all of {list(BUNDLE)} or none")
+        streams[path] = groups
+
+    L = []
+    w = L.append
+    w("# GENERATED by revela.boards.vivado from the design's JSON -- do not "
+      "edit.")
+    w(f"# {design.ref}")
+    w("set out [file normalize [lindex $argv 0]]")
+    w(f"set_param board.repoPaths {tcl(str(board_files))}")
+    w(f"create_project rx [file join $out build rx] -part {part} -force")
+    w(f"set_property board_part {board_part} [current_project]")
+    w("set_property ip_repo_paths [list "
+      + " ".join(tcl(str(p)) for p in ip_repos) + "] [current_project]")
+    w("update_ip_catalog")
+    w("add_files " + " ".join(tcl(str(f)) for f in sources))
+    for f in design.constraints:
+        w(f"add_files -fileset constrs_1 {tcl(str(f))}")
+    w("create_bd_design rx")
+    w("")
+
+    sourced = set()
+
+    def procedure(inst, v):
+        src = (inst.folder / v["source"]).resolve()
+        if src not in sourced:
+            sourced.add(src)
+            w(f"source {tcl(str(src))}")
+        settings = {**inst.build, **inst.config}
+        w(f"{v['tcl']} {cell[inst.path]} {tcl(settings)}")
+
+    late = []
+    for path, inst in leaves.items():
+        v = vivado(inst)
+        name = cell[path]
+        if "tcl" in v:
+            if v.get("phase") == "late":
+                late.append((inst, v))
+            else:
+                procedure(inst, v)
+            continue
+        if "ip" in v:
+            w(f"create_bd_cell -type ip -vlnv {v['ip']} {name}")
+        elif "module" in v:
+            w(f"create_bd_cell -type module -reference {v['module']} {name}")
+        else:
+            raise EmitError(f"{path}: vivado implementation names no ip, "
+                            "module or tcl")
+        props = {**inst.build, **inst.config}
+        if props:
+            w("set_property -dict [list " + " ".join(
+                f"CONFIG.{k} {tcl(val)}" for k, val in props.items())
+              + f"] [get_bd_cells {name}]")
+
+    # Pins and connections.
+    def split(endpoint):
+        if endpoint.startswith("@"):
+            return None, endpoint[1:]
+        path, _, port = endpoint.rpartition(".")
+        return path, port
+
+    def interfaces(path):
+        return set(vivado(leaves[path]).get("interfaces", []))
+
+    nets: list[list[str]] = []
+    member: dict[str, int] = {}
+
+    def join(a, b):
+        ia, ib = member.get(a), member.get(b)
+        if ia is None and ib is None:
+            member[a] = member[b] = len(nets)
+            nets.append([a, b])
+        elif ib is None:
+            nets[ia].append(b)
+            member[b] = ia
+        elif ia is None:
+            nets[ib].insert(0, a)
+            member[a] = ib
+        elif ia != ib:
+            nets[ia].extend(x for x in nets[ib] if x not in nets[ia])
+            for x in nets[ib]:
+                member[x] = ia
+            nets[ib] = []
+
+    # A pin of a stream that is also wired elsewhere -- a status tap on
+    # its valid -- rules out an interface net for that stream: Vivado
+    # lets a net on one pin of an interface OVERRIDE the interface's
+    # connection of it, so the tap would take the pin away from the sink.
+    # Such a stream is joined signal by signal, the tap on the same net.
+    def is_stream_edge(sp, sport, dp, dport):
+        return (sp is not None and dp is not None
+                and sport in streams.get(sp, {}) and dport in streams.get(dp, {}))
+
+    tapped = set()
+    for source, sink in design.edges:
+        (sp, sport), (dp, dport) = split(source), split(sink)
+        if not is_stream_edge(sp, sport, dp, dport):
+            tapped.update((path, port) for path, port in ((sp, sport), (dp, dport))
+                          if path is not None)
+
+    def untapped(path, prefix):
+        return not any((path, f"{prefix}_{s}") in tapped for s in BUNDLE)
+
+    intf_nets, external = [], {}
+    for source, sink in design.edges:
+        (sp, sport), (dp, dport) = split(source), split(sink)
+        if sp is None or dp is None:
+            pin_name = sport if sp is None else dport
+            other = (dp, dport) if sp is None else (sp, sport)
+            decl = design.pins[pin_name]
+            if decl.get("interface"):
+                external[pin_name] = f"{cell[other[0]]}/{other[1]}"
+            else:
+                join(f"port:{pin_name}", f"{cell[other[0]]}/{other[1]}")
+            continue
+        a, b = f"{cell[sp]}/{sport}", f"{cell[dp]}/{dport}"
+        if sport in streams.get(sp, {}) and dport in streams.get(dp, {}):
+            ga, gb = streams[sp][sport], streams[dp][dport]
+            if ga["role"] != "source" or gb["role"] != "sink":
+                problems.append(f"{source} ({ga['role']}) -> {sink} "
+                                f"({gb['role']}): a stream runs from a "
+                                "source to a sink")
+            if ga["width"] != gb["width"]:
+                problems.append(f"{source} ({ga['width']} bits) -> {sink} "
+                                f"({gb['width']} bits): WIDTH MISMATCH")
+            if untapped(sp, sport) and untapped(dp, dport):
+                # both ends declare the interface: one connection, by the
+                # name the block design gives it
+                intf_nets.append((f"{cell[sp]}/{ga['interface']}",
+                                  f"{cell[dp]}/{gb['interface']}"))
+            else:
+                for s in BUNDLE:
+                    join(f"{a}_{s}", f"{b}_{s}")
+        elif sport in interfaces(sp) or dport in interfaces(dp):
+            intf_nets.append((a, b))
+        else:
+            join(a, b)
+
+    # Every net joining pins of our modules: one width, and pins that exist.
+    by_cell = {name: path for path, name in cell.items()}
+    for net in nets:
+        widths = {}
+        for pin in net:
+            if pin.startswith("port:"):
+                continue
+            name, _, port = pin.partition("/")
+            path = by_cell[name]
+            if path not in ports:
+                continue                 # vendor IP: its ports are its own
+            if port not in ports[path]:
+                problems.append(f"{path}: no port {port!r} "
+                                f"({leaves[path].ref})")
+                continue
+            widths[pin] = ports[path][port][1]
+        if len(set(widths.values())) > 1:
+            problems.append("WIDTH MISMATCH on one net: " + ", ".join(
+                f"{p} ({wd} bits)" for p, wd in widths.items()))
+    if problems:
+        raise EmitError(f"{design.ref}: {len(problems)} problem(s):\n  "
+                        + "\n  ".join(problems))
+
+    w("")
+    for name, decl in design.pins.items():
+        if decl.get("interface"):
+            if name not in external:
+                raise EmitError(f"interface pin {name} is connected to "
+                                "nothing")
+            w(f"make_bd_intf_pins_external [get_bd_intf_pins "
+              f"{external[name]}]")
+            leaf_pin = external[name].rpartition("/")[2]
+            w(f"set_property name {name} [get_bd_intf_ports {leaf_pin}_0]")
+        else:
+            w(f"create_bd_port -dir {decl['dir']} {name}")
+
+    def obj(pin):
+        return (f"[get_bd_ports {pin[5:]}]" if pin.startswith("port:")
+                else f"[get_bd_pins {pin}]")
+
+    for net in nets:
+        if net:
+            w("connect_bd_net " + " ".join(obj(p) for p in net))
+    for a, b in intf_nets:
+        w(f"connect_bd_intf_net [get_bd_intf_pins {a}] [get_bd_intf_pins {b}]")
+
+    w("")
+    for inst, v in late:
+        procedure(inst, v)
+
+    w("")
+    w("validate_bd_design")
+    w("save_bd_design")
+    w("make_wrapper -files [get_files rx.bd] -top -import")
+    w("set_property top rx_wrapper [current_fileset]")
+    w('puts "BD_DONE"')
+    return "\n".join(L) + "\n"

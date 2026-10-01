@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
 ## The design's own constraints: every one names a cell the block design
 ## instantiates. The jacks' pins and clocks belong to the board's
-## primitives (hdmi_in.xdc, hdmi_out.xdc) and are collected from the
-## primitives design.json uses.
+## jacks (hdmi_in.xdc, hdmi_out.xdc), each named by the composite that
+## owns it, and the build collects every one the design uses.
 
 ## The software reset is quasi-static: held for milliseconds by a GPIO
 ## write, absorbed by the receiver re-anchoring on the next vsync. Scoped
@@ -12,14 +12,6 @@
 ## milliseconds by a GPIO write, absorbed by re-anchoring on the next
 ## frame. False-path it wholesale rather than per destination clock.
 set_false_path -from [get_cells -hier -filter {NAME =~ */ctrl_gpio/*gpio_Data_Out_reg*}]
-
-## The framebuffer's base address, and the enable beside it. Software
-## writes the address, then enables, and the address does not move again
-## while the engine runs -- so this crossing is quasi-static by
-## contract, and the contract is what makes it safe rather than the
-## timing. Left timed it fails by 4.3ns against a 148.5MHz raster, for a
-## value that changes once a session.
-set_false_path -from [get_cells -hier -filter {NAME =~ */ctrl_gpio/*gpio2_Data_Out_reg*}]
 
 ## The coefficient crossing is GONE, and so are the three false paths
 ## that used to describe it. The register file and the datapath both

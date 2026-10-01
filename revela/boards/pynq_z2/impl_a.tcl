@@ -10,6 +10,9 @@ if {[llength $argv] != 1} {
 set out [file normalize [lindex $argv 0]]
 source [file join $out generated paths.tcl]
 source [file join $out generated receiver.tcl]
+# The board part lives outside Vivado's own store; without its path the
+# project reopens with the board unset, and says so.
+set_param board.repoPaths [list $p_board_files]
 open_project [file join $out build rx rx.xpr]
 set bd [get_files rx.bd]
 set_property synth_checkpoint_mode None $bd

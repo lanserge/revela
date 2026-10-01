@@ -1,0 +1,101 @@
+{
+  "blocks": {
+    "clk_wiz": {
+      "description": "A clocking wizard: an MMCM or PLL with the recipe its properties state.",
+      "vivado": {
+        "ip": "xilinx.com:ip:clk_wiz"
+      }
+    },
+    "axi_gpio": {
+      "description": "AXI GPIO: software's bits in, the fabric's bits out.",
+      "vivado": {
+        "ip": "xilinx.com:ip:axi_gpio",
+        "interfaces": [
+          "S_AXI"
+        ]
+      }
+    },
+    "axi_vdma": {
+      "description": "AXI Video DMA, used write-side only: frames to memory.",
+      "vivado": {
+        "ip": "xilinx.com:ip:axi_vdma",
+        "interfaces": [
+          "S_AXIS_S2MM",
+          "S_AXI_LITE",
+          "M_AXI_S2MM"
+        ]
+      }
+    },
+    "axi_dma": {
+      "description": "AXI DMA, used write-side only: a stream to memory.",
+      "vivado": {
+        "ip": "xilinx.com:ip:axi_dma",
+        "interfaces": [
+          "S_AXIS_S2MM",
+          "S_AXI_LITE",
+          "M_AXI_S2MM"
+        ]
+      }
+    },
+    "axis_clock_converter": {
+      "description": "An AXI4-Stream clock crossing.",
+      "vivado": {
+        "ip": "xilinx.com:ip:axis_clock_converter",
+        "interfaces": [
+          "S_AXIS",
+          "M_AXIS"
+        ]
+      }
+    },
+    "proc_sys_reset": {
+      "description": "A reset generator: asserts on its inputs, releases synchronously to its clock.",
+      "vivado": {
+        "ip": "xilinx.com:ip:proc_sys_reset"
+      }
+    },
+    "util_vector_logic": {
+      "description": "Bitwise logic between pins.",
+      "vivado": {
+        "ip": "xilinx.com:ip:util_vector_logic"
+      }
+    },
+    "xlconcat": {
+      "description": "Bits side by side into one bus.",
+      "vivado": {
+        "ip": "xilinx.com:ip:xlconcat"
+      }
+    },
+    "xlconstant": {
+      "description": "A constant.",
+      "vivado": {
+        "ip": "xilinx.com:ip:xlconstant"
+      }
+    },
+    "xlslice": {
+      "description": "Some bits of a bus.",
+      "vivado": {
+        "ip": "xilinx.com:ip:xlslice"
+      }
+    },
+    "rgb2dvi": {
+      "description": "Digilent's parallel video to TMDS, for 7-series serialisers.",
+      "vivado": {
+        "ip": "digilentinc.com:ip:rgb2dvi",
+        "interfaces": [
+          "RGB",
+          "TMDS"
+        ]
+      }
+    },
+    "dvi2rgb": {
+      "description": "Digilent's TMDS to parallel video, for 7-series deserialisers.",
+      "vivado": {
+        "ip": "digilentinc.com:ip:dvi2rgb",
+        "interfaces": [
+          "TMDS",
+          "RGB"
+        ]
+      }
+    }
+  }
+}

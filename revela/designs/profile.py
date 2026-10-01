@@ -35,7 +35,7 @@ import sys
 from dataclasses import dataclass, field
 
 from revela.designs.composite import (LIBRARY_HELP, CompositionError,
-                                      add_libraries, find, tree)
+                                      add_libraries, canonical, find, tree)
 
 
 @dataclass
@@ -50,17 +50,18 @@ class Profile:
 def resolve(ref: str, _stack: tuple = ()) -> Profile:
     """A profile with its includes expanded, every key checked against the
     structure of the block it is for."""
+    ref = canonical(ref)
     if ref in _stack:
         raise CompositionError(
             f"{ref} includes itself ({' -> '.join([*_stack, ref])})")
     found = find(ref)
     if found.kind != "profile":
         raise CompositionError(f"{ref} is a {found.kind}, not a profile")
-    for_ref = found.obj["for"]
+    for_ref = canonical(found.obj["for"])
     structure = tree(for_ref)
     if structure[""].kind == "profile":
         raise CompositionError(f"{ref}: for {for_ref}, which is a profile")
-    profile = Profile(ref, for_ref, found.obj.get("description", ""))
+    profile = Profile(found.ref, for_ref, found.obj.get("description", ""))
 
     items = found.obj["values"].items()
     # Includes first, so what this profile sets itself wins over them.

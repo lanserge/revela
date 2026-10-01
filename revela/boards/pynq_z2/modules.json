@@ -1,0 +1,93 @@
+{
+  "blocks": {
+    "revela_isp": {
+      "description": "This board's shim around the revela design pack: the header latch and the AXI4-Lite port carried to the boundary.",
+      "vivado": {
+        "module": "revela_isp",
+        "interfaces": [
+          "s_axi"
+        ]
+      },
+      "sources": [
+        "hdl/isp_shim.v"
+      ],
+      "generated": [
+        "revela_isp_core.v"
+      ],
+      "parameters": {
+        "WIDTH": {
+          "description": "The width the pack was built for; a wider line is cropped to it."
+        },
+        "SAMPLE_BITS": {
+          "description": "The width of one sample: the depth the receiver aligns every source to."
+        },
+        "DATA_BITS": {
+          "description": "The ISP's traced output word, from its published contract."
+        }
+      }
+    },
+    "isp_axis": {
+      "description": "The ISP's RGB stream dressed as AXI4-Stream video.",
+      "vivado": {
+        "module": "isp_axis",
+        "interfaces": [
+          "m_axis"
+        ]
+      },
+      "sources": [
+        "hdl/isp_axis.v"
+      ],
+      "parameters": {
+        "DATA_BITS": {
+          "description": "The ISP's traced output word, from its published contract."
+        }
+      }
+    },
+    "tee_shim": {
+      "description": "One ISP stream, two switchable consumers, never stalling.",
+      "vivado": {
+        "module": "tee_shim"
+      },
+      "sources": [
+        "hdl/tee_shim.v"
+      ],
+      "generated": [
+        "isp_tee.v",
+        "isp_skid.v",
+        "grab_fifo.v"
+      ],
+      "parameters": {
+        "DATA_BITS": {
+          "description": "The ISP's traced output word, from its published contract."
+        }
+      }
+    },
+    "scanout": {
+      "description": "The display raster, generated from the mode table, with its placement register file on the bus clock.",
+      "vivado": {
+        "module": "scanout_top",
+        "interfaces": [
+          "s_axis",
+          "vid_io",
+          "s_axi"
+        ]
+      },
+      "generated": [
+        "scanout.v"
+      ]
+    },
+    "out_cdc": {
+      "description": "The island-to-raster crossing: np2hw's gray-pointer FIFO, where the genlock's lead lives.",
+      "vivado": {
+        "module": "out_cdc",
+        "interfaces": [
+          "s_axis",
+          "m_axis"
+        ]
+      },
+      "generated": [
+        "scanout.v"
+      ]
+    }
+  }
+}

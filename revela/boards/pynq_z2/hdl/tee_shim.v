@@ -11,7 +11,9 @@
 module tee_shim #(
     parameter DATA_BITS = 24
 ) (
+    (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 clk CLK", X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in_stream:a:b, ASSOCIATED_RESET rst" *)
     input  wire        clk,
+    (* X_INTERFACE_INFO = "xilinx.com:signal:reset:1.0 rst RST", X_INTERFACE_PARAMETER = "POLARITY ACTIVE_HIGH" *)
     input  wire        rst,
     (* X_INTERFACE_INFO = "lanserge:interface:np2hw_stream_rtl:1.0 in_stream VALID" *)
     input  wire        in_valid,

@@ -1,0 +1,1236 @@
+{
+ "blocks": {
+  "pynq_demo": {
+   "description": "The PYNQ-Z2 demo: raw Bayer frames in over HDMI as bayerlink, the revela ISP, a genlocked raster out over HDMI -- the camera on a TV.",
+   "parameters": {
+    "pipeline": {
+     "default": "'revela.boards.pynq_z2.isp:revela_isp_core'",
+     "description": "The ISP this demo builds, by reference: a composite of revela's blocks, generated and proved before the board is built."
+    },
+    "mode": {
+     "default": "link_mode",
+     "description": "The output raster. By default the one the input arrives in, so the output runs at the input's rate: a 74.25 MHz raster genlocks to the stream, a 148.5 MHz one free-runs."
+    },
+    "link_mode": {
+     "default": "'1080p30'",
+     "description": "The raster the receiver advertises in its EDID: payload plus one header row."
+    },
+    "isp_mhz": {
+     "default": 155,
+     "description": "The clock the pipeline is CUT for, above the clock it runs at: generation margin makes the cut placement deterministic."
+    },
+    "capture": {
+     "default": 0,
+     "description": "Build the link-judge path: byte-exact frames to DDR, so the ARM can convict a cable or a lane map."
+    },
+    "rx_fifo": {
+     "default": 256,
+     "description": "The receiver's sample FIFO depth, pinned: a different depth is a different design."
+    },
+    "max_line_bytes": {
+     "default": 4096,
+     "description": "The longest packed camera line the receiver holds."
+    },
+    "fill": {
+     "default": "'0x101010'",
+     "description": "What the raster paints outside the picture."
+    },
+    "out_khz": {
+     "description": "The output raster's pixel clock in kHz, from the mode table: supplied by the build."
+    },
+    "genlock": {
+     "default": "1 if out_khz < 100000 else 0",
+     "description": "A 74.25-class raster genlocks to the stream; a 148.5-class one free-runs."
+    },
+    "sample_bits": {
+     "description": "The width of one sample into the ISP, from its published contract: supplied by the build."
+    },
+    "isp_width": {
+     "description": "The width the ISP was built for, from its contract: supplied by the build."
+    },
+    "isp_out_bits": {
+     "description": "The ISP's traced output word, from its contract: supplied by the build."
+    },
+    "layout_id": {
+     "default": 0,
+     "description": "The checksum of this build's GPIO layout, which software reads back to know gpio_layout.json is this bitstream's: supplied by the build, which derives it from the declarations below."
+    }
+   },
+   "constraints": [
+    "design.xdc",
+    {
+     "file": "genlock-clocks.xdc",
+     "when": "genlock"
+    }
+   ],
+   "nodes": {
+    "ps7": {
+     "block": "revela.boards.zynq7.ps7",
+     "description": "The processing system, on the board's preset. FCLK0 is every AXI clock here, at 142.857143 MHz: 142.86 rather than 100 so the island and the display merge into one clock and a fractional MMCM is retired. FCLK1 is the 200 MHz the HDMI front end calibrates its delays with.",
+     "config": {
+      "PCW_USE_S_AXI_HP0": "1",
+      "PCW_USE_S_AXI_HP1": "0",
+      "PCW_EN_CLK1_PORT": "1",
+      "PCW_FPGA0_PERIPHERAL_FREQMHZ": "142.857143",
+      "PCW_FPGA1_PERIPHERAL_FREQMHZ": "200",
+      "PCW_USE_FABRIC_INTERRUPT": "1",
+      "PCW_IRQ_F2P_INTR": "1"
+     }
+    },
+    "hdmi_in": {
+     "block": "revela.boards.pynq_z2.hdmi_in"
+    },
+    "vdma": {
+     "block": "revela.boards.zynq7.ip:axi_vdma",
+     "config": {
+      "c_include_mm2s": "0",
+      "c_include_s2mm": "1",
+      "c_s2mm_linebuffer_depth": "2048",
+      "c_use_fsync": "0",
+      "c_num_fstores": "1",
+      "c_s2mm_genlock_mode": "0"
+     }
+    },
+    "blrx": {
+     "block": "bayerlink_fpga.modules:bayerlink_rx"
+    },
+    "isp_in_shim": {
+     "block": "bayerlink_fpga.modules:rx_axis",
+     "build": {
+      "SAMPLE_BITS": "sample_bits"
+     }
+    },
+    "isp_unpack": {
+     "block": "bayerlink_fpga.modules:axis_unpack",
+     "build": {
+      "SAMPLE_BITS": "sample_bits"
+     }
+    },
+    "isp": {
+     "block": "revela.boards.pynq_z2.modules:revela_isp",
+     "build": {
+      "WIDTH": "isp_width",
+      "SAMPLE_BITS": "sample_bits",
+      "DATA_BITS": "isp_out_bits"
+     }
+    },
+    "isp_tee": {
+     "block": "revela.boards.pynq_z2.modules:tee_shim",
+     "build": {
+      "DATA_BITS": "isp_out_bits"
+     }
+    },
+    "isp_out": {
+     "block": "revela.boards.pynq_z2.modules:isp_axis",
+     "build": {
+      "DATA_BITS": "isp_out_bits"
+     }
+    },
+    "isp_dir": {
+     "block": "revela.boards.pynq_z2.modules:isp_axis",
+     "build": {
+      "DATA_BITS": "isp_out_bits"
+     }
+    },
+    "clk_out": {
+     "block": "revela.boards.zynq7.ip:clk_wiz",
+     "config": {
+      "PRIM_IN_FREQ": "200.000",
+      "PRIM_SOURCE": "No_buffer",
+      "CLKOUT1_REQUESTED_OUT_FREQ": "148.500",
+      "USE_LOCKED": "true",
+      "USE_RESET": "false"
+     },
+     "when": "not genlock"
+    },
+    "isp_cdc": {
+     "block": "revela.boards.zynq7.ip:axis_clock_converter"
+    },
+    "hdmi_out": {
+     "block": "revela.boards.pynq_z2.hdmi_out",
+     "build": {
+      "out_khz": "out_khz"
+     }
+    },
+    "scanout": {
+     "block": "revela.boards.pynq_z2.modules:scanout"
+    },
+    "irq_cat": {
+     "block": "revela.boards.zynq7.ip:xlconcat"
+    },
+    "irq_tie": {
+     "block": "revela.boards.zynq7.ip:xlconstant",
+     "config": {
+      "CONST_WIDTH": "1",
+      "CONST_VAL": "0"
+     },
+     "when": "not capture"
+    },
+    "control": {
+     "block": "revela.boards.zynq7.gpio:words",
+     "build": {
+      "capture": "capture",
+      "layout_id": "layout_id"
+     },
+     "description": "Software's bits into the fabric. Power-on defaults say what the board IS: the ISP is the stream's consumer and the direct picture is on, so a freshly programmed board shows the camera with no software running.",
+     "config": {
+      "gpio": "ctrl_gpio",
+      "parameters": {
+       "capture": "Whether the capture path, and so a consumer to select, is built.",
+       "layout_id": "The checksum of the build's GPIO layout."
+      },
+      "channels": [
+       {
+        "direction": "out",
+        "fields": [
+         {
+          "name": "broom",
+          "cell": "broom",
+          "default": 0,
+          "description": "The software reset: clears the receiver's sticky tallies, restarts the raster and the capture crossing. A person saying start again."
+         },
+         {
+          "name": "consumer",
+          "cell": "isp_sel",
+          "default": 1,
+          "when": "capture",
+          "description": "The stream's consumer: 1 the ISP, 0 the judge's byte-exact capture."
+         },
+         {
+          "skip": 1
+         },
+         {
+          "name": "grab",
+          "cell": "o_grab",
+          "default": 0,
+          "description": "The grabber's branch of the tee: quasi-static, honoured at frame boundaries, off at power-on so the write engine never touches memory nobody allocated."
+         },
+         {
+          "name": "direct",
+          "cell": "o_direct",
+          "default": 1,
+          "description": "The direct picture's branch of the tee; on a genlocked build it also makes the raster follow the stream."
+         }
+        ]
+       },
+       {
+        "direction": "in",
+        "fields": [
+         {
+          "name": "layout_id",
+          "bits": 32,
+          "value": "layout_id",
+          "cell": "layout_const",
+          "description": "The checksum of the build's GPIO layout: a script refuses a gpio_layout.json that does not match the bitstream it is reading."
+         }
+        ]
+       }
+      ]
+     }
+    },
+    "link_rst": {
+     "block": "bayerlink_fpga.modules:link_reset"
+    },
+    "rst_isp": {
+     "block": "revela.boards.zynq7.ip:proc_sys_reset"
+    },
+    "rstn_link": {
+     "block": "revela.boards.zynq7.ip:util_vector_logic",
+     "config": {
+      "C_SIZE": "1",
+      "C_OPERATION": "not"
+     }
+    },
+    "status": {
+     "block": "revela.boards.zynq7.gpio:words",
+     "description": "The fabric's testimony, two words: the link, the island, the header's verdicts; and the capture spy, the raster's lock and its own status.",
+     "config": {
+      "gpio": "status_gpio",
+      "channels": [
+       {
+        "direction": "in",
+        "cell": "status_cat",
+        "fields": [
+         {
+          "name": "link_locked",
+          "description": "The HDMI front end's pixel clock is locked."
+         },
+         {
+          "name": "rx_overflow",
+          "description": "The receiver lost samples: sticky, cleared by the broom."
+         },
+         {
+          "group": "isl_cat",
+          "fields": [
+           {
+            "name": "island_reset",
+            "description": "The island is held in reset (it follows the link)."
+           },
+           {
+            "name": "isp_in_valid",
+            "description": "The stream is reaching the ISP."
+           },
+           {
+            "name": "isp_in_ready",
+            "description": "The ISP is accepting."
+           },
+           {
+            "name": "isp_out_valid",
+            "description": "The ISP is producing."
+           },
+           {
+            "name": "shim_in_valid",
+            "description": "The pixel side is offering the island a sample."
+           },
+           {
+            "name": "shim_in_ready",
+            "description": "The pixel side's sample was accepted."
+           },
+           {
+            "pad": 10,
+            "cell": "isl_pad"
+           }
+          ]
+         },
+         {
+          "group": "hdr_cat",
+          "fields": [
+           {
+            "name": "refused",
+            "description": "The receiver refused a frame: sticky."
+           },
+           {
+            "name": "refuse_code",
+            "bits": 3,
+            "description": "Why: 1 magic, 2 fourcc, 3 group."
+           },
+           {
+            "name": "hdr_bits",
+            "bits": 5,
+            "description": "The depth the last accepted header declared."
+           },
+           {
+            "name": "hdr_valid",
+            "description": "A header has been accepted."
+           },
+           {
+            "name": "hdr_phase",
+            "bits": 2,
+            "description": "The CFA phase the last header declared."
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "direction": "in",
+        "cell": "status2_cat",
+        "fields": [
+         {
+          "name": "spy_status",
+          "bits": 16,
+          "description": "The capture crossing's spy: who refuses, producer or consumer; zero without the capture path."
+         },
+         {
+          "name": "raster_locked",
+          "description": "The raster's MMCM is locked."
+         },
+         {
+          "name": "scanout_status",
+          "bits": 15,
+          "description": "The scanout's own status word, as its generator lays it out."
+         }
+        ]
+       }
+      ]
+     }
+    },
+    "spy_tie": {
+     "block": "revela.boards.zynq7.ip:xlconstant",
+     "config": {
+      "CONST_WIDTH": "16",
+      "CONST_VAL": "0"
+     },
+     "when": "not capture"
+    },
+    "stream": {
+     "block": "revela.boards.zynq7.gpio:words",
+     "description": "Which frame, and which camera: the stream's identity and the link's own testimony, as counts, so a poll that misses an event still sees it happened.",
+     "config": {
+      "gpio": "stream_gpio",
+      "channels": [
+       {
+        "direction": "in",
+        "fields": [
+         {
+          "name": "frame_seq",
+          "bits": 32,
+          "description": "The last accepted header's frame sequence: the frame ENTERING the pipeline."
+         }
+        ]
+       },
+       {
+        "direction": "in",
+        "cell": "ident_cat",
+        "fields": [
+         {
+          "name": "source_id",
+          "bits": 8,
+          "description": "Which camera sent it."
+         },
+         {
+          "name": "resync_count",
+          "bits": 8,
+          "description": "Stream restarts, wrapping."
+         },
+         {
+          "name": "link_up",
+          "description": "The link's settled lock."
+         },
+         {
+          "name": "loss_count",
+          "bits": 8,
+          "description": "Link drops seen, wrapping."
+         },
+         {
+          "name": "torn_a",
+          "description": "The display branch fell behind: sticky."
+         },
+         {
+          "name": "torn_b",
+          "description": "The grabber fell behind: sticky."
+         },
+         {
+          "pad": 5,
+          "cell": "fb_dbg0"
+         }
+        ]
+       }
+      ]
+     }
+    },
+    "rst_bus": {
+     "block": "revela.boards.zynq7.ip:proc_sys_reset"
+    },
+    "ddc": {
+     "block": "bayerlink_fpga.modules:ddc_slave"
+    },
+    "rstn_pix": {
+     "block": "revela.boards.zynq7.ip:util_vector_logic",
+     "when": "capture",
+     "config": {
+      "C_SIZE": "1",
+      "C_OPERATION": "not"
+     }
+    },
+    "lock_inv": {
+     "block": "revela.boards.zynq7.ip:util_vector_logic",
+     "config": {
+      "C_SIZE": "1",
+      "C_OPERATION": "not"
+     }
+    },
+    "lock_hi": {
+     "block": "revela.boards.zynq7.ip:xlconstant",
+     "config": {
+      "CONST_WIDTH": "1",
+      "CONST_VAL": "1"
+     },
+     "when": "genlock"
+    },
+    "clk_out74": {
+     "block": "revela.boards.zynq7.ip:clk_wiz",
+     "config": {
+      "PRIM_IN_FREQ": "200.000",
+      "PRIM_SOURCE": "No_buffer",
+      "CLKOUT1_REQUESTED_OUT_FREQ": "74.250",
+      "USE_DYN_PHASE_SHIFT": "true",
+      "USE_LOCKED": "true",
+      "USE_RESET": "false",
+      "OVERRIDE_MMCM": "true",
+      "MMCM_DIVCLK_DIVIDE": "10",
+      "MMCM_CLKFBOUT_MULT_F": "37.125",
+      "MMCM_CLKOUT0_DIVIDE_F": "10.000",
+      "CLK_OUT1_USE_FINE_PS_GUI": "true",
+      "MMCM_CLKOUT0_USE_FINE_PS": "true"
+     },
+     "when": "genlock"
+    },
+    "out_cdc": {
+     "block": "revela.boards.pynq_z2.modules:out_cdc",
+     "when": "genlock"
+    },
+    "sw": {
+     "block": "bayerlink_fpga.modules:stream_switch",
+     "build": {
+      "SAMPLE_BITS": "sample_bits"
+     },
+     "when": "capture"
+    },
+    "shim": {
+     "block": "bayerlink_fpga.modules:rx_axis",
+     "build": {
+      "SAMPLE_BITS": "sample_bits"
+     },
+     "when": "capture"
+    },
+    "cdc": {
+     "block": "revela.boards.zynq7.ip:axis_clock_converter",
+     "when": "capture"
+    },
+    "dma": {
+     "block": "revela.boards.zynq7.ip:axi_dma",
+     "config": {
+      "c_include_mm2s": "0",
+      "c_include_sg": "0",
+      "c_s_axis_s2mm_tdata_width": "32",
+      "c_sg_length_width": "26"
+     },
+     "when": "capture"
+    },
+    "spy_cdc": {
+     "block": "bayerlink_fpga.modules:axis_spy",
+     "build": {
+      "DW": 32
+     },
+     "when": "capture"
+    },
+    "bus": {
+     "block": "revela.boards.zynq7.bus:axi_bus",
+     "description": "The AXI bus, after every cell and connection exists.",
+     "build": {
+      "island_clock": "'/ps7/FCLK_CLK0' if genlock else '/clk_out/clk_out1'",
+      "capture": "capture"
+     },
+     "config": {
+      "bus_reset": "rst_bus/peripheral_aresetn",
+      "link_reset": "rst_isp/peripheral_aresetn",
+      "link_reset_keeps": [
+       "/isp_cdc/m_axis_aresetn"
+      ],
+      "control_interconnect": "ps7_axi_periph",
+      "steps": [
+       {
+        "automate": "vdma/S_AXI_LITE",
+        "config": "Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} Master {/ps7/M_AXI_GP0} intc_ip {New AXI Interconnect}"
+       },
+       {
+        "automate": "dma/S_AXI_LITE",
+        "only": "capture",
+        "config": "Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} Master {/ps7/M_AXI_GP0} intc_ip {New AXI Interconnect}"
+       },
+       {
+        "automate": "status_gpio/S_AXI",
+        "config": "Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} Master {/ps7/M_AXI_GP0} intc_ip {New AXI Interconnect}"
+       },
+       {
+        "automate": "stream_gpio/S_AXI",
+        "config": "Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} Master {/ps7/M_AXI_GP0} intc_ip {New AXI Interconnect}"
+       },
+       {
+        "automate": "isp/s_axi",
+        "repair": 1,
+        "config": "Clk_master {/ps7/FCLK_CLK0} Clk_slave {%island%} Clk_xbar {/ps7/FCLK_CLK0} Master {/ps7/M_AXI_GP0} intc_ip {New AXI Interconnect}"
+       },
+       {
+        "automate": "scanout/s_axi",
+        "repair": 1,
+        "config": "Clk_master {/ps7/FCLK_CLK0} Clk_slave {%island%} Clk_xbar {/ps7/FCLK_CLK0} Master {/ps7/M_AXI_GP0} intc_ip {Auto}"
+       },
+       {
+        "second_master": "isp/s_axi",
+        "master": "ddc/M_AXI",
+        "name": "ic_ddc",
+        "segment": "isp/s_axi/reg0",
+        "range": "32K"
+       },
+       {
+        "automate": "ctrl_gpio/S_AXI",
+        "config": "Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} Master {/ps7/M_AXI_GP0} intc_ip {New AXI Interconnect}"
+       },
+       {
+        "automate": "ps7/S_AXI_HP0",
+        "config": "Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} Master {/vdma/M_AXI_S2MM}  Slave {/ps7/S_AXI_HP0} ddr_seg {Auto} intc_ip {New AXI Interconnect} master_apm {0}"
+       },
+       {
+        "memory_master": "axi_mem_intercon",
+        "only": "capture",
+        "master": "dma/M_AXI_S2MM",
+        "clock": "ps7/FCLK_CLK0",
+        "port": 1
+       },
+       {
+        "reset_polarity": "rst_clk_out_148M"
+       },
+       {
+        "sweep": 1
+       },
+       {
+        "addresses": [
+         [
+          "/dma/Data_S2MM",
+          "ps7/S_AXI_HP0/HP0_DDR_LOWOCM",
+          "capture"
+         ],
+         [
+          "/vdma/Data_S2MM",
+          "ps7/S_AXI_HP0/HP0_DDR_LOWOCM",
+          ""
+         ]
+        ]
+       }
+      ]
+     }
+    }
+   },
+   "connections": [
+    [
+     "ps7.FCLK_CLK1",
+     "hdmi_in.refclk"
+    ],
+    {
+     "from": "blrx.out",
+     "to": "isp_in_shim.in",
+     "when": "not capture"
+    },
+    [
+     "isp_unpack.out",
+     "isp.in"
+    ],
+    [
+     "isp.out",
+     "isp_tee.in"
+    ],
+    [
+     "isp_tee.b",
+     "isp_out.in"
+    ],
+    [
+     "isp_tee.a",
+     "isp_dir.in"
+    ],
+    [
+     "hdmi_in.pclk",
+     "blrx.clk"
+    ],
+    [
+     "hdmi_in.data",
+     "blrx.vid_data"
+    ],
+    [
+     "hdmi_in.de",
+     "blrx.vid_de"
+    ],
+    [
+     "hdmi_in.vsync",
+     "blrx.vid_vsync"
+    ],
+    {
+     "from": "ps7.FCLK_CLK1",
+     "to": "clk_out.clk_in1",
+     "when": "not genlock"
+    },
+    [
+     "hdmi_in.pclk",
+     "isp_in_shim.clk"
+    ],
+    [
+     "isp_in_shim.m_axis",
+     "isp_cdc.S_AXIS"
+    ],
+    [
+     "hdmi_in.pclk",
+     "isp_cdc.s_axis_aclk"
+    ],
+    {
+     "from": "clk_out.clk_out1",
+     "to": "isp_cdc.m_axis_aclk",
+     "when": "not genlock"
+    },
+    {
+     "from": "clk_out.clk_out1",
+     "to": "isp_unpack.clk",
+     "when": "not genlock"
+    },
+    [
+     "isp_cdc.M_AXIS",
+     "isp_unpack.s_axis"
+    ],
+    {
+     "from": "clk_out.clk_out1",
+     "to": "isp.clk",
+     "when": "not genlock"
+    },
+    [
+     "blrx.hdr_width",
+     "isp.hdr_width"
+    ],
+    [
+     "blrx.hdr_height",
+     "isp.hdr_height"
+    ],
+    [
+     "blrx.hdr_phase",
+     "isp.hdr_phase"
+    ],
+    [
+     "blrx.hdr_bits",
+     "isp.hdr_bits"
+    ],
+    {
+     "from": "clk_out.clk_out1",
+     "to": "isp_tee.clk",
+     "when": "not genlock"
+    },
+    {
+     "from": "clk_out.clk_out1",
+     "to": "isp_out.clk",
+     "when": "not genlock"
+    },
+    [
+     "isp_out.m_axis",
+     "vdma.S_AXIS_S2MM"
+    ],
+    {
+     "from": "clk_out.clk_out1",
+     "to": "isp_dir.clk",
+     "when": "not genlock"
+    },
+    {
+     "from": "clk_out.clk_out1",
+     "to": "scanout.clk",
+     "when": "not genlock"
+    },
+    {
+     "from": "clk_out.locked",
+     "to": "scanout.locked",
+     "when": "not genlock"
+    },
+    [
+     "scanout.vid_io",
+     "hdmi_out.rgb"
+    ],
+    {
+     "from": "clk_out.clk_out1",
+     "to": "hdmi_out.pixel_clk",
+     "when": "not genlock"
+    },
+    {
+     "from": "isp_dir.m_axis",
+     "to": "scanout.s_axis",
+     "when": "not genlock"
+    },
+    [
+     "vdma.s2mm_introut",
+     "irq_cat.In0"
+    ],
+    {
+     "from": "irq_tie.dout",
+     "to": "irq_cat.In1",
+     "when": "not capture"
+    },
+    [
+     "irq_cat.dout",
+     "ps7.IRQ_F2P"
+    ],
+    [
+     "control.grab",
+     "isp_tee.en_b"
+    ],
+    [
+     "control.direct",
+     "isp_tee.en_a"
+    ],
+    [
+     "ps7.FCLK_CLK0",
+     "link_rst.stable_clk"
+    ],
+    [
+     "hdmi_in.pclk",
+     "link_rst.pix_clk"
+    ],
+    [
+     "hdmi_in.locked",
+     "link_rst.locked_a"
+    ],
+    [
+     "control.broom",
+     "link_rst.soft_rst"
+    ],
+    {
+     "from": "clk_out.clk_out1",
+     "to": "rst_isp.slowest_sync_clk",
+     "when": "not genlock"
+    },
+    [
+     "link_rst.rst_pix",
+     "rst_isp.ext_reset_in"
+    ],
+    {
+     "from": "clk_out.locked",
+     "to": "rst_isp.dcm_locked",
+     "when": "not genlock"
+    },
+    [
+     "rst_isp.peripheral_reset",
+     "isp.rst"
+    ],
+    [
+     "rst_isp.peripheral_reset",
+     "isp_out.rst"
+    ],
+    [
+     "rst_isp.peripheral_reset",
+     "isp_unpack.rst"
+    ],
+    [
+     "rst_isp.peripheral_reset",
+     "isp_tee.rst"
+    ],
+    [
+     "rst_isp.peripheral_reset",
+     "isp_dir.rst"
+    ],
+    [
+     "rst_isp.peripheral_aresetn",
+     "isp_cdc.m_axis_aresetn"
+    ],
+    [
+     "link_rst.rst_pix",
+     "rstn_link.Op1"
+    ],
+    [
+     "rstn_link.Res",
+     "isp_cdc.s_axis_aresetn"
+    ],
+    [
+     "link_rst.rst_pix",
+     "isp_in_shim.rst"
+    ],
+    [
+     "link_rst.rst_pix",
+     "blrx.rst"
+    ],
+    [
+     "control.broom",
+     "blrx.diag_clear"
+    ],
+    {
+     "from": "spy_tie.dout",
+     "to": "status.spy_status",
+     "when": "not capture"
+    },
+    {
+     "from": "clk_out.locked",
+     "to": "status.raster_locked",
+     "when": "not genlock"
+    },
+    [
+     "scanout.status",
+     "status.scanout_status"
+    ],
+    [
+     "blrx.refused",
+     "status.refused"
+    ],
+    [
+     "blrx.refuse_code",
+     "status.refuse_code"
+    ],
+    [
+     "blrx.hdr_bits",
+     "status.hdr_bits"
+    ],
+    [
+     "blrx.hdr_valid",
+     "status.hdr_valid"
+    ],
+    [
+     "blrx.hdr_phase",
+     "status.hdr_phase"
+    ],
+    [
+     "rst_isp.peripheral_reset",
+     "status.island_reset"
+    ],
+    [
+     "isp.in_valid",
+     "status.isp_in_valid"
+    ],
+    [
+     "isp.in_ready",
+     "status.isp_in_ready"
+    ],
+    [
+     "isp.out_valid",
+     "status.isp_out_valid"
+    ],
+    [
+     "isp_in_shim.in_valid",
+     "status.shim_in_valid"
+    ],
+    [
+     "isp_in_shim.in_ready",
+     "status.shim_in_ready"
+    ],
+    [
+     "hdmi_in.locked",
+     "status.link_locked"
+    ],
+    [
+     "blrx.overflow",
+     "status.rx_overflow"
+    ],
+    [
+     "blrx.hdr_frame_seq",
+     "stream.frame_seq"
+    ],
+    [
+     "blrx.hdr_source_id",
+     "stream.source_id"
+    ],
+    [
+     "blrx.resync_count",
+     "stream.resync_count"
+    ],
+    [
+     "link_rst.link_up",
+     "stream.link_up"
+    ],
+    [
+     "link_rst.loss_count",
+     "stream.loss_count"
+    ],
+    [
+     "isp_tee.torn_a",
+     "stream.torn_a"
+    ],
+    [
+     "isp_tee.torn_b",
+     "stream.torn_b"
+    ],
+    {
+     "from": "clk_out.clk_out1",
+     "to": "rst_bus.slowest_sync_clk",
+     "when": "not genlock"
+    },
+    [
+     "ps7.FCLK_RESET0_N",
+     "rst_bus.ext_reset_in"
+    ],
+    {
+     "from": "clk_out.locked",
+     "to": "rst_bus.dcm_locked",
+     "when": "not genlock"
+    },
+    {
+     "from": "clk_out.clk_out1",
+     "to": "isp.s_axi_aclk",
+     "when": "not genlock"
+    },
+    [
+     "rst_bus.peripheral_aresetn",
+     "isp.s_axi_aresetn"
+    ],
+    {
+     "from": "clk_out.clk_out1",
+     "to": "scanout.s_axi_aclk",
+     "when": "not genlock"
+    },
+    [
+     "rst_bus.peripheral_aresetn",
+     "scanout.s_axi_aresetn"
+    ],
+    [
+     "hdmi_in.scl_i",
+     "ddc.scl_i"
+    ],
+    [
+     "hdmi_in.sda_i",
+     "ddc.sda_i"
+    ],
+    [
+     "ddc.sda_pull",
+     "hdmi_in.sda_pull"
+    ],
+    {
+     "from": "clk_out.clk_out1",
+     "to": "ddc.clk",
+     "when": "not genlock"
+    },
+    [
+     "rst_bus.peripheral_reset",
+     "ddc.rst"
+    ],
+    {
+     "from": "clk_out.clk_out1",
+     "to": "vdma.s_axis_s2mm_aclk",
+     "when": "not genlock"
+    },
+    {
+     "from": "control.broom",
+     "to": "rstn_pix.Op1",
+     "when": "capture"
+    },
+    [
+     "control.broom",
+     "scanout.rst"
+    ],
+    {
+     "from": "clk_out.locked",
+     "to": "lock_inv.Op1",
+     "when": "not genlock"
+    },
+    [
+     "lock_inv.Res",
+     "hdmi_out.reset"
+    ],
+    {
+     "from": "ps7.FCLK_CLK1",
+     "to": "clk_out74.clk_in1",
+     "when": "genlock"
+    },
+    {
+     "from": "clk_out74.clk_out1",
+     "to": "clk_out74.psclk",
+     "when": "genlock"
+    },
+    {
+     "from": "ps7.FCLK_CLK0",
+     "to": "isp_cdc.m_axis_aclk",
+     "when": "genlock"
+    },
+    {
+     "from": "ps7.FCLK_CLK0",
+     "to": "isp_unpack.clk",
+     "when": "genlock"
+    },
+    {
+     "from": "ps7.FCLK_CLK0",
+     "to": "isp.clk",
+     "when": "genlock"
+    },
+    {
+     "from": "ps7.FCLK_CLK0",
+     "to": "isp_tee.clk",
+     "when": "genlock"
+    },
+    {
+     "from": "ps7.FCLK_CLK0",
+     "to": "isp_out.clk",
+     "when": "genlock"
+    },
+    {
+     "from": "ps7.FCLK_CLK0",
+     "to": "isp_dir.clk",
+     "when": "genlock"
+    },
+    {
+     "from": "clk_out74.clk_out1",
+     "to": "scanout.clk",
+     "when": "genlock"
+    },
+    {
+     "from": "clk_out74.locked",
+     "to": "scanout.locked",
+     "when": "genlock"
+    },
+    {
+     "from": "clk_out74.clk_out1",
+     "to": "hdmi_out.pixel_clk",
+     "when": "genlock"
+    },
+    {
+     "from": "scanout.ps_en",
+     "to": "clk_out74.psen",
+     "when": "genlock"
+    },
+    {
+     "from": "scanout.ps_incdec",
+     "to": "clk_out74.psincdec",
+     "when": "genlock"
+    },
+    {
+     "from": "clk_out74.psdone",
+     "to": "scanout.ps_done",
+     "when": "genlock"
+    },
+    {
+     "from": "ps7.FCLK_CLK0",
+     "to": "out_cdc.wclk",
+     "when": "genlock"
+    },
+    {
+     "from": "clk_out74.clk_out1",
+     "to": "out_cdc.rclk",
+     "when": "genlock"
+    },
+    {
+     "from": "isp_dir.m_axis",
+     "to": "out_cdc.s_axis",
+     "when": "genlock"
+    },
+    {
+     "from": "out_cdc.m_axis",
+     "to": "scanout.s_axis",
+     "when": "genlock"
+    },
+    {
+     "from": "isp_tee.en_a",
+     "to": "scanout.param_follow",
+     "when": "genlock"
+    },
+    {
+     "from": "control.broom",
+     "to": "out_cdc.wrst",
+     "when": "genlock"
+    },
+    {
+     "from": "control.broom",
+     "to": "out_cdc.rrst",
+     "when": "genlock"
+    },
+    {
+     "from": "ps7.FCLK_CLK0",
+     "to": "rst_isp.slowest_sync_clk",
+     "when": "genlock"
+    },
+    {
+     "from": "lock_hi.dout",
+     "to": "rst_isp.dcm_locked",
+     "when": "genlock"
+    },
+    {
+     "from": "clk_out74.locked",
+     "to": "status.raster_locked",
+     "when": "genlock"
+    },
+    {
+     "from": "ps7.FCLK_CLK0",
+     "to": "rst_bus.slowest_sync_clk",
+     "when": "genlock"
+    },
+    {
+     "from": "lock_hi.dout",
+     "to": "rst_bus.dcm_locked",
+     "when": "genlock"
+    },
+    {
+     "from": "ps7.FCLK_CLK0",
+     "to": "isp.s_axi_aclk",
+     "when": "genlock"
+    },
+    {
+     "from": "ps7.FCLK_CLK0",
+     "to": "scanout.s_axi_aclk",
+     "when": "genlock"
+    },
+    {
+     "from": "ps7.FCLK_CLK0",
+     "to": "ddc.clk",
+     "when": "genlock"
+    },
+    {
+     "from": "ps7.FCLK_CLK0",
+     "to": "vdma.s_axis_s2mm_aclk",
+     "when": "genlock"
+    },
+    {
+     "from": "clk_out74.locked",
+     "to": "lock_inv.Op1",
+     "when": "genlock"
+    },
+    {
+     "from": "blrx.out",
+     "to": "sw.in",
+     "when": "capture"
+    },
+    {
+     "from": "sw.a",
+     "to": "shim.in",
+     "when": "capture"
+    },
+    {
+     "from": "sw.b",
+     "to": "isp_in_shim.in",
+     "when": "capture"
+    },
+    {
+     "from": "hdmi_in.pclk",
+     "to": "shim.clk",
+     "when": "capture"
+    },
+    {
+     "from": "shim.m_axis",
+     "to": "cdc.S_AXIS",
+     "when": "capture"
+    },
+    {
+     "from": "hdmi_in.pclk",
+     "to": "cdc.s_axis_aclk",
+     "when": "capture"
+    },
+    {
+     "from": "ps7.FCLK_CLK0",
+     "to": "spy_cdc.clk",
+     "when": "capture"
+    },
+    {
+     "from": "cdc.M_AXIS",
+     "to": "spy_cdc.s_axis",
+     "when": "capture"
+    },
+    {
+     "from": "spy_cdc.m_axis",
+     "to": "dma.S_AXIS_S2MM",
+     "when": "capture"
+    },
+    {
+     "from": "dma.s2mm_introut",
+     "to": "irq_cat.In1",
+     "when": "capture"
+    },
+    {
+     "from": "control.consumer",
+     "to": "sw.sel",
+     "when": "capture"
+    },
+    {
+     "from": "link_rst.rst_pix",
+     "to": "shim.rst",
+     "when": "capture"
+    },
+    {
+     "from": "control.broom",
+     "to": "spy_cdc.rst",
+     "when": "capture"
+    },
+    {
+     "from": "spy_cdc.status",
+     "to": "status.spy_status",
+     "when": "capture"
+    },
+    {
+     "from": "ps7.FCLK_CLK0",
+     "to": "dma.m_axi_s2mm_aclk",
+     "when": "capture"
+    },
+    {
+     "from": "ps7.FCLK_CLK0",
+     "to": "cdc.m_axis_aclk",
+     "when": "capture"
+    },
+    {
+     "from": "rstn_pix.Res",
+     "to": "cdc.s_axis_aresetn",
+     "when": "capture"
+    },
+    {
+     "from": "rstn_pix.Res",
+     "to": "cdc.m_axis_aresetn",
+     "when": "capture"
+    }
+   ]
+  }
+ }
+}

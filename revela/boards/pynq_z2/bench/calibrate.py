@@ -11,19 +11,17 @@ profiles, this script does the write locally: the map answers
 where, the profile answers what, the commit lands it at a frame
 boundary.
 
-The values are ABSOLUTE keys, which this board has no revela to
-compute. Resolve each profile against the build's map where revela
-is installed -- the design's own settings, then the sensor's tuning,
-anchored wherever its composite sits -- and give them here in that
-order; a later file wins:
+The design's own values are the bitstream's reset; what this writes
+is the sensor's. The values are ABSOLUTE keys, which this board has no
+revela to compute: resolve the profile against the build's map where
+revela is installed, anchored wherever its composite sits. Several
+files are applied in order, a later one winning:
 
-    python3 -m revela.designs.profile revela.boards.pynq_z2.isp:display \
-        --map revela_isp_core_regmap.json > display.json
     python3 -m revela.designs.profile revela.sensors.ov5647.profile:ov5647 \
         --map revela_isp_core_regmap.json > sensor.json
 
     python3 calibrate.py --bit rx.bit --map revela_isp_core_regmap.json \
-        --values display.json --values sensor.json
+        --values sensor.json
 """
 import argparse
 import json

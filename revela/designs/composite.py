@@ -10,6 +10,10 @@ named the way Python names an entry point, from the top of the import path:
     revela.boards.pynq_z2.hdmi_in:hdmi_in  a primitive: a JSON block, no nodes
     revela.blocks.bayer_isp:bayer_isp      a composite: a JSON block with nodes
 
+A module alone names the block called after its file: ``revela.blocks.ccm``
+is ``revela.blocks.ccm:ccm``, the common case spelt once; the full form
+names any block in a file that holds several.
+
 A JSON file always has one shape, ``{"blocks": {name: {...}}}``
 (blocks.schema.json). A composite has ports, nodes -- each an instance of a
 block, by reference -- the connections between them, and SETTINGS for what
@@ -120,15 +124,35 @@ def _library_file(path: Path) -> dict:
     return data
 
 
+def canonical(ref: str) -> str:
+    """A reference in its full form. ``package.module`` alone names the
+    block called after its file -- ``revela.blocks.bayer_isp`` is
+    ``revela.blocks.bayer_isp:bayer_isp`` -- which is the common case, one
+    block to a file, spelt once. Everything that compares references
+    compares this form."""
+    module, sep, name = ref.partition(":")
+    if not sep:
+        name = module.rpartition(".")[2]
+    return f"{module}:{name}"
+
+
+def block_name(ref: str) -> str:
+    """The block's own name, after the colon of the full form."""
+    return canonical(ref).rpartition(":")[2]
+
+
 def find(ref: str) -> Found:
-    """Resolve ``package.module:block`` through importlib, so a checkout and
-    an installed wheel behave the same. A module that is both a Python file
-    and a JSON file is refused: one name, one thing."""
+    """Resolve ``package.module:block`` -- or ``package.module``, the block
+    named after its file -- through importlib, so a checkout and an
+    installed wheel behave the same. A module that is both a Python file
+    and a JSON file is refused: one name, one thing. The Found carries the
+    full form."""
+    ref = canonical(ref)
     module, sep, name = ref.partition(":")
     package, dot, leaf = module.rpartition(".")
-    if not (sep and dot and name):
+    if not (dot and name):
         raise CompositionError(f"{ref!r} is not a block reference "
-                               "(package.module:block)")
+                               "(package.module[:block])")
     try:
         pkg = importlib.import_module(package)
     except ImportError as error:
@@ -205,10 +229,13 @@ def parse(text: str, where: str) -> ast.expr:
                              ast.BoolOp, ast.And, ast.Or)):
             continue
         if isinstance(node, ast.Constant):
-            if type(node.value) is not int:
+            # Integers, and strings for the vendor settings that are words
+            # ('/ps7/FCLK_CLK0'); a register value is still checked against
+            # its register, which no string fits.
+            if type(node.value) not in (int, str):
                 raise CompositionError(
-                    f"{where}: {text!r}: {node.value!r} -- every parameter "
-                    "is an integer, so is every constant")
+                    f"{where}: {text!r}: {node.value!r} -- a constant is an "
+                    "integer, or a string for a vendor setting")
             continue
         if isinstance(node, ast.BinOp) and type(node.op) in _BINARY:
             continue
@@ -303,6 +330,9 @@ class Instance:
     values: dict = field(default_factory=dict)
     domain: str | None = None
     description: str = ""
+    # A vendor primitive's properties, verbatim: its own names, its own
+    # value syntax (No_buffer, 74.250), never expressions.
+    config: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -317,6 +347,12 @@ class Design:
     composites: dict             # path -> ref, "" for the top block
     edges: list                  # (source, sink): "path.port" or a top port
     aliases: dict                # "path.register" -> "path.register" it follows
+    constraints: list = field(default_factory=list)
+    # every constraints file the design is built with, from the blocks that
+    # own them, in declaration order: [Path]
+    pins: dict = field(default_factory=dict)
+    # external pin name -> its declaration ({"dir": ...} or {"interface":
+    # true}), gathered from every composite, which is where each is owned
     streams: dict = field(default_factory=dict)
     # top input -> the facts of the stream entering it (bits, max_width,
     # max_height, context), from every input port it passes through on its
@@ -387,6 +423,12 @@ class _Loader:
         if found.kind != "composite":
             return
         depth = 0 if not path else path.count(".") + 1
+        clash = sorted(set(found.obj.get("parameters", {}))
+                       & set(found.obj["nodes"]))
+        if clash:
+            raise CompositionError(
+                f"{found.ref}: {clash} name both a parameter and a node; a "
+                "path means one thing")
         for name, child in found.obj["nodes"].items():
             child_path = _join(path, name)
             node.children[name] = child_path
@@ -398,6 +440,9 @@ class _Loader:
             if child_found.kind == "profile":
                 raise CompositionError(f"{where}: {child['block']} is a "
                                        "profile, not a block")
+            if child_found.kind == "generator" and getattr(
+                    child_found.obj, "composite", False):
+                child_found = _generated(child_found, child, where)
             self.expand(child_path, child_found, path, child,
                         [*stack, found.ref])
             for kind in ("build", "values"):
@@ -436,6 +481,11 @@ class _Loader:
         """"build" or "register", or a refusal naming what exists."""
         node, rest = self.split(path, where)
         kind = node.kind
+        if kind == "primitive" and _vendor_ip(node.found.obj):
+            # A vendor's IP owns its parameter list, and its tool refuses a
+            # name it does not have; restating the list here would be a
+            # second copy of the vendor's.
+            return "build"
         if kind in ("composite", "primitive"):
             declared = node.found.obj.get("parameters", {})
             if rest in declared:
@@ -483,7 +533,11 @@ class _Loader:
             declared = (node.found.obj.get("parameters", {})
                         if node.kind in ("composite", "primitive") else {})
             if rest in declared and "default" in declared[rest]:
-                value = declared[rest]["default"]
+                # A default may be derived: a string is an expression, in
+                # the scope of the block that declares it.
+                value = self.evaluate_build(
+                    declared[rest]["default"], node.path,
+                    f"{node.found.ref}: default of {rest}", (*active, path))
             elif node.kind in ("composite", "primitive"):
                 raise CompositionError(
                     f"{where}: {path} is never set, and {node.found.ref} "
@@ -597,10 +651,28 @@ class _Loader:
                     f"{setting.where}: {target} is a build parameter; set "
                     "it under build, not values")
 
+        # What this build has: a node whose `when` is false is not built,
+        # and neither is anything inside it.
+        self.inactive: set[str] = set()
+        for path, node in self.nodes.items():
+            when = node.entry.get("when")
+            if when is None or any(path.startswith(p + ".")
+                                   for p in self.inactive):
+                continue
+            where = f"{self.nodes[node.parent].found.ref}: node " \
+                    f"{path.rpartition('.')[2]}: when"
+            if not self.evaluate_build(when, node.parent, where):
+                self.inactive.add(path)
+        self.inactive = {p for p in self.nodes
+                         if any(p == q or p.startswith(q + ".")
+                                for q in self.inactive)}
+
         # Every declared parameter of every composite, evaluated -- an unset
         # one is an error even where nothing reads it yet: it is part of
         # the interface, and the interface is incomplete.
         for path, node in self.nodes.items():
+            if path in self.inactive:
+                continue
             if node.kind == "composite":
                 for name in node.found.obj.get("parameters", {}):
                     self.build_value(_join(path, name),
@@ -608,21 +680,23 @@ class _Loader:
 
         instances, aliases = {}, {}
         for path, node in self.nodes.items():
-            if node.kind == "composite":
+            if node.kind == "composite" or path in self.inactive:
                 continue
             instances[path] = self.instance(path, node, aliases)
 
         design = Design(
-            ref=ref, description=top.obj.get("description", ""),
+            ref=top.ref, description=top.obj.get("description", ""),
             parameters={name: self.build_cache[name]
                         for name in top.obj.get("parameters", {})},
             inputs=tuple(p["name"] for p in top.obj.get("inputs", [])),
             outputs=tuple(p["name"] for p in top.obj.get("outputs", [])),
             instances=instances,
             composites={p: n.found.ref for p, n in self.nodes.items()
-                        if n.kind == "composite"},
+                        if n.kind == "composite" and p not in self.inactive},
             edges=self.edges(),
             aliases=aliases,
+            pins=self.pins(),
+            constraints=self.constraints(),
         )
         design.streams = self.streams(self.forward)
         return design
@@ -633,8 +707,8 @@ class _Loader:
                  if k[0] == "build" and k[1].startswith(path + ".")
                  and self.split(k[1], s.where)[0] is node}
         leaf = node.found.obj
+        overrides: dict = {}
         if node.kind == "block":
-            overrides: dict = {}
             for key, value in build.items():
                 register, attr = key.split(".")
                 overrides.setdefault(register, {})[attr] = value
@@ -652,10 +726,25 @@ class _Loader:
             if value is not None:
                 _check_register(leaf, register, value, setting.where)
                 values[register] = value
+        if node.kind == "block" and values:
+            # A design's values are the register file's RESET values: part
+            # of the configured variant, so the map, the RTL's reset and the
+            # model's defaults all read them from one place.
+            leaf = node.found.obj.configure(overrides or None, resets=values)
+        config = dict(node.entry.get("config", {}))
+        both = sorted(set(config) & set(build))
+        if both:
+            raise CompositionError(f"{path}: {both} set under both build and "
+                                   "config; a property has one value")
+        if config and not (node.kind == "primitive"
+                           and _vendor_ip(node.found.obj)):
+            raise CompositionError(f"{path}: config is a vendor IP's "
+                                   "properties, and this is not vendor IP")
         return Instance(path=path, ref=node.found.ref, kind=node.kind,
                         leaf=leaf, folder=node.found.folder, build=build,
                         values=values, domain=node.entry.get("domain"),
-                        description=node.entry.get("description", ""))
+                        description=node.entry.get("description", ""),
+                        config=config)
 
     def register_value(self, setting: _Setting, target: str, aliases: dict):
         """A literal, a constant from build parameters, or an alias. None
@@ -704,6 +793,45 @@ class _Loader:
         edges, self.forward = self._edges()
         return edges
 
+    def constraints(self) -> list:
+        """Every constraints file of every built block, composite or
+        primitive, resolved beside the file that names it; an entry may be
+        {"file", "when"}, `when` read in that block's own scope."""
+        out = []
+        for path, node in self.nodes.items():
+            if path in self.inactive or not isinstance(node.found.obj, dict):
+                continue
+            for entry in node.found.obj.get("constraints", []):
+                if isinstance(entry, dict):
+                    where = f"{node.found.ref}: constraints {entry['file']}"
+                    scope = path if node.kind == "composite" else node.parent
+                    if "when" in entry and not self.evaluate_build(
+                            entry["when"], scope, where):
+                        continue
+                    entry = entry["file"]
+                f = (node.found.folder / entry).resolve()
+                if f not in out:
+                    out.append(f)
+        return out
+
+    def pins(self) -> dict:
+        """Every external pin of the design, from whichever composite owns
+        it. Pins are the FPGA's ports, so their names are global: two
+        composites declaring one name is refused."""
+        found, owner = {}, {}
+        for path, node in self.nodes.items():
+            if node.kind != "composite" or path in self.inactive:
+                continue
+            for pin in node.found.obj.get("pins", []):
+                name = pin["name"]
+                if name in found:
+                    raise CompositionError(
+                        f"{node.found.ref}: pin {name} is also "
+                        f"{owner[name]}'s; the FPGA has one port by a name")
+                found[name] = {k: v for k, v in pin.items() if k != "name"}
+                owner[name] = node.found.ref
+        return found
+
     def _edges(self):
         # Every connection, as an edge between PINS: (instance path, port).
         # A composite's boundary port is one pin seen from both sides -- its
@@ -712,22 +840,42 @@ class _Loader:
         forward: dict[tuple, list] = {}
         driven: dict[tuple, str] = {}
         for path, node in self.nodes.items():
-            if node.kind != "composite":
+            if node.kind != "composite" or path in self.inactive:
                 continue
-            for source, sink in node.found.obj.get("connections", []):
+            for entry in node.found.obj.get("connections", []):
+                if isinstance(entry, dict):
+                    source, sink = entry["from"], entry["to"]
+                    when = entry.get("when")
+                else:
+                    (source, sink), when = entry, None
                 where = f"{node.found.ref}: connection {source} -> {sink}"
+                if when is not None and not self.evaluate_build(
+                        when, path, f"{where}: when"):
+                    continue
                 a = self.pin(node, source, "source", where)
                 b = self.pin(node, sink, "sink", where)
+                for end, endpoint in ((a, source), (b, sink)):
+                    if end[0] in self.inactive:
+                        raise CompositionError(
+                            f"{where}: {endpoint} is not built here (its "
+                            "node's `when` is false); guard the connection "
+                            "with the same `when`")
                 if b in driven:
                     raise CompositionError(f"{where}: {sink} is already "
                                            f"driven ({driven[b]})")
                 driven[b] = where
                 forward.setdefault(a, []).append(b)
 
+        def is_pin(pin):
+            return pin[1] in _pin_names(self.nodes[pin[0]])
+
         def is_leaf(pin):
-            return pin[0] == "" or self.nodes[pin[0]].kind != "composite"
+            return pin[0] == "" or self.nodes[pin[0]].kind != "composite" \
+                or is_pin(pin)
 
         def text(pin):
+            if is_pin(pin):
+                return f"@{pin[1]}"
             return pin[1] if pin[0] == "" else f"{pin[0]}.{pin[1]}"
 
         edges = []
@@ -749,9 +897,11 @@ class _Loader:
         # drives, or an input something inside reads and nothing outside
         # drives. Either would leave a leaf input silently undriven.
         for path, node in self.nodes.items():
-            if node.kind != "composite":
+            if node.kind != "composite" or path in self.inactive:
                 continue
             for port in node.found.obj.get("outputs", []):
+                if not self.port_built(node, port):
+                    continue
                 if (path, port["name"]) not in driven:
                     raise CompositionError(
                         f"{node.found.ref}: output {port['name']} is "
@@ -765,10 +915,22 @@ class _Loader:
                         "nothing")
         return edges, forward
 
+    def port_built(self, node: _Node, port: dict) -> bool:
+        """A port with a `when` exists only where it is true, read in its
+        composite's own scope -- the consumer-select field of a control
+        word, say, where there is a consumer to select."""
+        if "when" not in port:
+            return True
+        return bool(self.evaluate_build(
+            port["when"], node.path,
+            f"{node.found.ref}: port {port['name']}: when"))
+
     def pin(self, node: _Node, endpoint: str, role: str, where: str):
         """An endpoint written in composite ``node``, as a pin. A bare name
         is the composite's own port; ``child.port`` is a node's."""
         inputs, outputs = self.ports(node)
+        if "." not in endpoint and endpoint in _pin_names(node):
+            return (node.path, endpoint)      # an external pin: either way
         if "." not in endpoint:
             # The composite's own boundary: from inside, its input is a
             # source and its output a sink.
@@ -793,6 +955,44 @@ class _Loader:
                     f"{'output' if role == 'source' else 'input'} {port!r} "
                     f"(it has {sorted(side)})")
         return (target.path, port)
+
+
+def _generated(found: Found, entry: dict, where: str) -> Found:
+    """A composite a Python function writes from its node's `config` --
+    a GPIO block from its field layout, say: one declaration, and every
+    cell, setting and port it implies derived from it. The result is an
+    ordinary composite, checked against the schema like one written by
+    hand."""
+    import jsonschema
+    config = entry.get("config", {})
+    try:
+        block = found.obj(config)
+    except (KeyError, ValueError, TypeError) as error:
+        raise CompositionError(f"{where}: {found.ref}: {error}") from None
+    sub = {"$ref": "#/$defs/composite", "$defs": schema()["$defs"]}
+    try:
+        jsonschema.validate(instance=block, schema=sub)
+    except jsonschema.ValidationError as error:
+        at = "/".join(str(p) for p in error.absolute_path) or "(top)"
+        raise CompositionError(f"{where}: {found.ref} wrote a composite "
+                               f"that is not one: at {at}: {error.message}") \
+            from None
+    return Found(found.ref, "composite", block, found.folder)
+
+
+def _vendor_ip(obj) -> bool:
+    """A leaf whose settings pass straight to its tool -- vendor IP, or a
+    procedure -- which checks them: restating its list here would be a
+    second copy of the tool's."""
+    v = obj.get("vivado", {}) if isinstance(obj, dict) else {}
+    return "ip" in v or "tcl" in v
+
+
+def _pin_names(node) -> set:
+    obj = node.found.obj
+    if node.kind != "composite":
+        return set()
+    return {p["name"] for p in obj.get("pins", [])}
 
 
 def _generator_parameters(fn) -> set[str]:
@@ -844,20 +1044,17 @@ def to_pipeline(design: Design, name: str | None = None):
     from revela.compose import Pipeline
     from revela.stream import StreamSpec
 
-    name = name or design.ref.rpartition(":")[2]
+    name = name or block_name(design.ref)
     others = [f"{i.path} ({i.kind})" for i in design.instances.values()
               if i.kind != "block"]
     if others:
         raise CompositionError(
             f"{design.ref}: {', '.join(others)} -- a pipeline is made of "
             "@ispblocks; everything else is built around it")
-    set_values = [f"{i.path}: {sorted(i.values)}"
-                  for i in design.instances.values() if i.values]
-    if set_values or design.aliases:
+    if design.aliases:
         raise CompositionError(
-            f"{design.ref}: register values are set "
-            f"({'; '.join(set_values) or sorted(design.aliases)}), and the "
-            "register file does not take reset values from a design yet")
+            f"{design.ref}: {sorted(design.aliases)} follow other registers; "
+            "two blocks sharing one register is not built yet")
     if not design.inputs:
         raise CompositionError(f"{design.ref}: no inputs, so no stream")
 

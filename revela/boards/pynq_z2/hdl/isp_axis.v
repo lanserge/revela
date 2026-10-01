@@ -16,7 +16,9 @@
 module isp_axis #(
     parameter DATA_BITS = 24
 ) (
+    (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 clk CLK", X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in_stream:m_axis, ASSOCIATED_RESET rst" *)
     input  wire        clk,
+    (* X_INTERFACE_INFO = "xilinx.com:signal:reset:1.0 rst RST", X_INTERFACE_PARAMETER = "POLARITY ACTIVE_HIGH" *)
     input  wire        rst,
     (* X_INTERFACE_INFO = "lanserge:interface:np2hw_stream_rtl:1.0 in_stream VALID" *)
     input  wire        in_valid,
@@ -42,12 +44,13 @@ module isp_axis #(
     // With the display curve doing the narrowing (the ordinary case) a
     // lane is already 8 and this is the identity; a design that keeps
     // more depth to the end truncates once, here, at the cable.
-    localparam CH = DATA_BITS / 3;
-    wire [7:0] r8 = in_data[0*CH + CH-1 -: 8];
-    wire [7:0] g8 = in_data[1*CH + CH-1 -: 8];
-    wire [7:0] b8 = in_data[2*CH + CH-1 -: 8];
+    // (indexed by DATA_BITS itself: IP Integrator's parser cannot see
+    // through a localparam, and says so for every wire that uses one)
+    wire [7:0] r8 = in_data[1*(DATA_BITS/3) - 1 -: 8];
+    wire [7:0] g8 = in_data[2*(DATA_BITS/3) - 1 -: 8];
+    wire [7:0] b8 = in_data[3*(DATA_BITS/3) - 1 -: 8];
 `ifdef SIMULATION
-    initial if (CH * 3 !== DATA_BITS || CH < 8)
+    initial if ((DATA_BITS/3) * 3 !== DATA_BITS || DATA_BITS/3 < 8)
         $fatal(1, "isp_axis: DATA_BITS=%0d is not three lanes of at least 8",
                DATA_BITS);
 `endif

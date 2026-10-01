@@ -9,6 +9,9 @@ a person can ask questions.
 
     python3 status.py --bit rx.bit             # one line
     python3 status.py --bit rx.bit --count 10  # ten, 2 s apart
+
+Every field is read by name through the build's gpio_layout.json (beside
+the bitstream) and layout.py (beside this script).
 """
 import argparse
 import sys
@@ -16,47 +19,50 @@ import time
 
 from pynq import Overlay, MMIO
 
+from layout import Layout
+
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--bit", default="rx.bit",
                         help="matching bitstream (for the address map; "
-                             "the PL is not reprogrammed)")
+                             "the PL is not reprogrammed); its "
+                             "gpio_layout.json sits beside it")
     parser.add_argument("--count", type=int, default=1)
     parser.add_argument("--interval", type=float, default=2.0)
     args = parser.parse_args()
 
     overlay = Overlay(args.bit, download=False)
-    gpio = MMIO(overlay.ip_dict["status_gpio"]["phys_addr"], 0x1000)
-    hgpio = MMIO(overlay.ip_dict["hdr_gpio"]["phys_addr"], 0x1000)
+    fields = Layout.beside(args.bit)
+    gpio = {name: MMIO(overlay.ip_dict[name]["phys_addr"], 0x1000)
+            for name in fields.gpios}
+    fields.verify(gpio.__getitem__)
+
+    def f(name, gpio_name="status_gpio"):
+        return fields.read(gpio[gpio_name], gpio_name, name)
 
     for n in range(max(1, args.count)):
         if n:
             time.sleep(args.interval)
-        s1 = gpio.read(0)
-        s2 = gpio.read(0x8)
-        seq = hgpio.read(0)
-        idw = hgpio.read(0x8)
-        src, resyncs = idw & 0xFF, (idw >> 8) & 0xFF
-        up, losses = (idw >> 16) & 1, (idw >> 17) & 0xFF
-        hdr = s1 >> 18
-        # scanout's status word: sof-per-frame[2:0], locked, armed,
-        # underflow, misalign, refused -- and on a genlocked raster,
-        # glocked at bit 14.
-        sc = (s2 >> 17) & 0x7FFF
-        isl = (s1 >> 2) & 0x3F
-        torn_a, torn_b = (idw >> 25) & 1, (idw >> 26) & 1
-        print(f"lock={s1 & 1} ovf={(s1 >> 1) & 1} "
-              f"isl[rst={isl & 1} inV={(isl >> 1) & 1} inR={(isl >> 2) & 1} "
-              f"outV={(isl >> 3) & 1} shV={(isl >> 4) & 1} "
-              f"shR={(isl >> 5) & 1}] "
-              f"refused={hdr & 1} bits={(hdr >> 4) & 0x1F} | scanout "
+        # The scanout's status word is its generator's: sof-per-frame
+        # [2:0], locked, armed, underflow, misalign, refused -- and on a
+        # genlocked raster, glocked at bit 14.
+        sc = f("scanout_status")
+        print(f"lock={f('link_locked')} ovf={f('rx_overflow')} "
+              f"isl[rst={f('island_reset')} inV={f('isp_in_valid')} "
+              f"inR={f('isp_in_ready')} outV={f('isp_out_valid')} "
+              f"shV={f('shim_in_valid')} shR={f('shim_in_ready')}] "
+              f"refused={f('refused')} bits={f('hdr_bits')} | scanout "
               f"armed={(sc >> 4) & 1} under={(sc >> 5) & 1} "
               f"misalign={(sc >> 6) & 1} win_refused={(sc >> 7) & 1} "
               f"sof/frame={sc & 7} glocked={(sc >> 14) & 1} | "
-              f"src={src} frame={seq} link={'up' if up else 'DOWN'} "
-              f"drops={losses} resyncs={resyncs} "
-              f"torn[disp={torn_a} grab={torn_b}]")
+              f"src={f('source_id', 'stream_gpio')} "
+              f"frame={f('frame_seq', 'stream_gpio')} "
+              f"link={'up' if f('link_up', 'stream_gpio') else 'DOWN'} "
+              f"drops={f('loss_count', 'stream_gpio')} "
+              f"resyncs={f('resync_count', 'stream_gpio')} "
+              f"torn[disp={f('torn_a', 'stream_gpio')} "
+              f"grab={f('torn_b', 'stream_gpio')}]")
     return 0
 
 

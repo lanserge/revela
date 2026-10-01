@@ -210,6 +210,10 @@ class Block:
     # the base block. {"gain": {"frac": 12}} -- the same dict the design JSON
     # carries and describe() recovers, so a variant knows its own recipe.
     overrides: dict = field(default_factory=dict)
+    # Reset values a design set, {register: (leaf values, row-major)}; empty
+    # on the base block. Part of the variant, because the register file's
+    # reset is part of the block's register TYPE.
+    resets: dict = field(default_factory=dict)
     # How this block changes the datapath width, when it does. Almost no
     # block does: samples in, samples out, same width, and the default None
     # says exactly that. A display curve is the exception -- it is where a
@@ -264,8 +268,14 @@ class Block:
         """
         return self.traceable or not (self.inputs or self.outputs)
 
-    def configure(self, registers: dict | None = None) -> "Block":
+    def configure(self, registers: dict | None = None,
+                  resets: dict | None = None) -> "Block":
         """The variant of this block with register attributes overridden.
+
+        ``resets`` is ``{register_name: value}``, a value shaped as the
+        register is (nested lists for an array): the reset values a design
+        sets, replacing the declared or derived default. No whitelist gates
+        these -- they are values, not structure.
 
         ``registers`` is ``{register_name: {attribute: value}}``, and only
         attributes the declaration lists as ``configurable`` are accepted --
@@ -280,16 +290,24 @@ class Block:
         """
         import dataclasses
 
-        if not registers:
+        if not registers and not resets:
             return self
+        registers = registers or {}
         base = getattr(self, "_base", self)
         def hashable(value):
             return tuple(value) if isinstance(value, (list, tuple)) else value
 
-        key = tuple(sorted(
+        def flatten(value):
+            if isinstance(value, (list, tuple)):
+                return tuple(x for item in value for x in flatten(item))
+            return (int(value),)
+
+        flat_resets = {reg: flatten(v) for reg, v in (resets or {}).items()}
+        key = (tuple(sorted(
             (reg, tuple(sorted((attr, hashable(v))
                                for attr, v in attrs.items())))
-            for reg, attrs in registers.items()))
+            for reg, attrs in registers.items())),
+            tuple(sorted(flat_resets.items())))
         cache = base.__dict__.setdefault("_variants", {})
         if key in cache:
             return cache[key]
@@ -301,7 +319,7 @@ class Block:
         for param in base.params.params:
             attrs = registers.get(param.name)
             if not attrs:
-                rebuilt.append(param)
+                rebuilt.append(_with_resets(param, flat_resets.get(param.name)))
                 continue
             refused = set(attrs) - set(param.configurable)
             if refused:
@@ -318,8 +336,9 @@ class Block:
                 # zero it so __post_init__ / leaf() re-derive for the new
                 # frac, bits or shape.
                 changes.setdefault("default", 0)
-            rebuilt.append(dataclasses.replace(param, **changes))
-        unknown = set(registers) - set(declared)
+            rebuilt.append(_with_resets(dataclasses.replace(param, **changes),
+                                        flat_resets.get(param.name)))
+        unknown = (set(registers) | set(flat_resets)) - set(declared)
         if unknown:
             raise KeyError(
                 f"block {base.name!r} declares no register named "
@@ -333,6 +352,7 @@ class Block:
                             consumes=base.params.consumes,
                             description=base.params.description),
             overrides={reg: dict(attrs) for reg, attrs in registers.items()},
+            resets=flat_resets,
         )
         variant.__dict__["_base"] = base
         cache[key] = variant
@@ -346,7 +366,7 @@ class Block:
         -- the SystemRDL regfile, the shared-module cache -- because two
         variants merging into one type is the map lying about one of them.
         """
-        if not self.overrides:
+        if not self.overrides and not self.resets:
             return ""
         parts = []
         for register in sorted(self.overrides):
@@ -354,6 +374,13 @@ class Block:
                 flat = ("x".join(str(int(x)) for x in value)
                         if isinstance(value, (tuple, list)) else value)
                 parts.append(f"{register}_{attr}{flat}")
+        if self.resets:
+            # A digest, not the values: 33 knots do not fit in a name, and
+            # the name only has to tell two variants apart.
+            import hashlib
+            digest = hashlib.blake2b(repr(sorted(self.resets.items()))
+                                     .encode(), digest_size=4).hexdigest()
+            parts.append(f"reset{digest}")
         return "__" + "_".join(parts)
 
     def sensor_values(self, function):
@@ -516,6 +543,17 @@ class Block:
                   # macros needs, published rather than grepped for
                   "memories": list(core.get("memories", ()))},
         )
+
+def _with_resets(param, flat):
+    """``param`` with a design's reset values, which replace its derived
+    default."""
+    import dataclasses
+    if flat is None:
+        return param
+    return dataclasses.replace(param, resets=tuple(flat), default=0,
+                               default_unity=False, default_ramp=False,
+                               default_identity=False)
+
 
 def configblock(name, *, version, description, params=(), stats=()):
     """A block with registers but no pixel stream -- `pipe`, and nothing else yet.

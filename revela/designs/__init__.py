@@ -44,6 +44,7 @@ runtime registers, so one bitstream serves every sensor.
 from __future__ import annotations
 
 import json
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -71,7 +72,8 @@ def validate(description: dict) -> None:
 def load(path: str | Path, validate_description: bool = True):
     """Build a :class:`revela.pipeline.Pipeline` from a description file, or
     from a composite named by reference (``package.module:block``)."""
-    if ":" in str(path) and not Path(path).exists():
+    if not Path(path).exists() and re.fullmatch(
+            r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)+(:[A-Za-z_]\w*)?", str(path)):
         from revela.designs import composite
         return composite.to_pipeline(composite.load(str(path)))
     description = json.loads(Path(path).read_text())

@@ -7,7 +7,7 @@ enable the direct picture, the raster genlocks itself, the link
 recovers itself. This script's whole job is the one thing a volatile
 FPGA cannot do alone -- getting the bitstream into the fabric after
 power-on -- and then getting out of the way. Run it from a boot
-oneshot (contrib/load-bitstream.service); nothing stays resident.
+oneshot (load-bitstream.service, beside this script); nothing stays resident.
 
     python3 load.py --bit rx.bit
 """

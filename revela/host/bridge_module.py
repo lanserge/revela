@@ -20,13 +20,13 @@ bayer_isp, whichever design contains it -- and this package anchors
 them at every instance of that composite the register map records, so
 a sensor package survives any register relayout and any design.
 
-The design's own settings -- its display curve, say -- are a profile
-for the design, resolved against the map here and baked in: written at
-link-up, before the sensor's tuning.
+The design's own values are already its bitstream's reset values. A
+profile for the design may add settings the build does not carry
+(--profile): resolved against the map here, baked in, and written at
+link-up before the sensor's tuning.
 
     python -m revela.host.bridge_module \\
-        --regmap revela_isp_core_regmap.json \\
-        --profile revela.boards.pynq_z2.isp:display --out revela-isp.tar.gz
+        --regmap revela_isp_core_regmap.json --out revela-isp.tar.gz
 """
 import argparse
 import io

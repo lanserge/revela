@@ -138,8 +138,9 @@ def _board():
     from revela.designs import profile
     regmap = designs.load(
         "revela.boards.pynq_z2.isp:revela_isp_core").register_map()
-    design = profile.flatten(
-        profile.resolve("revela.boards.pynq_z2.isp:display"), regmap)
+    # Extra design settings a --profile would bake in: the board's own
+    # curve is its reset now, so any registers of the design will do.
+    design = {"rgb_gamma.knots_1": 60, "rgb_gamma.knots_2": 80}
     fitted = profile.resolve("revela.sensors.ov5647.profile:ov5647")
     sensor = {f"{fitted.for_ref}/{k}": v
               for k, v in profile.relative(fitted).items()}

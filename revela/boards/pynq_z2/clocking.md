@@ -53,7 +53,7 @@ it, and two crossings.
 ## Case 1 — into the board: cable → ISP
 
 *Implemented as `link_reset`, the stream clock converter, and
-np2hw's gray-pointer FIFO; wired in `bd.tcl`.*
+np2hw's gray-pointer FIFO; wired in `pynq_demo.json`.*
 
 **Why.** This crossing is not about rate at all. The clock
 recovered from the TMDS link is the *sender's* clock, and it
@@ -84,7 +84,7 @@ board's; the source is the cable's.
 ## Case 2 — into the display clock: how the frame rate passes through
 
 *Implemented as np2hw's `scanout(genlock=True)` steering the display
-MMCM's fine phase shifter; wired in `bd.tcl`.*
+MMCM's fine phase shifter; wired in `pynq_demo.json`.*
 
 The output runs at the input's frame rate -- one frame out for every
 frame in, with no frame buffer and a few lines of latency -- and this

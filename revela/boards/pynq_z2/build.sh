@@ -17,9 +17,11 @@
 #   ~/projects/vivado-docker/fpga-build.sh ~/projects/revela \
 #       revela/boards/pynq_z2/build.sh
 #
-# A variant build is an EDIT to design.json, not an environment
-# variable: a different raster is a different design, and this way the
-# bitstream corresponds to something you can diff.
+# The design is revela.boards.pynq_z2.pynq_demo, JSON through and
+# through; its block design is GENERATED from it. A variant build is an
+# EDIT to its parameters, not an environment variable: a different raster
+# is a different design, and this way the bitstream corresponds to
+# something you can diff.
 #
 # Needs: vivado on PATH; python3 with revela, np2hw, bayerlink and
 # bayerlink_fpga importable; and the two vendor trees, found at
@@ -42,7 +44,7 @@ done
 mkdir -p "$OUT/generated" "$OUT/hdl"
 OUT=$(cd "$OUT" && pwd)
 
-read_build() { python3 -c "import json,sys;print(json.load(open('$here/design.json'))['build'][sys.argv[1]])" "$1"; }
+read_build() { python3 -c "import sys; from revela.boards.pynq_z2 import choices; print(choices()[sys.argv[1]])" "$1"; }
 # The output raster. 1080p30 rides its own 74.25 MHz MMCM output and
 # GENLOCKS: rate and phase follow the stream, fps flows through, and
 # direct-to-glass is whole. 148.5-class modes (1080p60) free-run --
@@ -63,14 +65,6 @@ BITS=$(python3 -c "from revela.boards.pynq_z2 import isp_stream; print(isp_strea
 ISP_MHZ=$(read_build isp_mhz)
 RX_FIFO=$(read_build rx_fifo)
 
-# Twenty seconds here against twenty minutes there: Tcl reports a bad
-# reference by running into it, after synthesising everything above.
-# (Whether this build includes the capture path is design.json's;
-# whether the board CAN host it is params.py's to refuse, below, from
-# board.json -- the one reading of each fact.)
-echo "== block design checks"
-python3 -m revela.boards.checkbd "$here/bd.tcl"
-
 # Where the block design finds what is not beside it. Written first, so
 # every later step reads the same answer.
 python3 - "$OUT" "$BOARD_FILES" "$VIVADO_LIBRARY" <<'EOF'
@@ -86,12 +80,11 @@ echo "== receiver (bayerlink_fpga: np2hw bayerlink_in, DDC, front end)"
 # --fifo-depth is PINNED, not left to the generator's default: the
 # verified bitstream was built at 256 and a different depth is a
 # different design. The link mode is the raster the EDID advertises.
-# The front end and its configuration are the hdmi_in primitive's.
-FRONTEND=$(python3 -c "from revela.boards.pynq_z2 import primitive; \
-print(primitive('hdmi_in')['frontend'])")
-FE_CONFIG=$(python3 -c "import json; from revela.boards.pynq_z2 import primitive; \
-print(json.dumps(primitive('hdmi_in')['config']))")
-python3 -m bayerlink_fpga "$FRONTEND" --config "$FE_CONFIG" --out "$OUT" \
+# The front end is the hdmi_in jack's, which also builds and configures
+# it in the block design; the receiver takes only its facts (the lane map).
+FRONTEND=$(python3 -c "from revela.boards.pynq_z2 import default; \
+print(default('hdmi_in', 'frontend'))")
+python3 -m bayerlink_fpga "$FRONTEND" --out "$OUT" \
     --fifo-depth "$RX_FIFO" --max-line-bytes "$(read_build max_line_bytes)" \
     --bits "$BITS" --link-mode "$(read_build link_mode)"
 
@@ -118,29 +111,13 @@ python3 -m revela.boards.pynq_z2.scanout --out "$OUT" --mode "$MODE" \
 echo "== output tee (np2hw)"
 python3 -m revela.boards.pynq_z2.tee --out "$OUT"
 
-echo "== block design parameters, from the files that own them"
-# The block design used to be told its numbers through the environment,
-# with its own defaults beside each one in case it was not. Both are
-# gone: params.py reads the design, the board and the ISP's own
-# published contract, and writes the single file bd.tcl sources. It runs
-# HERE, after the ISP, because the ISP's boundary is traced rather than
-# declared -- there is nothing to read until it has been built.
-python3 -m revela.boards.pynq_z2.params --out "$OUT"
-
-echo "== pixel datapath (generated from design.json, widths checked)"
-python3 -m revela.boards.pynq_z2.netlist --out "$OUT"
-
-# Every wire we draw between our OWN blocks, checked against the widths
-# those blocks actually have -- with the parameters this build passes
-# them. It runs HERE and not with the other structural checks because it
-# needs the generated RTL and the parameters: there is nothing to
-# measure until the blocks exist. np2hw refuses a mismatched edge inside
-# a composed core; this is the same refusal for the edges outside one,
-# where the block design would otherwise connect the low bits and issue
-# a warning that looks like all the others.
-HDL_DIRS=$(python3 -c "from revela.boards.pynq_z2 import hdl_dirs; \
-print(' '.join('--hdl ' + str(d) for d in hdl_dirs('$OUT')))")
-python3 -m revela.boards.checknets "$here/bd.tcl" --out "$OUT" $HDL_DIRS
+echo "== block design (generated from pynq_demo, every wire checked)"
+# It runs HERE, after the ISP, because three of the design's numbers are
+# the ISP's traced contract, and there is nothing to read until it has
+# been built. Every wire between our own modules is checked against the
+# widths their RTL has with this build's parameters -- a block design
+# would connect the low bits of a mismatch and call it a warning.
+python3 -m revela.boards.pynq_z2.blockdesign --out "$OUT"
 
 if [ -n "$NO_VIVADO" ]; then
     echo "NO_VIVADO set: generated and checked, stopping before Vivado"
@@ -149,17 +126,21 @@ fi
 
 echo "== implementation"
 cd "$OUT"
-vivado -mode batch -source "$here/bd.tcl" -tclargs "$OUT"
+vivado -mode batch -source "$OUT/generated/bd.tcl" -tclargs "$OUT"
 vivado -mode batch -source "$here/impl_a.tcl" -tclargs "$OUT"
 vivado -mode batch -source "$here/impl_b.tcl" -tclargs "$OUT"
 
+# The GPIO fields by name, beside the bitstream they describe: the bench
+# scripts read every bit through it.
+cp "$OUT/generated/gpio_layout.json" "$OUT/out/gpio_layout.json"
+
 echo "== audit of the design AS BUILT"
-# checkbd reads the intent; this reads what the automation and the
+# The JSON states the intent; this reads what the automation and the
 # polarity propagation actually did. Every rule in it is a board hang
 # this bench already paid for once.
 python3 -m revela.boards.checkhwh "$OUT/out/rx.hwh"
 
 echo
-echo "artifacts: $OUT/out/rx.bit and rx.hwh"
+echo "artifacts: $OUT/out/rx.bit, rx.hwh and gpio_layout.json"
 echo "NEXT: if the picture sits displaced, measure the write-side skew"
 echo "-- it re-rolls per link lock. See the README, 'After the build'."

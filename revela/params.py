@@ -162,6 +162,13 @@ class Param:
     # else about how a UI presents a register (tick box, fixed-point box,
     # integer slider) derives from bits, frac and signedness; see `widget`.
     choices: tuple = ()
+    # Reset values a DESIGN set, one per leaf in row-major order (one for a
+    # scalar). They replace the declared or derived default -- unity, ramp,
+    # identity -- because the design, the block being built, has the last
+    # word over the libraries it uses. Values, not structure, so no
+    # `configurable` whitelist gates them: they are the same kind of fact a
+    # profile writes at run time, stated at reset instead.
+    resets: tuple = ()
 
     def __post_init__(self) -> None:
         _check_name(self.name, "parameter")
@@ -232,6 +239,25 @@ class Param:
         if not all(int(d) > 0 for d in self.shape):
             raise ValueError(f"param {self.name!r}: shape {self.shape} must be positive")
         lo, hi = self.limits
+        if self.resets:
+            if self.default_unity or self.default_ramp or self.default_identity:
+                raise ValueError(
+                    f"param {self.name!r}: design reset values replace the "
+                    "derived default; clear default_unity/ramp/identity")
+            count = 1
+            for d in self.shape:
+                count *= int(d)
+            if len(self.resets) != count:
+                raise ValueError(
+                    f"param {self.name!r}: {len(self.resets)} reset value(s) "
+                    f"for {count} register(s)")
+            for v in self.resets:
+                if not lo <= int(v) <= hi:
+                    raise ValueError(
+                        f"param {self.name!r}: reset value {v} outside the "
+                        f"representable range [{lo}, {hi}]")
+            if not self.shape:
+                object.__setattr__(self, "default", int(self.resets[0]))
         if not lo <= self.default <= hi:
             raise ValueError(
                 f"param {self.name!r}: default {self.default} outside the representable "
@@ -369,13 +395,18 @@ class Param:
         if not idx:
             return self
         default = self.default
+        if self.resets:
+            flat = 0
+            for step, size in zip(idx, self.shape):
+                flat = flat * int(size) + int(step)
+            default = int(self.resets[flat])
         if self.default_ramp:
             default = idx[0] * ((1 << (self.bits - 1)) // (self.shape[0] - 1))
         if self.default_identity:
             default = (1 << self.frac) if idx[0] == idx[1] else 0
         return replace(self, name=self.leaf_name(idx), shape=(), labels=(),
                        default=default, default_ramp=False,
-                       default_identity=False,
+                       default_identity=False, resets=(),
                        description=f"{self.label_of(idx)}: {self.description}")
 
     def leaves(self) -> list["Param"]:

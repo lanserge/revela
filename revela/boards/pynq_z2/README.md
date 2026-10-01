@@ -11,10 +11,10 @@ it reads the pipeline's published contract and never restates it.
 | part | what it is | whose |
 |---|---|---|
 | receiver | `bayerlink_in`, the DDC slave, link reset, the dvi2rgb front end | [bayerlink-fpga](https://github.com/bayerlink/bayerlink-fpga) |
-| jacks | `hdmi_in` (front end, its configuration here, pins) and `hdmi_out` (transmitter, pins): the board's primitives, one JSON block and one constraints fragment each | this board |
+| jacks | `hdmi_in` (front end, its configuration here, pins) and `hdmi_out` (transmitter, pins): composites that own their cells, pins and constraints | this board |
 | ISP | `isp.json` (`revela_isp_core`), a composite of revela's blocks, generated and proved bit-exact | this repository |
 | raster, tee, grabber | np2hw's scanout, tee and FIFOs, the glue in `hdl/` | this board |
-| block design | `bd.tcl`, `design.json` (the datapath), the constraints | this board |
+| the design | `pynq_demo.json`: every cell, connection and setting, JSON through and through; the block design is generated from it | this board, on revela's `zynq7` family library |
 
 ## Build
 
@@ -39,29 +39,36 @@ ISP and the display raster are emitted from their models, so a build
 that skips a generator fails on a missing file rather than quietly
 using a stale one. In order:
 
-1. `checkbd` reads `bd.tcl` for cells used before, or outside the guard
-   of, their creation -- seconds here, not twenty minutes into Vivado.
-2. `python3 -m bayerlink_fpga <front end> --config ...`, with both read
-   from the `hdmi_in` primitive, writes the receiver's Verilog and
-   `receiver.tcl`: the files to add, and the front end `bd.tcl` builds
-   with `bayerlink_frontend`.
-3. `revela generate revela.boards.pynq_z2.isp:revela_isp_core` builds the
+1. `python3 -m bayerlink_fpga <front end>`, the front end named by the
+   `hdmi_in` jack, writes the receiver's Verilog.
+2. `revela generate revela.boards.pynq_z2.isp:revela_isp_core` builds the
    ISP and proves it.
-4. `scanout.py` and `tee.py` emit the raster and the output tee.
-5. `params.py` writes `params.tcl` from the design, the board, its
-   primitives and the ISP's traced contract, including the constraints
-   list (`design.xdc`, then each primitive's fragment). It runs after the
-   ISP because the ISP's boundary is traced, so there is nothing to read
-   until it has been built.
-6. `netlist.py` writes the datapath from `design.json`, every width
-   checked; `checknets` then checks every other wire `bd.tcl` draws
-   between our own blocks.
-7. Vivado: `bd.tcl`, `impl_a.tcl` (synthesis, placement), `impl_b.tcl`
-   (routing, bitstream); then `checkhwh` audits the design as built.
+3. `scanout.py` and `tee.py` emit the raster and the output tee.
+4. `blockdesign.py` loads `pynq_demo` -- supplying what only the build
+   knows: the raster's pixel clock from the mode table, and the ISP's
+   widths from its traced contract -- checks the board can honour it, and
+   writes the block design. Every wire between our own modules is
+   checked against the widths their RTL has with this build's
+   parameters; a block design would connect the low bits of a mismatch
+   and call it a warning. It runs after the ISP because the ISP's
+   boundary is traced, so there is nothing to read until it is built.
+5. Vivado: the generated `bd.tcl`, `impl_a.tcl` (synthesis, placement),
+   `impl_b.tcl` (routing, bitstream); then `checkhwh` audits the design
+   as built.
 
-`bd.tcl` reads no environment and declares no defaults: a fact nobody
-set stops the build at once, rather than becoming a width mismatch that
-Vivado downgrades to a warning and a picture that is quietly wrong.
+The GPIO words software reads and writes -- control bits, status, the
+stream's identity -- are declared once, field by field, on `pynq_demo`'s
+`control`, `status` and `stream` nodes. The fabric's GPIO cells, slices
+and concatenations are derived from those declarations, and so is
+`gpio_layout.json`, written beside `rx.bit`. Copy it to the board with the
+bitstream, and `bench/layout.py` with the scripts: they read every field
+by name through it, and write no bit position down. The layout's checksum
+is built into the fabric as `ctrl_gpio`'s second channel, a constant, and
+the file states it: a script reads it back before trusting the file, and
+refuses a layout copied from another build.
+
+A variant build is an edit to `pynq_demo`'s parameters -- `capture`,
+`mode`, the receiver's capacity -- never an environment variable.
 
 On macOS, Vivado runs in a container; point the container wrapper at the
 directory to build in and give it this script as the command.
@@ -148,31 +155,30 @@ consumer (the judge's capture path, or the ISP), and the ARM has no
 standing job at all: pixels do not touch software, and neither does
 the picture's survival. The camera is on the TV, in colour.
 
-## Profiles: what the Pi writes
+## Values: the design's at reset, the sensor's from the Pi
 
-The ISP comes up neutral; the Pi writes its values over the cable at
-every link-up. They come from two profiles, each keyed relative to the
-block it is for:
+Two owners, two routes:
 
-| profile | for | holds |
+| values | owner | how they arrive |
 |---|---|---|
-| `revela.boards.pynq_z2.isp:display` | this design | the 2.2 display curve: the same for every sensor here |
-| `revela.sensors.ov5647.profile:ov5647` | `bayer_isp` | what was measured on the sensor: pedestal, balance, matrix |
+| the 2.2 display curve (`rgb_gamma` in `isp.json`) | this design: the same for every sensor here | the bitstream's reset values -- a freshly loaded board already shows a gamma-correct picture |
+| pedestal, balance, matrix (`revela.sensors.ov5647.profile:ov5647`) | the sensor, a profile for `bayer_isp` | written by the Pi over the cable at every link-up |
 
 The register map records where each composite sits (`isp` is the
-`bayer_isp`), so each resolves to this build's absolute keys. The Pi's
-two packages carry one each -- build them as a pair, since the ISP
-package bakes this build's map:
+`bayer_isp`), so the sensor's profile resolves to this build's absolute
+keys. Build the Pi's two packages as a pair, since the ISP package bakes
+this build's map:
 
 ```sh
 python3 -m revela.host.bridge_module --regmap build/pynq_z2/hdl/revela_isp_core_regmap.json \
-    --profile revela.boards.pynq_z2.isp:display --out revela-isp.tar.gz
+    --out revela-isp.tar.gz
 python3 -m revela.host.sensor_module --sensor ov5647 --out sensor-ov5647.tar.gz
 ```
 
-The ISP package writes the design's values, then the sensor package's,
-anchored at every `bayer_isp` in the build. Without a Pi, `bench/calibrate.py`
-writes the same resolved values from the board itself (see its docstring).
+At link-up the ISP package checks the far end runs this build, then
+writes the sensor package's values at every `bayer_isp`. Without a Pi,
+`bench/calibrate.py` writes the same resolved values from the board
+itself (see its docstring).
 
 ## Porting to another board
 
@@ -183,8 +189,8 @@ emitted. A port is a new package beside this one:
 
 | what | where | how you get it |
 |---|---|---|
-| the jacks | `hdmi_in` / `hdmi_out` primitives: a JSON block and a constraints fragment each | your board's master XDC; the front end from bayerlink-fpga, whose lane map is SOLVED with the protocol's test patterns, never guessed |
-| clocks, PS preset | `bd.tcl` | your board's preset or the vendor's own file |
+| the jacks | `hdmi_in` / `hdmi_out` composites: their cells, pins and constraints | your board's master XDC; the front end from bayerlink-fpga, whose lane map is SOLVED with the protocol's test patterns, never guessed |
+| clocks, PS settings | the design's `ps7` and clock-wizard nodes, on the `zynq7` family library | your board's preset or the vendor's own file |
 | the pixel clock | the link, not a choice | it is whatever your source sends |
 | the write-side skew | measured per link lock | the grabbed-pattern recipe, above |
 

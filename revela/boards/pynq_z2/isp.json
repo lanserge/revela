@@ -16,7 +16,7 @@
       ],
       "nodes": {
         "isp": {
-          "block": "revela.blocks.bayer_isp:bayer_isp",
+          "block": "revela.blocks.bayer_isp",
           "build": {
             "bit_depth": 12,
             "max_width": 1920,
@@ -26,10 +26,47 @@
         },
         "rgb_gamma": {
           "block": "revela.blocks.gamma:rgb_gamma",
-          "description": "Display tone curve per channel, one shared knot table, one bit wider than the datapath."
+          "description": "The 2.2 display curve, this design's output encoding for HDMI, and its reset: a freshly loaded bitstream shows a gamma-correct picture before anything is written. The knots are in the units gamma OUTPUTS, which the knot declaration owns: 0..2**out_bits, so 0..256 for the 8-bit display output. A curve in the wrong units does not fail loudly -- the values truncate into the register and the tone curve becomes a sawtooth.",
+          "values": {
+            "knots": [
+              0,
+              53,
+              72,
+              87,
+              100,
+              110,
+              120,
+              128,
+              136,
+              144,
+              151,
+              158,
+              164,
+              170,
+              176,
+              182,
+              187,
+              192,
+              197,
+              202,
+              207,
+              212,
+              216,
+              220,
+              224,
+              229,
+              233,
+              237,
+              241,
+              245,
+              248,
+              252,
+              256
+            ]
+          }
         },
         "logo": {
-          "block": "revela.blocks.logo:logo",
+          "block": "revela.blocks.logo",
           "description": "The mark, from block RAM, keyed over the corner of the picture."
         }
       },
@@ -51,49 +88,6 @@
           "isp_out"
         ]
       ]
-    }
-  },
-  "profiles": {
-    "display": {
-      "description": "This design's own settings: the 2.2 display curve, the same for every sensor on this board. The knots are in the units gamma OUTPUTS, which the knot declaration owns: 0..2**out_bits, so 0..256 for the 8-bit display output. A curve in the wrong units does not fail loudly -- the values truncate into the register and the tone curve becomes a sawtooth. A sensor's tuning is not here: it arrives with the sensor, for bayer_isp, and lands at isp.",
-      "for": "revela.boards.pynq_z2.isp:revela_isp_core",
-      "values": {
-        "rgb_gamma.knots": [
-          0,
-          53,
-          72,
-          87,
-          100,
-          110,
-          120,
-          128,
-          136,
-          144,
-          151,
-          158,
-          164,
-          170,
-          176,
-          182,
-          187,
-          192,
-          197,
-          202,
-          207,
-          212,
-          216,
-          220,
-          224,
-          229,
-          233,
-          237,
-          241,
-          245,
-          248,
-          252,
-          256
-        ]
-      }
     }
   }
 }

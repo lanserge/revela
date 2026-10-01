@@ -49,7 +49,9 @@ module revela_isp #(
     // the line boundary and what the pack was built for.
     parameter WIDTH    = 1920
 ) (
+    (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 clk CLK", X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in_stream:out_stream, ASSOCIATED_RESET rst" *)
     input  wire        clk,
+    (* X_INTERFACE_INFO = "xilinx.com:signal:reset:1.0 rst RST", X_INTERFACE_PARAMETER = "POLARITY ACTIVE_HIGH" *)
     input  wire        rst,
     // The header's facts, straight from the receiver, latched as each
     // frame's SOF enters so a change lands on a frame boundary. NOT the

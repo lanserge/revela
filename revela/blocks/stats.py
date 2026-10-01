@@ -182,7 +182,7 @@ def default_registers(zones_x: int = ZONES_X, zones_y: int = ZONES_Y,
 
 
 @ispblock(**STATS_DECLARATION)
-def model(pixel: np.ndarray, p, bayer_phase: int = 0,
+def stats(pixel: np.ndarray, p, bayer_phase: int = 0,
           window: tuple[int, int, int, int] | None = None) -> np.ndarray:
     """Accumulate one frame of statistics.
 
@@ -191,7 +191,7 @@ def model(pixel: np.ndarray, p, bayer_phase: int = 0,
 
     Args:
         pixel: ``(height, width)`` raw Bayer frame, unsigned.
-        p: bound parameter values, from ``model.params.bind({...})``.
+        p: bound parameter values, from ``stats.params.bind({...})``.
         bayer_phase: pipeline context. Position of R: bit 1 row parity, bit 0
             column parity.
         window: ``(x0, y0, x1, y1)`` active window, exclusive at the top end.
@@ -322,7 +322,7 @@ def zone_means(stats: np.ndarray) -> np.ndarray:
     grid is normal when the window does not divide evenly.
 
     Args:
-        stats: the ``(zones, 5)`` record array from :func:`model`.
+        stats: the ``(zones, 5)`` record array from :func:`stats`.
 
     Returns:
         ``(zones, 4)``: mean R, G, B and luminance per zone.

@@ -1,0 +1,15 @@
+{
+  "blocks": {
+    "ps7": {
+      "description": "The Zynq-7000 processing system. A procedure builds it because the board's preset must be applied before its own settings, which the preset would otherwise overwrite: its properties are the settings, applied after.",
+      "vivado": {
+        "tcl": "zynq7_ps7",
+        "source": "ps7.tcl",
+        "interfaces": [
+          "M_AXI_GP0",
+          "S_AXI_HP0"
+        ]
+      }
+    }
+  }
+}

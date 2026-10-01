@@ -1,22 +1,152 @@
 {
-  "blocks": {
-    "hdmi_in": {
-      "description": "The HDMI-in jack: a bayerlink receiver behind Digilent's dvi2rgb. The front end, its configuration on this board, and the pins it lands on. Every design on this board that receives bayerlink uses this block rather than restating any of it.",
-      "frontend": "bayerlink_fpga.frontends.dvi2rgb",
-      "config": {
-        "kClkRange": 1
-      },
-      "config_note": "kClkRange 1: the board's own base overlay runs this exact 74.25 MHz mode with range 1 -- the IP comment's bucket arithmetic says 2, and empirically range 2 locks the clock but never aligns the data. Trust the design that demonstrably receives.",
-      "max_link_mhz": 148.5,
-      "max_link_note": "The link clock this jack is constrained for (hdmi_in.xdc states it as a period): the fastest legal link, as the board's base overlay does. A link mode advertised in the EDID is checked against it.",
-      "constraints": "hdmi_in.xdc",
-      "ports": [
-        "TMDS",
-        "hdmi_hpd",
-        "ddc_scl_io",
-        "ddc_sda_io"
-      ],
-      "ports_note": "What hdmi_in.xdc pins. The front end makes TMDS and hdmi_hpd; the design makes the two DDC ports, where it wires the receiver's DDC slave to the register file it wants reachable over the cable."
+ "blocks": {
+  "hdmi_in": {
+   "description": "The HDMI-in jack: Digilent's dvi2rgb decoding the cable to parallel video, the hot-plug and DDC lines, and the pins they land on. Every design on this board that receives bayerlink uses this block rather than restating any of it. kClkRange 1: the board's own base overlay runs this exact 74.25 MHz mode with range 1 -- the IP comment's bucket arithmetic says 2, and empirically range 2 locks the clock but never aligns the data. Trust the design that demonstrably receives.",
+   "parameters": {
+    "frontend": {
+     "default": "'bayerlink_fpga.frontends.dvi2rgb'",
+     "description": "The front end, as bayerlink-fpga names it: the facts the receiver is generated from (the byte-lane map) follow from it."
+    },
+    "max_link_khz": {
+     "default": 148500,
+     "description": "The link clock this jack is constrained for (hdmi_in.xdc states it as a period): the fastest legal link, as the board's base overlay does. A link mode advertised in the EDID is checked against it."
     }
+   },
+   "inputs": [
+    {
+     "name": "refclk",
+     "description": "200 MHz, for the front end's delay calibration."
+    },
+    {
+     "name": "sda_pull",
+     "description": "The DDC slave pulling SDA low."
+    }
+   ],
+   "outputs": [
+    {
+     "name": "pclk",
+     "description": "The clock recovered from the link: it stops when the cable is pulled."
+    },
+    {
+     "name": "locked"
+    },
+    {
+     "name": "de"
+    },
+    {
+     "name": "vsync"
+    },
+    {
+     "name": "data"
+    },
+    {
+     "name": "scl_i"
+    },
+    {
+     "name": "sda_i"
+    }
+   ],
+   "pins": [
+    {
+     "name": "TMDS",
+     "interface": true
+    },
+    {
+     "name": "hdmi_hpd",
+     "dir": "O"
+    },
+    {
+     "name": "ddc_scl_io",
+     "dir": "I"
+    },
+    {
+     "name": "ddc_sda_io",
+     "dir": "IO"
+    }
+   ],
+   "constraints": [
+    "hdmi_in.xdc"
+   ],
+   "nodes": {
+    "dvi_rx": {
+     "block": "revela.boards.zynq7.ip:dvi2rgb",
+     "config": {
+      "kClkRange": "1",
+      "kEmulateDDC": "false",
+      "kAddBUFG": "true"
+     }
+    },
+    "hpd_one": {
+     "block": "revela.boards.zynq7.ip:xlconstant"
+    },
+    "rst_lo": {
+     "block": "revela.boards.zynq7.ip:xlconstant",
+     "config": {
+      "CONST_VAL": "0"
+     }
+    },
+    "ddc_phy": {
+     "block": "bayerlink_fpga.modules:ddc_phy"
+    }
+   },
+   "connections": [
+    [
+     "refclk",
+     "dvi_rx.RefClk"
+    ],
+    [
+     "hpd_one.dout",
+     "hdmi_hpd"
+    ],
+    [
+     "rst_lo.dout",
+     "dvi_rx.aRst"
+    ],
+    [
+     "dvi_rx.TMDS",
+     "TMDS"
+    ],
+    [
+     "dvi_rx.PixelClk",
+     "pclk"
+    ],
+    [
+     "dvi_rx.aPixelClkLckd",
+     "locked"
+    ],
+    [
+     "dvi_rx.vid_pVDE",
+     "de"
+    ],
+    [
+     "dvi_rx.vid_pVSync",
+     "vsync"
+    ],
+    [
+     "dvi_rx.vid_pData",
+     "data"
+    ],
+    [
+     "ddc_phy.scl_i",
+     "scl_i"
+    ],
+    [
+     "ddc_phy.sda_i",
+     "sda_i"
+    ],
+    [
+     "sda_pull",
+     "ddc_phy.sda_pull"
+    ],
+    [
+     "ddc_scl_io",
+     "ddc_phy.scl_io"
+    ],
+    [
+     "ddc_sda_io",
+     "ddc_phy.sda_io"
+    ]
+   ]
   }
+ }
 }

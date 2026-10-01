@@ -51,9 +51,9 @@
       }
     },
     "reference": {
-      "description": "A block, from the top of the import path: package.module:block. The module is a Python file (a leaf) or a JSON file of this schema.",
+      "description": "A block, from the top of the import path: package.module:block, or package.module alone for the block named after its file (revela.blocks.bayer_isp is revela.blocks.bayer_isp:bayer_isp). The module is a Python file (a leaf) or a JSON file of this schema.",
       "type": "string",
-      "pattern": "^[a-z_][a-z0-9_]*(\\.[a-z_][a-z0-9_]*)+:[a-z_][a-z0-9_]*$"
+      "pattern": "^[a-z_][a-z0-9_]*(\\.[a-z_][a-z0-9_]*)+(:[a-z_][a-z0-9_]*)?$"
     },
     "value": {
       "description": "A number or an array is a literal; a string is ALWAYS an expression, in Python syntax, over the parameters in the scope of the composite it is written in.",
@@ -90,7 +90,7 @@
       "description": "Keys are paths relative to the node: a parameter of the node itself (bit_depth), or of something inside it (ccm.m).",
       "type": "object",
       "propertyNames": {
-        "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+        "pattern": "^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)*$"
       },
       "additionalProperties": {
         "$ref": "#/$defs/value"
@@ -128,14 +128,19 @@
           },
           "description": {
             "type": "string"
+          },
+          "when": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The port exists only where this expression over the composite's parameters is true."
           }
         }
       }
     },
     "endpoint": {
-      "description": "A port of this composite (in), or a port of one of its nodes (ccm.in).",
+      "description": "A port of this composite (in), or a port of one of its nodes (ccm.in). Port names are the leaf's own, in its case (a vendor pin like S_AXI).",
       "type": "string",
-      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)?$"
+      "pattern": "^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)?$"
     },
     "composite": {
       "type": "object",
@@ -151,7 +156,7 @@
           "description": "This composite's own build parameters: its interface. Declared once, here; set by whatever instantiates it.",
           "type": "object",
           "propertyNames": {
-            "$ref": "#/$defs/name"
+            "$ref": "#/$defs/param_name"
           },
           "additionalProperties": {
             "type": "object",
@@ -161,7 +166,8 @@
                 "type": "string"
               },
               "default": {
-                "$ref": "#/$defs/literal"
+                "$ref": "#/$defs/value",
+                "description": "The value where nothing sets it: a literal, or an expression over the block's own parameters (a string is always an expression; a word is quoted, '1080p30')."
               }
             }
           }
@@ -199,6 +205,15 @@
               },
               "values": {
                 "$ref": "#/$defs/settings"
+              },
+              "when": {
+                "type": "string",
+                "minLength": 1,
+                "description": "An expression over build parameters in the composite's scope: the node is built only where it is true, and neither is anything inside it."
+              },
+              "config": {
+                "type": "object",
+                "description": "A vendor leaf's own settings, verbatim -- its names and its value syntax (No_buffer, 74.250), never expressions; a procedure's may be structured. Derived values go under build."
               }
             }
           }
@@ -206,18 +221,51 @@
         "connections": {
           "type": "array",
           "items": {
-            "type": "array",
-            "prefixItems": [
+            "oneOf": [
               {
-                "$ref": "#/$defs/endpoint"
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "$ref": "#/$defs/endpoint"
+                  },
+                  {
+                    "$ref": "#/$defs/endpoint"
+                  }
+                ],
+                "minItems": 2,
+                "maxItems": 2
               },
               {
-                "$ref": "#/$defs/endpoint"
+                "type": "object",
+                "required": [
+                  "from",
+                  "to"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "from": {
+                    "$ref": "#/$defs/endpoint"
+                  },
+                  "to": {
+                    "$ref": "#/$defs/endpoint"
+                  },
+                  "when": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "description": {
+                    "type": "string"
+                  }
+                }
               }
-            ],
-            "minItems": 2,
-            "maxItems": 2
+            ]
           }
+        },
+        "pins": {
+          "$ref": "#/$defs/pins"
+        },
+        "constraints": {
+          "$ref": "#/$defs/constraints"
         }
       }
     },
@@ -250,6 +298,26 @@
         },
         "outputs": {
           "$ref": "#/$defs/ports"
+        },
+        "vivado": {
+          "$ref": "#/$defs/vivado"
+        },
+        "constraints": {
+          "$ref": "#/$defs/constraints"
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "HDL files of a module leaf, beside its library file."
+        },
+        "generated": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "HDL files of a module leaf that a build step generates into <build dir>/hdl."
         }
       }
     },
@@ -284,6 +352,107 @@
             ]
           }
         }
+      }
+    },
+    "pins": {
+      "type": "array",
+      "description": "External pins of the FPGA this composite owns: a port by direction, or an interface made external from a pin inside it. Names are global to a design.",
+      "items": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+            "description": "The FPGA port's name, as its constraints file spells it."
+          },
+          "dir": {
+            "enum": [
+              "I",
+              "O",
+              "IO"
+            ]
+          },
+          "interface": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "vivado": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How the leaf is built in Vivado: vendor IP by VLNV, our RTL module by name (its sources beside), or a procedure a design calls.",
+      "properties": {
+        "ip": {
+          "type": "string"
+        },
+        "module": {
+          "type": "string"
+        },
+        "tcl": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "interfaces": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "phase": {
+          "enum": [
+            "cells",
+            "late"
+          ],
+          "description": "When a procedure runs: with the cells, in declaration order (the default), or after every connection -- where the bus automation goes."
+        }
+      }
+    },
+    "constraints": {
+      "type": "array",
+      "description": "Constraints files this block owns, beside its library file; an entry may carry a `when`.",
+      "items": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "object",
+            "required": [
+              "file"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "file": {
+                "type": "string"
+              },
+              "when": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "param_name": {
+      "description": "A parameter's name, in its block's own case: a Verilog parameter (SAMPLE_BITS) or a vendor property (kClkRange) keeps its spelling. min, max and abs are reserved.",
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+      "not": {
+        "enum": [
+          "min",
+          "max",
+          "abs"
+        ]
       }
     }
   },

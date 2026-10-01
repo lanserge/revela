@@ -23,7 +23,6 @@ showed, so nothing moves until software asks it to.
 Checked by sim/tb_scanout_regs.v, beside this file.
 """
 import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -65,12 +64,12 @@ def main() -> int:
 
     # WHAT IT TRANSMITS INTO is the board's fact, not this script's: the
     # transmitter that happens to be on this card, and how wide the cable
-    # is -- the hdmi_out primitive's. WHAT IT PAINTS outside the picture
+    # is -- the hdmi_out jack's. WHAT IT PAINTS outside the picture
     # is neither -- it is a product choice, so it comes from the build.
-    from revela.boards.pynq_z2 import primitive
-    tx = primitive("hdmi_out")
-    choices = json.loads(
-        (HERE / "design.json").read_text())["build"]
+    from revela.boards.pynq_z2 import default
+    tx = {k: default("hdmi_out", k) for k in ("sink", "cable_data_bits")}
+    from revela.boards.pynq_z2 import choices as design_choices
+    choices = design_choices()
     # ONE name for the cable's width, used by the core AND by the
     # wrapper emitted below. The wrapper wrote 24 out as [23:0] in five
     # places, so the board owned the number for np2hw's core and this
@@ -121,7 +120,14 @@ def main() -> int:
     a("// Reset values are this build's geometry, so an unconfigured")
     a("// bitstream shows exactly what the baked one did.")
     a("module scanout_top (")
+    a("    // The raster's clock: the pixels in and the video out both ride")
+    a("    // it, and so does its reset.")
+    a('    (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 clk CLK", '
+      'X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axis:vid_io, '
+      'ASSOCIATED_RESET rst" *)')
     a("    input  wire        clk,")
+    a('    (* X_INTERFACE_INFO = "xilinx.com:signal:reset:1.0 rst RST", '
+      'X_INTERFACE_PARAMETER = "POLARITY ACTIVE_HIGH" *)')
     a("    input  wire        rst,")
     a("    input  wire        locked,")
     a("    // The register file's own clock and reset: the board's, which")

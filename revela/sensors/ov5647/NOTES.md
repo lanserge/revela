@@ -31,8 +31,9 @@ garden", suspect this exact history.)
 **Not here: gamma.** The 2.2 display curve used to ride in this
 profile. It is not a fact about the sensor -- it is the same for any
 sensor on a display design -- so it moved to the design that chooses
-it: the PYNQ-Z2 board's `display` profile, in
-`revela/boards/pynq_z2/isp.json`. This profile is for
+it: the PYNQ-Z2 design sets it on its `rgb_gamma`, in
+`revela/boards/pynq_z2/isp.json`, as the bitstream's reset. This
+profile is for
 `bayer_isp` and holds only what was measured on this sensor.
 
 **sensor.json**: the model-level facts, in the same schema-validated

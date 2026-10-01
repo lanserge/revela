@@ -1,38 +1,33 @@
 # Copyright 2026 Serge Rabyking
 # SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
-"""The PYNQ-Z2 board builds as far as Vivado, with every check passing.
+"""The PYNQ-Z2 demo builds as far as Vivado, with every check passing.
 
 Everything before Vivado is generators and checks: the receiver, the ISP,
-the raster, the block design's parameters and datapath, and the width of
-every wire drawn between our own blocks. None of it needs Vivado, so all
-of it is run here -- a board whose generators or checks fail is found in
-seconds, not twenty minutes into a synthesis run.
+the raster, and the block design -- generated from the design's JSON, with
+the width of every wire between our own modules checked. None of it needs
+Vivado, so all of it is run here: a design whose generators or checks fail
+is found in seconds, not twenty minutes into a synthesis run.
 """
+import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-from revela.boards import checkbd
-from revela.boards import pynq_z2
+from revela.boards import bdtrace, pynq_z2
 
 BUILD = pynq_z2.HERE / "build.sh"
 
 
-def test_block_design_script_passes_its_static_check():
-    assert checkbd.check(pynq_z2.HERE / "bd.tcl") == 0
-
-
 def test_scripts_read_only_sources_that_exist_beside_them():
-    """Every file the Vivado scripts take from beside themselves exists
+    """Every file the Vivado run scripts take from beside themselves exists
     there. What is generated lives in the build directory; a script
     reaching for it beside the sources finds nothing, and Vivado says so
-    only after the block design has been half built."""
+    only after synthesis has begun."""
     import re
-    for script in ("bd.tcl", "impl_a.tcl", "impl_b.tcl"):
+    for script in ("impl_a.tcl", "impl_b.tcl"):
         text = (pynq_z2.HERE / script).read_text()
         for parts in re.findall(r"\[file join \$here ([^\]]+)\]", text):
             path = pynq_z2.HERE.joinpath(*parts.split())
@@ -53,39 +48,102 @@ def build(out: Path, tmp_path: Path) -> subprocess.CompletedProcess:
                           capture_output=True, text=True)
 
 
-def test_board_generates_and_checks_without_vivado(tmp_path):
+@pytest.fixture(scope="module")
+def built(tmp_path_factory):
     pytest.importorskip("bayerlink_fpga")
-    out = tmp_path / "out"
-    result = build(out, tmp_path)
+    tmp = tmp_path_factory.mktemp("pynq_z2")
+    out = tmp / "out"
+    result = build(out, tmp)
     assert result.returncode == 0, result.stdout + result.stderr
-    for name in ("params.tcl", "netlist.tcl", "receiver.tcl", "paths.tcl"):
-        assert (out / "generated" / name).is_file(), name
+    return out
+
+
+def test_the_demo_generates_and_checks_without_vivado(built):
+    for name in ("receiver.tcl", "paths.tcl", "bd.tcl"):
+        assert (built / "generated" / name).is_file(), name
     for name in ("bayerlink_rx.v", "ddc_slave.v", "revela_isp_core.v",
                  "scanout.v", "isp_tee.v"):
-        assert (out / "hdl" / name).is_file(), name
+        assert (built / "hdl" / name).is_file(), name
     # Nothing is written beside the sources: they ship in the package.
     assert not (pynq_z2.HERE / "generated").exists()
 
 
-def test_a_mis_sized_wire_stops_the_build(tmp_path):
-    """Mutation check: a 5-bit pin wired to a 1-bit one is refused before
-    Vivado, where the block design would connect the low bit and warn."""
-    pytest.importorskip("bayerlink_fpga")
-    board = tmp_path / "board"
-    shutil.copytree(pynq_z2.HERE, board,
-                    ignore=shutil.ignore_patterns("__pycache__"))
-    bd = board / "bd.tcl"
-    wire = "[get_bd_pins blrx/out_valid] [get_bd_pins probe/rx_valid]"
-    text = bd.read_text()
-    assert text.count(wire) == 1
-    bd.write_text(text.replace(
-        wire, "[get_bd_pins blrx/hdr_bits] [get_bd_pins probe/rx_valid]"))
-    global BUILD
-    saved, BUILD = BUILD, board / "build.sh"
-    try:
-        result = build(tmp_path / "out", tmp_path)
-    finally:
-        BUILD = saved
-    assert result.returncode != 0
-    assert "WIDTH MISMATCH" in result.stdout + result.stderr
-    assert "blrx/hdr_bits" in result.stdout + result.stderr
+def test_the_gpio_layout_is_the_fabrics(built):
+    """The layout the bench reads comes from the same declaration as the
+    fabric: the control word's defaults are the GPIO's power-on value,
+    and each status word's fields fit the width the GPIO was built at."""
+    layout = json.loads((built / "generated" / "gpio_layout.json").read_text())
+    s = bdtrace.structure(bdtrace.trace(built / "generated" / "bd.tcl",
+                                        [str(built)]))
+    ctrl = layout["ctrl_gpio"]["channels"][0]
+    # The power-on word is the whole declaration's: the consumer bit is
+    # set even in a build without the capture path, as it always was.
+    assert int(s["cells"]["ctrl_gpio"]["config"]["CONFIG.C_DOUT_DEFAULT"],
+               16) == ctrl["default"] == 0x12
+    assert "consumer" not in ctrl["fields"]     # capture is off here
+    width = int(s["cells"]["status_gpio"]["config"]["CONFIG.C_GPIO_WIDTH"])
+    top = max(f["lsb"] + f["bits"] for f in
+              layout["status_gpio"]["channels"][0]["fields"].values())
+    assert top <= width
+    assert layout["status_gpio"]["channels"][0]["fields"]["hdr_valid"] == {
+        "lsb": 27, "bits": 1, "description": "A header has been accepted."}
+
+
+def test_the_layout_checksum_is_built_into_the_fabric(built):
+    """The constant the fabric holds is the checksum of the layout file
+    written beside it, and the file states it -- so a script can tell a
+    layout from another build."""
+    from revela.boards.zynq7.gpio import digest
+    layout = json.loads((built / "generated" / "gpio_layout.json").read_text())
+    s = bdtrace.structure(bdtrace.trace(built / "generated" / "bd.tcl",
+                                        [str(built)]))
+    held = int(s["cells"]["layout_const"]["config"]["CONFIG.CONST_VAL"])
+    stated = layout["ctrl_gpio"]["channels"][1]["fields"]["layout_id"]
+    assert held == stated["value"] == digest(layout) != 0
+    assert stated["constant"] and stated["lsb"] == 0 and stated["bits"] == 32
+    assert s["cells"]["ctrl_gpio"]["config"]["CONFIG.C_ALL_INPUTS_2"] == "1"
+    assert ["ctrl_gpio/gpio2_io_i", "layout_const/dout"] in s["nets"]
+
+
+def test_the_block_design_is_the_design(built):
+    """The generated script, read back: the jacks' cells are there under
+    their own names, the capture path only where the design asks for it,
+    and every pin the constraints name is a port."""
+    s = bdtrace.structure(bdtrace.trace(built / "generated" / "bd.tcl",
+                                        [str(built)]))
+    for cell in ("ps7", "dvi_rx", "hdmi_tx", "blrx", "isp", "scanout",
+                 "ddc_phy", "rst_bus"):
+        assert cell in s["cells"], cell
+    assert "dma" not in s["cells"]            # capture is off by default
+    assert set(s["ports"]) == {"TMDS", "hdmi_hpd", "ddc_scl_io",
+                               "ddc_sda_io", "hdmi_tx"}
+    assert s["cells"]["dvi_rx"]["config"]["CONFIG.kClkRange"] == "1"
+    # the capture path's reset inverter comes with the capture path
+    assert "rstn_pix" not in s["cells"]
+    # the VDMA derives its stream width and its clocking from what it is
+    # connected to, and refuses both as settings: neither is restated
+    vdma = s["cells"]["vdma"]["config"]
+    assert "CONFIG.c_s_axis_s2mm_tdata_width" not in vdma
+    assert "CONFIG.c_prmry_is_aclk_async" not in vdma
+
+
+def test_a_mis_wired_design_is_refused_before_vivado(built, tmp_path,
+                                                     monkeypatch):
+    """Mutation check: the demo with one 5-bit pin wired to a 1-bit one
+    is refused by the emitter, naming the wire."""
+    from revela.boards import vivado
+    from revela.boards.pynq_z2.blockdesign import facts
+    from revela.designs.composite import load
+    design = json.loads((pynq_z2.HERE / "pynq_demo.json").read_text())
+    conns = design["blocks"]["pynq_demo"]["connections"]
+    i = conns.index(["link_rst.rst_pix", "isp_in_shim.rst"])
+    conns[i] = ["blrx.hdr_bits", "isp_in_shim.rst"]
+    package = tmp_path / "mutant_demo"
+    package.mkdir()
+    (package / "__init__.py").write_text("")
+    (package / "pynq_demo.json").write_text(json.dumps(design))
+    monkeypatch.syspath_prepend(str(tmp_path))
+    mutant = load("mutant_demo.pynq_demo", build=facts(built))
+    with pytest.raises(vivado.EmitError, match=r"WIDTH MISMATCH.*hdr_bits"):
+        vivado.emit(mutant, out=built, part="p", board_part="b",
+                    board_files=tmp_path, ip_repos=[])

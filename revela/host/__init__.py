@@ -171,7 +171,7 @@ class StatsWindowAccessor:
     """A double-buffered statistics RAM window.
 
     Read in bulk and returned as a 2-D ``(records, fields)`` array, which is the
-    memory's own shape and matches what :func:`revela.blocks.stats.model`
+    memory's own shape and matches what :func:`revela.blocks.stats.stats`
     produces -- so comparing hardware against the model is an array comparison
     with no reindexing in between.
     """

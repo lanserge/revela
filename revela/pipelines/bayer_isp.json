@@ -36,11 +36,11 @@
       ],
       "nodes": {
         "blacklevel": {
-          "block": "revela.blocks.blacklevel:blacklevel",
+          "block": "revela.blocks.blacklevel",
           "description": "Remove the sensor pedestal per CFA colour, before anything multiplies the signal."
         },
         "whitebalance": {
-          "block": "revela.blocks.whitebalance:whitebalance",
+          "block": "revela.blocks.whitebalance",
           "description": "Per-CFA-colour gain, the AWB loop's actuator. Before demosaic: interpolating unbalanced planes bakes the imbalance into all three channels."
         },
         "ha_green": {
@@ -52,7 +52,7 @@
           "description": "Red and blue as colour differences against the reconstructed green."
         },
         "ccm": {
-          "block": "revela.blocks.ccm:ccm",
+          "block": "revela.blocks.ccm",
           "description": "Sensor RGB into the target colour space."
         }
       },

@@ -7,15 +7,19 @@ stream to it, what shows the picture, and the block design joining them.
 The ISP itself is not described here -- a board names the pipeline it
 builds and reads that pipeline's published contract, never restating it.
 
-A board folder is a library: its primitives -- one JSON block per jack
-or resource, each carrying its own facts and constraints fragment -- and
-the designs built from them. A design names its primitives by reference,
-`revela.boards.<board>.<file>:<block>`, so a second design on the same
-board reuses them and restates nothing.
+Three layers, each a library of JSON blocks:
 
-The checks beside this file hold for any Vivado block design: checkbd
-reads the script before Vivado runs, checknets the widths of every wire
-drawn between our own blocks, checkhwh the design as built.
+  zynq7/        the family: vendor IP, the processing system, the bus --
+                what any Zynq-7000 board builds from
+  <board>/      a board: its jacks (composites owning their cells, pins
+                and constraints), its glue modules, and the designs built
+                from them, e.g. pynq_z2.pynq_demo
+  (receiver)    bayerlink_fpga's modules, the receiver's Verilog
+
+A design is JSON through and through; vivado.py renders it as the block
+design Vivado builds, checking every wire between our own modules against
+their RTL (rtl.py) first. bdtrace reads such a script back without Vivado,
+and checkhwh audits the design as built.
 """
 from __future__ import annotations
 

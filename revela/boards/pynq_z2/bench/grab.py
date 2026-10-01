@@ -22,6 +22,8 @@ import time
 import numpy as np
 from pynq import Overlay, allocate, MMIO
 
+from layout import Layout
+
 MODE_W, MODE_H = 1920, 1080
 
 
@@ -40,6 +42,8 @@ def main() -> int:
 
     overlay = Overlay(args.bit, download=False)
     ctrl = MMIO(overlay.ip_dict["ctrl_gpio"]["phys_addr"], 0x1000)
+    fields = Layout.beside(args.bit)
+    fields.verify(lambda gpio: MMIO(overlay.ip_dict[gpio]["phys_addr"], 0x1000))
     vdma = MMIO(overlay.ip_dict["vdma"]["phys_addr"], 0x1000)
 
     fb = allocate(shape=(MODE_H + 1, MODE_W, 4), dtype="u1")
@@ -78,7 +82,7 @@ def main() -> int:
             vdma.write(0xA4, MODE_W * 4)         # hsize
             vdma.write(0xA0, MODE_H)             # vsize -> armed
             vdma.write(0x34, 0x1000)             # W1C completion
-            ctrl.write(0, ctrl.read(0) | 0x8)    # branch on
+            fields.write(ctrl, "ctrl_gpio", "grab", 1)    # branch on
             deadline = time.time() + args.timeout
             while not (vdma.read(0x34) & 0x1000):
                 if time.time() > deadline:
@@ -86,7 +90,7 @@ def main() -> int:
                           f"(source down?) -- got {got}")
                     return 2
                 time.sleep(0.002)
-            ctrl.write(0, ctrl.read(0) & ~0x8)   # branch off, drains
+            fields.write(ctrl, "ctrl_gpio", "grab", 0)    # branch off, drains
             # frame-count mode already halted the engine at the
             # frame's end; wait for its own halt to confirm
             deadline = time.time() + 1.0
@@ -98,7 +102,7 @@ def main() -> int:
             out[n] = fb[:MODE_H]
             got = n + 1
     finally:
-        ctrl.write(0, ctrl.read(0) & ~0x8)       # branch off
+        fields.write(ctrl, "ctrl_gpio", "grab", 0)        # branch off
         vdma.write(0x30, 0x0)                    # engine halted
         time.sleep(0.05)
         fb.freebuffer()

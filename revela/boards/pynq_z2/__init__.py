@@ -3,13 +3,15 @@
 """PYNQ-Z2: the revela ISP between a bayerlink receiver and an HDMI raster.
 
 HDMI in carries raw Bayer frames from a camera source; the receiver --
-bayerlink_fpga's, behind the front end the hdmi_in primitive names --
+bayerlink_fpga's, behind the front end the hdmi_in jack builds --
 unpacks them into one sample per clock; the ISP turns them into RGB; the
 raster drives HDMI out. Build it with build.sh beside this file, from the
 directory the build should land in (see its header).
 
-The board's primitives are hdmi_in and hdmi_out (one JSON block and one
-constraints fragment each); design.json names the ones it uses.
+The board's library: its jacks, hdmi_in and hdmi_out -- composites that own
+their cells, pins and constraints -- and the design built from them,
+pynq_demo, with the board glue it uses (modules.json). The family layer
+under it is revela.boards.zynq7.
 """
 from __future__ import annotations
 
@@ -25,36 +27,38 @@ def board() -> dict:
     return json.loads((HERE / "board.json").read_text())
 
 
-def design() -> dict:
-    return json.loads((HERE / "design.json").read_text())
+def default(block: str, parameter: str):
+    """A board block's own value for one of its parameters -- the jack's
+    limit, the cable's width -- as the block states it."""
+    from revela.designs.composite import evaluate, parse
+    found, _ = resolve(f"revela.boards.pynq_z2.{block}")
+    raw = found["parameters"][parameter]["default"]
+    if not isinstance(raw, str):
+        return raw
+    return evaluate(parse(raw, f"{block}.{parameter}"), lambda name: None)
 
 
-def primitive(name: str) -> dict:
-    """One of the design's primitives, by the name the design gives it,
-    with the constraints file it names resolved to a path."""
-    block, folder = resolve(design()["primitives"][name])
-    block = dict(block)
-    block["constraints"] = folder / block["constraints"]
-    return block
-
-
-def constraints() -> list[Path]:
-    """Every constraints file the design is built with: its own first,
-    then each primitive's, in the order design.json names them."""
-    d = design()
-    return [HERE / d["constraints"],
-            *(primitive(name)["constraints"] for name in d["primitives"])]
+def choices() -> dict:
+    """The demo's own choices -- its parameters that the build does not
+    supply -- as the design states them."""
+    from revela.designs.composite import load
+    placeholder = {"out_khz": 0, "sample_bits": 0, "isp_width": 0,
+                   "isp_out_bits": 0}
+    params = load("revela.boards.pynq_z2.pynq_demo",
+                  build=placeholder).parameters
+    return {k: v for k, v in params.items()
+            if k not in placeholder and k != "genlock"}
 
 
 def isp_ref() -> str:
-    """The ISP this design builds, by reference: the isp instance's."""
-    isp = next(i for i in design()["instances"] if i["name"] == "isp")
-    return isp["design"]
+    """The ISP this design builds, by reference."""
+    return choices()["pipeline"]
 
 
 def isp_name() -> str:
     """The ISP's name: its generated modules and pack are named after it."""
-    return isp_ref().rpartition(":")[2]
+    from revela.designs.composite import block_name
+    return block_name(isp_ref())
 
 
 def isp_stream() -> dict:
@@ -66,10 +70,3 @@ def isp_stream() -> dict:
         raise ValueError(f"{isp_ref()}: this board feeds one stream, and the "
                          f"ISP takes {sorted(streams)}")
     return next(iter(streams.values()))
-
-
-def hdl_dirs(out: Path) -> list[Path]:
-    """Every directory holding this design's Verilog: the board's own
-    glue, the receiver's, and what the build generated."""
-    import bayerlink_fpga
-    return [HERE / "hdl", bayerlink_fpga.HDL, Path(out) / "hdl"]

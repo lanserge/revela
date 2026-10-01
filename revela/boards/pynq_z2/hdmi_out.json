@@ -1,16 +1,76 @@
 {
-  "blocks": {
-    "hdmi_out": {
-      "description": "The HDMI-out jack: Digilent's rgb2dvi, driven by the design's raster. What it transmits into, how fast, and its pins.",
-      "sink": "dvi",
-      "cable_data_bits": 24,
-      "sink_note": "What the raster transmits into: this board carries Digilent's rgb2dvi, and the cable is 8 bits a channel. A board with a different transmitter changes both.",
-      "max_pixel_mhz": 148.5,
-      "max_pixel_note": "The fastest raster this jack is built for; the design's output mode is checked against it.",
-      "constraints": "hdmi_out.xdc",
-      "ports": [
-        "hdmi_tx"
-      ]
+ "blocks": {
+  "hdmi_out": {
+   "description": "The HDMI-out jack: Digilent's rgb2dvi, driven by the design's raster, and its pins. What the raster transmits into: this board carries Digilent's rgb2dvi, and the cable is 8 bits a channel. A board with a different transmitter changes both.",
+   "parameters": {
+    "out_khz": {
+     "description": "The raster's pixel clock, which picks rgb2dvi's serialiser range: set by the design."
+    },
+    "max_pixel_khz": {
+     "default": 148500,
+     "description": "The fastest raster this jack is built for; the design's output mode is checked against it."
+    },
+    "sink": {
+     "default": "'dvi'",
+     "description": "What the raster transmits into."
+    },
+    "cable_data_bits": {
+     "default": 24,
+     "description": "The cable's bits a pixel: 8 a channel."
     }
+   },
+   "inputs": [
+    {
+     "name": "rgb",
+     "description": "The raster's video interface."
+    },
+    {
+     "name": "pixel_clk"
+    },
+    {
+     "name": "reset"
+    }
+   ],
+   "pins": [
+    {
+     "name": "hdmi_tx",
+     "interface": true
+    }
+   ],
+   "constraints": [
+    "hdmi_out.xdc"
+   ],
+   "nodes": {
+    "hdmi_tx": {
+     "block": "revela.boards.zynq7.ip:rgb2dvi",
+     "config": {
+      "kGenerateSerialClk": "true",
+      "kClkPrimitive": "PLL",
+      "kRstActiveHigh": "true"
+     },
+     "build": {
+      "kClkRange": "1 if out_khz >= 120000 else 2"
+     }
+    }
+   },
+   "connections": [
+    [
+     "rgb",
+     "hdmi_tx.RGB"
+    ],
+    [
+     "pixel_clk",
+     "hdmi_tx.PixelClk"
+    ],
+    [
+     "reset",
+     "hdmi_tx.aRst"
+    ],
+    [
+     "hdmi_tx.TMDS",
+     "hdmi_tx"
+    ]
+   ]
   }
+ }
 }
