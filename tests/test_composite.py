@@ -60,7 +60,7 @@ def chain(*names_and_refs, **extra):
 # -- the real library ------------------------------------------------------- #
 
 def test_bayer_isp_loads_and_flattens_to_its_five_blocks():
-    design = load("revela.blocks.bayer_isp:bayer_isp",
+    design = load("revela.pipelines.bayer_isp:bayer_isp",
                   build={"bit_depth": 12, "max_width": 1920,
                          "max_height": 1080})
     assert list(design.instances) == ["blacklevel", "whitebalance",
@@ -73,7 +73,7 @@ def test_bayer_isp_loads_and_flattens_to_its_five_blocks():
 
 def test_an_unset_interface_parameter_is_refused():
     with pytest.raises(CompositionError, match="bit_depth is never set"):
-        load("revela.blocks.bayer_isp:bayer_isp")
+        load("revela.pipelines.bayer_isp:bayer_isp")
 
 
 # -- hierarchy -------------------------------------------------------------- #
@@ -333,7 +333,7 @@ def test_a_generator_takes_its_build_parameters_from_its_signature(library):
 
 # -- the stream entering, and the bridge to today's build ------------------- #
 
-ISP = "revela.blocks.bayer_isp:bayer_isp"
+ISP = "revela.pipelines.bayer_isp:bayer_isp"
 GEOMETRY = {"bit_depth": 12, "max_width": 64, "max_height": 32}
 
 
@@ -514,6 +514,18 @@ def test_a_register_the_block_does_not_have_is_refused(library):
         profiles.resolve(f"{lib}.tuning:sensor")
 
 
+def test_a_profile_key_that_is_not_a_register_is_refused(library):
+    """A misspelt key would otherwise set nothing and say nothing."""
+    lib = _lib(library, lambda lib: {"sensor": {
+        "for": ISP, "values": {"whitebalance.gian": GAIN}}})
+    with pytest.raises(CompositionError, match="has no register 'gian'"):
+        profiles.resolve(f"{lib}.tuning:sensor")
+    lib = _lib(library, lambda lib: {"sensor": {
+        "for": ISP, "values": {"whitebalanse.gain": GAIN}}})
+    with pytest.raises(CompositionError, match="has no node 'whitebalanse'"):
+        profiles.resolve(f"{lib}.tuning:sensor")
+
+
 def test_a_profile_including_itself_is_refused(library):
     lib = _lib(library, lambda lib: {"loop": {
         "for": f"{lib}.design:pair", "values": {"l": f"{lib}.tuning:loop"}}})
@@ -538,7 +550,7 @@ def test_a_design_without_the_profiles_block_is_refused(library):
         "for": ISP, "values": {"whitebalance.gain": GAIN}}})
     flat_design = to_pipeline(load(f"{lib}.design:pair")).register_map()
     flat_design["composites"] = []
-    with pytest.raises(CompositionError, match="has no revela.blocks.bayer_isp"):
+    with pytest.raises(CompositionError, match="has no revela.pipelines.bayer_isp"):
         profiles.flatten(profiles.resolve(f"{lib}.tuning:sensor"), flat_design)
 
 
@@ -618,8 +630,8 @@ def test_a_reset_value_outside_its_register_is_refused_at_the_block():
 
 def test_a_module_alone_names_the_block_called_after_its_file():
     from revela.designs.composite import canonical
-    assert find("revela.blocks.bayer_isp").ref == \
-        "revela.blocks.bayer_isp:bayer_isp"
+    assert find("revela.pipelines.bayer_isp").ref == \
+        "revela.pipelines.bayer_isp:bayer_isp"
     assert find("revela.blocks.ccm").obj is find("revela.blocks.ccm:ccm").obj
     assert canonical("revela.blocks.gamma:rgb_gamma") == \
         "revela.blocks.gamma:rgb_gamma"
@@ -633,7 +645,7 @@ def test_short_and_full_references_are_one_block_everywhere(library):
     lib = library(lambda lib: {
         "design": {"pair": _pair()},
         "tuning": {"profiles": {"s": {
-            "for": "revela.blocks.bayer_isp",
+            "for": "revela.pipelines.bayer_isp",
             "values": {"whitebalance.gain": GAIN}}}}})
     regmap = to_pipeline(load(f"{lib}.design:pair")).register_map()
     flat = profiles.flatten(profiles.resolve(f"{lib}.tuning:s"), regmap)

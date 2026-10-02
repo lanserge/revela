@@ -53,7 +53,6 @@ dump.vcd
 # Generated Verilog and register maps. The NumPy model is the source; a
 # generated file checked in is a second source of truth waiting to go stale.
 /build/
-pipelines/*/*/*/build/
 *.v.bak
 
 # Image and capture data. Raw frames are large, are usually somebody's camera

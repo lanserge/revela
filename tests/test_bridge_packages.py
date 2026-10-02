@@ -15,13 +15,13 @@ import json
 import sys
 import tarfile
 
-from conftest import chain, describe
+from conftest import build, chain, describe
 from revela import designs
 from revela.host import bridge_module
 
 
 def _regmap():
-    return designs.build(describe(
+    return build(describe(
         "pkg_probe", chain("blacklevel", "whitebalance"),
         bit_depth=10)).register_map()
 

@@ -101,22 +101,6 @@ def test_odd_dimensions_are_rejected():
         blacklevel.blacklevel.run(np.zeros((4, 5), dtype=np.uint16))
 
 
-def test_offsets_from_sensor_negates_the_pedestal():
-    """The datasheet states a positive pedestal; the register adds a negative."""
-    sensor = {"black_level": {"pedestal": 64}}
-    assert blacklevel.offsets_from_sensor(sensor) == {
-        "offset_0_0": -64, "offset_0_1": -64,
-        "offset_1_0": -64, "offset_1_1": -64,
-    }
-
-    per_colour = {"black_level": {"pedestal": 64,
-                                  "per_colour": {"r": 64, "gr": 65, "gb": 66, "b": 67}}}
-    assert blacklevel.offsets_from_sensor(per_colour) == {
-        "offset_0_0": -64, "offset_0_1": -65,
-        "offset_1_0": -66, "offset_1_1": -67,
-    }
-
-
 def test_a_multi_channel_stream_fails_at_the_trace():
     """No meaning tags: the arithmetic is the contract. This block eats one
     sample per pixel; a packed multi-channel word has no phase slices and

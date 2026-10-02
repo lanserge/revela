@@ -8,7 +8,7 @@ block -- which is what makes it reusable: a sensor's profile is for
 ``bayer_isp``, and it tunes every design that contains one.
 
     "profiles": {"ov5647": {
-        "for": "revela.blocks.bayer_isp:bayer_isp",
+        "for": "revela.pipelines.bayer_isp:bayer_isp",
         "values": {"ccm.m": [[547, -167, -124], ...], ...}}}
 
 A block's parameters include everything inside it, under the path it sits

@@ -1,6 +1,6 @@
 # Copyright 2026 Serge Rabyking
 # SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
-"""FuseSoC integration: a pipeline description in, a design pack out.
+"""FuseSoC integration: a design in, a design pack out.
 
 revela's half of the generator conversation is POLICY only: parse the
 design JSON, resolve blocks, allocate addresses, and write the artifacts
@@ -18,7 +18,7 @@ A consuming core file uses it as:
       isp:
         generator: revela
         parameters:
-          design: pipelines/mono/imx219/basic/pipeline.json
+          design: revela.pipelines.stereo:revela_stereo
 """
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def emit(design, output_dir, name: str | None = None, control: bool = True,
     """Build a design and write its pack: Verilog, maps, manifest.
 
     Args:
-        design: a description dict, or a path to a pipeline JSON.
+        design: a composite's reference, package.module:name.
         output_dir: where the pack lands. Created if absent.
         name: core VLNV for the manifest; default derives from the
             pipeline's own name.
@@ -65,8 +65,7 @@ def emit(design, output_dir, name: str | None = None, control: bool = True,
     from revela import designs
     from revela.compose import register_map_markdown
 
-    pipeline = (designs.build(design) if isinstance(design, dict)
-                else designs.load(design))
+    pipeline = designs.load(design)
 
     if verify:
         # Generation and verification are ONE step: the same composition
@@ -181,9 +180,10 @@ def main(argv=None) -> int:
     """revela as a FuseSoC generator.
 
     Parameters (in the consuming core's ``generate`` section):
-        design: path to the pipeline JSON, relative to the calling core.
-            Required -- the design is the input, and there is no default
-            pipeline.
+        design: a composite's reference (revela.pipelines.stereo:
+            revela_stereo). The calling core's folder is a library root,
+            so a core may carry its own designs beside it. Required -- the
+            design is the input, and there is no default pipeline.
         control: emit the AXI4-Lite control plane (default true).
         clock_mhz: the clock the core must make; pointwise stages are
             depth-checked and pipelined against it (default: unchecked).
@@ -199,10 +199,11 @@ def main(argv=None) -> int:
     parameters = data["parameters"]
     if "design" not in parameters:
         raise SystemExit("generator parameter 'design' is required: the "
-                         "path to a pipeline JSON, relative to the calling "
-                         "core")
+                         "composite's reference, package.module:name")
     clock = parameters.get("clock_mhz")
-    emit(Path(data["files_root"]) / str(parameters["design"]),
+    from revela.designs.composite import add_libraries
+    add_libraries([data["files_root"]])
+    emit(str(parameters["design"]),
          Path.cwd(),
          name=str(data.get("vlnv") or "") or None,
          control=bool(parameters.get("control", True)),

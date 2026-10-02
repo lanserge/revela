@@ -22,9 +22,8 @@ from revela.params import (
     Param,
     ParamSet,
 )
-from conftest import chain, describe
+from conftest import build, chain, describe
 
-from revela import designs
 from revela.compose import Pipeline
 from revela.stream import StreamSpec
 from revela.blocks import blacklevel, stats
@@ -35,7 +34,7 @@ BLOCKS = [blacklevel, stats]
 
 @pytest.fixture
 def stereo() -> Pipeline:
-    return designs.build(describe(
+    return build(describe(
         "revela_stereo",
         chain("blacklevel", "stats", prefix="left",
               source="left_in", sink="left_out"),
@@ -226,7 +225,7 @@ def test_each_instance_generates_its_own_modules(stereo):
 
 def test_generated_top_carries_parameter_descriptions():
     """Rule 4: the description written once must appear in the output."""
-    pipeline = designs.build(describe("revela_isp", chain("blacklevel")))
+    pipeline = build(describe("revela_isp", chain("blacklevel")))
     verilog = pipeline.generate().verilog
     # Each register port carries its declared description as a comment, tagged
     # with the CFA colour that element holds -- which the array index alone does
@@ -244,7 +243,7 @@ def test_generated_top_carries_parameter_descriptions():
 
 def test_context_is_fanned_out_not_duplicated():
     """One width register per pipeline, not one per block."""
-    pipeline = designs.build(describe(
+    pipeline = build(describe(
         "revela_stereo",
         chain("blacklevel", "stats", prefix="left",
               source="left_in", sink="left_out"),

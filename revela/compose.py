@@ -4,7 +4,8 @@
 
 This is where blocks stop being declarations and become a pipeline. Three jobs:
 
-  1. Compose blocks in order, chaining one stream into the next.
+  1. Compose blocks as a netlist: each stream from the port that drives it
+     to every port it feeds.
   2. Assign each block INSTANCE a base address. Blocks declare local offsets
      only; the same block added twice gets two different bases, which is what
      makes a stereo pipeline work and what makes a block independently testable.
@@ -188,10 +189,6 @@ class Pipeline:
                                external_outputs=self.outputs)
         # {instance name: Subsystem}, in declaration order.
         self.subsystem_instances: dict[str, Subsystem] = {}
-        # Top-level edges in BOUNDARY form (`l_in -> left.sensor`), kept so a
-        # description can be recovered with its hierarchy intact. The graph
-        # itself holds the flattened equivalents.
-        self.boundary_edges: list[tuple[str, str]] = []
         for name in context_from_stream:
             if pipe_block.resolve(name).origin == "register":
                 raise ValueError(
@@ -696,7 +693,7 @@ class Pipeline:
             header=spdx_header(
                 what=f"{self.name} -- composed ISP pipeline "
                      f"({len(built)} generated block(s), {self.spec.bit_depth}-bit)",
-                source="the netlist in this design's pipeline.json",
+                source="the design's JSON netlist",
             ),
             notes=self._address_map(),
             # A block reads its own copy of its own coefficients, kept

@@ -1,117 +1,67 @@
-# pipelines
+# revela.pipelines
 
-One directory per pipeline **design**, filed by topology, sensor and variant:
-
-```
-pipelines/<topology>/<sensor>/<variant>/
-```
+Compositions of blocks, one to a file: the standard ISP, and designs built of
+it. `revela/blocks/` holds the leaves -- algorithms, each with its own model;
+everything composed of them is here.
 
 ```
-pipelines/
-  mono/
-    imx219/
-      basic/
-        pipeline.json            structure   which blocks, in what order
-        profiles/
-          indoor.json            values      tuning for one scene
-          outdoor.json           values      same structure, different numbers
-        build/                   generated   .v, register map, register docs
-  stereo/
-    imx219/
-      basic/
-        pipeline.json
-        profiles/default.json
+revela/pipelines/
+  bayer_isp.json   bayer_isp       the standard ISP
+  stereo.json      revela_stereo   two eyes, each bayer_isp
 ```
 
-`basic` is the baseline variant for a given topology and sensor: the smallest
-useful datapath, and the thing every other variant is a change against. Later
-variants sit alongside it under their own names.
+A design holds a top, `revela_<file>`, referenced as
+`revela.pipelines.<file>:revela_<file>`; the name is the generated top
+module's, unique side by side and clear of anything in an integrator's own
+Verilog. A standard ISP is named after its file -- `revela.pipelines.bayer_isp`
+-- and is not a top: its stream parameters have no defaults, and whatever
+instantiates it sets them.
 
-`build/` is generated and git-ignored. The Verilog, the register map and the
-register-map documentation all come out of `pipeline.json` plus the block
-declarations; committing them would create a second source of truth that starts
-going stale immediately.
+## The standard ISP
 
-## The layout repeats what the JSON says, so tests check they agree
+There is one: `revela.pipelines.bayer_isp` -- pedestal, white balance,
+Hamilton-Adams demosaic, colour matrix; raw Bayer in, linear RGB out. Every
+design is built of it rather than spelling a chain out beside it: this folder's,
+and the board's (`revela.boards.pynq_z2.isp:revela_isp_core`, which follows it
+with a display curve and the mark). A tone curve and anything else a product
+adds belong to the design, not to the ISP.
 
-Topology and sensor appear both in the path and inside `pipeline.json`. Anything
-stated twice can disagree, so `tests/test_pipeline_description.py` enforces it:
-a design under `stereo/` must describe at least two streams, a design under
-`imx219/` must declare that sensor, every profile under it must be tuned for it,
-and the description's `name` must be `revela_<topology>_<sensor>_<variant>` so
-module names stay unique when several are built side by side.
+## What a design states, and what it does not
 
-A design must also have at least one profile. A pipeline with no tuning has never
-been run against anything.
+An ISP is sensor-independent. What it is built for is the stream entering it
+-- the depth its samples arrive at, the widest frame and the tallest -- and
+those three numbers are the ISP's parameters, stated on its input port. A
+sensor whose mode fits them is served. No design names a sensor; a sensor's
+tunings live with the sensor, in `revela/sensors/<name>/`, and name the block
+they tune.
 
-## Subsystems
+No design states an address either. Blocks declare local offsets and revela
+assigns each instance a base at composition time; the schema has nowhere to
+write one.
 
-A design that runs the same chain more than once describes it once:
+## A composite instantiated more than once
 
-```json
-"subsystems": [
-  { "name": "eye",
-    "inputs":  [{ "name": "sensor" }],
-    "outputs": [{ "name": "video" }],
-    "nodes": [{ "instance": "blacklevel", "block": "blacklevel" }, ...],
-    "connections": [{ "from": "sensor", "to": "blacklevel.in" }, ...] }
-],
-"nodes": [
-  { "instance": "left",  "subsystem": "eye" },
-  { "instance": "right", "subsystem": "eye" }
-]
-```
-
-**Addresses are still allocated per INSTANCE.** A `blacklevel` inside subsystem
-instance `left` is the instance `left.blacklevel`, with its own registers,
-reachable from the host as `dev.left.blacklevel`. The register map is
-byte-identical to spelling the graph out twice -- there is a test for exactly
-that, because it is the property that makes subsystems safe to adopt. What
-changes is the emitted RTL: **one** block module instantiated per eye, instead of
-two identical copies.
-
-A subsystem's boundary port (`left.sensor`) is a NAME, not a component. It joins
-the edge into it and the edge out of it into one connection, so the pipeline
-graph stays flat and address allocation, the register map and the host API need
-to know nothing about subsystems at all.
-
-## Three kinds of JSON
-
-| File | Direction | Holds | Schema |
-| --- | --- | --- | --- |
-| `pipeline.json` | input | structure — blocks and order | `revela/designs/schema.json` |
-| `profiles/*.json` | input | values — registers, 3A tuning | `revela/profiles/schema.json` |
-| `build/*.json` | **output** | addresses — the register map | generated |
-
-Neither input can express an address. Blocks declare local offsets and revela
-assigns each block instance a base at composition time; a description or profile
-that could pin one would be a second copy of the address map, free to disagree
-with the hardware. Both schemas reject an `addresses` key outright.
-
-A profile additionally cannot change structure — no blocks, no reordering — so a
-tuning file can never alter the gateware. That is what makes "the same pipeline
-in a different scene" a matter of swapping one file.
+`stereo` instantiates the standard ISP twice, as `left` and `right`. Addresses
+are allocated per INSTANCE -- `left.ccm` and `right.ccm` are independent
+registers, reachable from the host as `dev.left.ccm` -- so each eye is tuned on
+its own. What the sharing changes is the emitted RTL: one module per block,
+instantiated per eye, instead of two identical copies.
 
 ## Building one
 
 ```bash
-revela generate pipelines/mono/imx219/basic/pipeline.json \
-    --out pipelines/mono/imx219/basic/build
+revela generate revela.pipelines.stereo:revela_stereo --out build
 
-# the same build, with the design read back to you -- where each block
-# landed, the stream topology, and what a profile resolves to
-python examples/build_pipeline.py pipelines/mono/imx219/basic/pipeline.json \
-    --profile pipelines/mono/imx219/basic/profiles/indoor.json
+# the same build, read back to you -- where each block landed and the stream
+# topology
+python examples/build_pipeline.py revela.pipelines.stereo:revela_stereo
 ```
 
 Both go through one emitter, which proves the RTL bit-exact against the models
-before writing anything. Output lands in that design's `build/`: the Verilog,
-the register map, the SystemRDL, the register documentation and a FuseSoC core
-manifest.
+before writing anything.
 
 ## Adding a design
 
-Create `pipelines/<topology>/<sensor>/<variant>/`, write `pipeline.json` against
-the schema, and add at least one profile. The tests discover everything under
-this directory automatically, so a new design is validated by CI without touching
-them.
+Add `<name>.json` here holding the composite `revela_<name>`, built of the
+standard ISP. The tests discover every design in this folder, so a new one is
+built, generated and checked by CI without touching them.

@@ -131,9 +131,11 @@ jobs:
           /tmp/clean/bin/python -c "
           import revela
           from revela import designs, sensors
+          from revela.designs import composite
           print('revela', revela.__version__)
           assert sensors.available(), 'sensor descriptions missing from the wheel'
-          assert designs.schema()['title'], 'pipeline schema missing from the wheel'
+          assert composite.schema()['\$defs'], 'composite schema missing from the wheel'
+          assert designs.load('revela.pipelines.stereo:revela_stereo').register_map()
           print('wheel is self-contained')
           "
 

@@ -61,7 +61,7 @@ SENSOR_API_H = '''\
 #define REVELA_SENSOR_API {SENSOR_API}
 
 /* fitted ISP parameters, keyed <composite>/<path relative to it>
- * ("revela.blocks.bayer_isp:bayer_isp/ccm.m_0_0") -- semantic keys,
+ * ("revela.pipelines.bayer_isp:bayer_isp/ccm.m_0_0") -- semantic keys,
  * never addresses, anchored by the ISP package wherever that
  * composite sits in its build; NULL key terminates */
 struct revela_profile_entry {

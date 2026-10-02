@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
 """The ``revela`` command.
 
-    revela run pipeline.json in.npy out.png
-    revela run pipeline.json --profile indoor.json --to ccm.out in.npy mid.npy
-    revela run pipeline.json --from rgb_gamma.in mid.npy out.png
-    revela run pipeline.json --rtl in.npy out.npy
-    revela generate pipeline.json --out build --clock-mhz 155
+    revela run revela.boards.pynq_z2.isp:revela_isp_core in.npy out.png
+    revela run <design> --profile revela.sensors.ov5647.profile:ov5647 in.npy out.npy
+    revela run <design> --from rgb_gamma.in mid.npy out.png
+    revela run <design> --rtl in.npy out.npy
+    revela generate <design> --out build --clock-mhz 155
 
 ``run`` treats a design as a library of image functions: the whole
 pipeline by default, or any consecutive run of blocks between ``--from``
@@ -22,9 +22,9 @@ It refuses to emit anything unverified.
 from __future__ import annotations
 
 import argparse
-import json
 import sys
-from pathlib import Path
+
+from revela.designs.composite import LIBRARY_HELP
 
 
 def main(argv=None) -> int:
@@ -38,11 +38,12 @@ def main(argv=None) -> int:
         help="run a pipeline (or a sub-chain of it) over an image file",
         description="Run a design's NumPy models -- or, with --rtl, its "
                     "generated Verilog under Verilator -- over one frame.")
-    run.add_argument("design", help="pipeline description (pipeline.json)")
+    run.add_argument("design", help="a composite, package.module:name")
     run.add_argument("input", help=".npy (raw integers) or .png (8-bit view)")
     run.add_argument("output", help=".npy or .png, by extension")
-    run.add_argument("--profile", metavar="PROFILE.json",
-                     help="tuning values; must name this same design")
+    run.add_argument("--profile", metavar="PACKAGE.MODULE:NAME",
+                     help="a sensor's profile, applied at every instance of "
+                          "the block it is for")
     run.add_argument("--from", dest="inject", metavar="INSTANCE.PORT",
                      help="inject the input at this port "
                           "(default: the pipeline input)")
@@ -60,6 +61,8 @@ def main(argv=None) -> int:
                           "verify it against the model word for word")
     run.add_argument("--explain", action="store_true",
                      help="print where every register value came from")
+    run.add_argument("--library", action="append", metavar="DIR",
+                     help=LIBRARY_HELP)
     run.set_defaults(handler=_run)
 
     generate = commands.add_parser(
@@ -69,12 +72,9 @@ def main(argv=None) -> int:
                     "NumPy models under Verilator, and emit the pack: "
                     "Verilog, register map, SystemRDL, FuseSoC core "
                     "manifest. Refuses to emit anything unverified.")
-    generate.add_argument("design", help="pipeline description (pipeline.json) "
-                                         "or a composite, package.module:name")
+    generate.add_argument("design", help="a composite, package.module:name")
     generate.add_argument("--library", action="append", metavar="DIR",
-                          help="a directory to find libraries in, for this "
-                               "run: a reference a.b:name then also looks "
-                               "for DIR/a/b.json. Repeatable")
+                          help=LIBRARY_HELP)
     generate.add_argument("--out", default=".",
                           help="directory the pack lands in (default: here)")
     generate.add_argument("--clock-mhz", type=float, default=None,
@@ -110,25 +110,16 @@ def main(argv=None) -> int:
 def _run(arguments) -> int:
     import numpy as np
 
-    from revela import designs, profiles
+    from revela import designs
     from revela import run as runner
+    from revela.designs.composite import add_libraries
 
-    description = json.loads(Path(arguments.design).read_text())
-    designs.validate(description)
-    pipeline = designs.build(description, validate_description=False)
-
-    profile = None
-    if arguments.profile:
-        profile = profiles.load(arguments.profile)
-        named = profile.get("pipeline")
-        if named and Path(named).resolve() != Path(arguments.design).resolve():
-            raise ValueError(
-                f"profile {profile['name']!r} is tuning for {named}, not for "
-                f"{arguments.design} -- refusing to mix them")
+    add_libraries(arguments.library)
+    pipeline = designs.load(arguments.design)
 
     chain = runner.pixel_chain(pipeline, arguments.inject, arguments.extract)
     values, origin = runner.resolve_values(
-        pipeline, description, profile, runner.parse_sets(arguments.sets))
+        pipeline, arguments.profile, runner.parse_sets(arguments.sets))
 
     context = dict(values.get("pipe", {}))
     if arguments.bayer_phase is not None:

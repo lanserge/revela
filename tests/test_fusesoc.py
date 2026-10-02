@@ -19,8 +19,8 @@ import pytest
 from revela import designs, fusesoc
 
 ROOT = Path(__file__).resolve().parent.parent
-MONO = ROOT / "pipelines" / "mono" / "imx219" / "basic" / "pipeline.json"
-COLOR = ROOT / "pipelines" / "mono" / "imx219" / "color" / "pipeline.json"
+# The shipped design: two standard ISPs, demosaic line buffers and all.
+STEREO = "revela.pipelines.stereo:revela_stereo"
 
 
 def test_emit_writes_a_pack_identical_to_a_direct_build(tmp_path):
@@ -35,8 +35,8 @@ def test_emit_writes_a_pack_identical_to_a_direct_build(tmp_path):
     # is emit's own default, exercised by the gate tests below on a small
     # design -- re-running Verilator over a full imx219 frame per
     # packaging assertion tests nothing further about packaging.
-    written = fusesoc.emit(MONO, tmp_path, verify=False)
-    direct = designs.load(MONO).generate(control=True)
+    written = fusesoc.emit(STEREO, tmp_path, verify=False)
+    direct = designs.load(STEREO).generate(control=True)
     assert written["verilog"].read_text() == direct.verilog
     assert written["toplevel"] == direct.top
 
@@ -51,8 +51,8 @@ def test_emit_writes_a_pack_identical_to_a_direct_build(tmp_path):
 
 def test_control_false_stops_at_the_datapath(tmp_path):
     """The testbench form: no AXI4-Lite in front, coefficients on wires."""
-    with_control = fusesoc.emit(MONO, tmp_path / "ctrl", verify=False)
-    without = fusesoc.emit(MONO, tmp_path / "flat", control=False,
+    with_control = fusesoc.emit(STEREO, tmp_path / "ctrl", verify=False)
+    without = fusesoc.emit(STEREO, tmp_path / "flat", control=False,
                            verify=False)
     assert "s_axi" in with_control["verilog"].read_text()
     assert "s_axi" not in without["verilog"].read_text()
@@ -68,9 +68,9 @@ def test_generator_protocol_end_to_end(tmp_path, monkeypatch):
     gapi = tmp_path / "input.yml"
     gapi.write_text(json.dumps({
         "gapi": "1.0",
-        "vlnv": "lanserge:revela:mono_pack:0",
+        "vlnv": "lanserge:revela:stereo_pack:0",
         "files_root": str(ROOT),
-        "parameters": {"design": str(MONO.relative_to(ROOT)),
+        "parameters": {"design": STEREO,
                        "verify": False},
     }))
     work = tmp_path / "work"
@@ -81,7 +81,7 @@ def test_generator_protocol_end_to_end(tmp_path, monkeypatch):
     cores = list(work.glob("*.core"))
     assert len(cores) == 1
     manifest = cores[0].read_text()
-    assert "name: lanserge:revela:mono_pack:0" in manifest
+    assert "name: lanserge:revela:stereo_pack:0" in manifest
     assert "file_type: verilogSource" in manifest
 
 
@@ -98,12 +98,18 @@ def test_a_missing_design_parameter_is_refused(tmp_path, monkeypatch):
 # The verify gate
 # --------------------------------------------------------------------------- #
 
-def _tiny_design() -> dict:
+def _tiny_description() -> dict:
     """Two multiplying stages at 64x32: enough arithmetic to disagree,
     small enough that Verilator is a moment rather than a stage of CI."""
     from conftest import chain, describe
     return describe("tiny_pack", chain("blacklevel", "whitebalance"),
                     bit_depth=10)
+
+
+def _tiny_design() -> str:
+    """The tiny design, as a library on the import path: its reference."""
+    from conftest import library
+    return library(_tiny_description())
 
 
 def test_emit_verifies_by_default(tmp_path):
@@ -124,9 +130,9 @@ def test_pack_carries_the_register_documentation(tmp_path):
     """
     from revela.compose import register_map_markdown
 
-    written = fusesoc.emit(MONO, tmp_path, verify=False)
+    written = fusesoc.emit(STEREO, tmp_path, verify=False)
     assert written["docs"].exists()
-    expected = register_map_markdown(designs.load(MONO).register_map())
+    expected = register_map_markdown(designs.load(STEREO).register_map())
     assert written["docs"].read_text() == expected
     assert written["docs"].name in written["core"].read_text(), (
         "the documentation was written but the manifest does not name it")
@@ -154,10 +160,12 @@ def test_cli_generate_emits_the_pack(tmp_path):
     speak the same emit, files landing where --out says."""
     from revela import cli
 
-    design = tmp_path / "pipeline.json"
-    design.write_text(json.dumps(_tiny_design()))
+    (tmp_path / "tinylib").mkdir()
+    (tmp_path / "tinylib" / "design.json").write_text(
+        json.dumps(_tiny_description()))
     out = tmp_path / "pack"
-    assert cli.main(["generate", str(design), "--out", str(out),
+    assert cli.main(["generate", "tinylib.design:tiny_pack",
+                     "--library", str(tmp_path), "--out", str(out),
                      "--no-verify"]) == 0
     assert (out / "tiny_pack.v").exists()
     assert (out / "tiny_pack_regmap.json").exists()
@@ -173,7 +181,7 @@ def test_sync_memory_admits_the_isp_and_publishes_its_memories(tmp_path):
     say what was inferred, because an integrator binds against the report,
     not against a grep of the Verilog.
     """
-    written = fusesoc.emit(COLOR, tmp_path, verify=False, sync_memory=True)
+    written = fusesoc.emit(STEREO, tmp_path, verify=False, sync_memory=True)
     memories = json.loads(written["build"].read_text())["memories"]
     assert memories, "a demosaic pipeline infers line buffers"
     entries = [m for stage in memories.values() for m in stage]
@@ -184,7 +192,7 @@ def test_sync_memory_admits_the_isp_and_publishes_its_memories(tmp_path):
         assert f"module {entry['module']} #(" in verilog
 
     # the flag refuses; it never changes what is emitted
-    plain = fusesoc.emit(COLOR, tmp_path / "plain", verify=False)
+    plain = fusesoc.emit(STEREO, tmp_path / "plain", verify=False)
     assert plain["verilog"].read_text() == verilog
 
     # a pointwise-only pack has nothing to bind, and says so

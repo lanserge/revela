@@ -109,9 +109,16 @@
             "$ref": "#/$defs/name"
           },
           "context": {
+            "description": "The facts that ride with the stream entering, latched at each frame's start: a port for each, and no register -- a register copy of a header fact is a second answer software could set to disagree with the picture arriving. The vocabulary is the per-frame header's.",
             "type": "array",
             "items": {
-              "$ref": "#/$defs/name"
+              "enum": [
+                "bayer_phase",
+                "bit_depth",
+                "frame_phase",
+                "height",
+                "width"
+              ]
             }
           },
           "bits": {

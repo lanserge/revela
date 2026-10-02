@@ -24,7 +24,8 @@ hand-written Verilog smuggled in as a "wrapper", and not an ISP-shaped special
 case bolted onto np2hw. If a block cannot be built, that is a feature request for
 the compiler, and the block waits.
 
-Python 3.11+. Dependencies: numpy, np2hw, pytest, cocotb, jsonschema. Verilator
+Python 3.11+. Dependencies: numpy, np2hw, pytest, cocotb, jsonschema,
+systemrdl-compiler (for checking the emitted SystemRDL). Verilator
 for simulation. **Do not use Amaranth. Ask before adding any dependency beyond
 these.**
 
@@ -68,8 +69,9 @@ description. One declaration drives four things:
 - the register map documentation,
 - the host-side accessor.
 
-**Blocks declare LOCAL offsets only — never absolute addresses.** `pipeline.py`
-assigns each block **INSTANCE** a base address at composition time.
+**Blocks declare LOCAL offsets only — never absolute addresses.**
+`revela/compose.py` assigns each block **INSTANCE** a base address at
+composition time.
 
 Non-negotiable, and here is the test of it: a stereo pipeline instantiates every
 block twice, and blocks must be independently instantiable for unit tests. If
@@ -79,7 +81,7 @@ Each block base is aligned to a power of two (256 bytes), so address decode is a
 **bit-slice compare** rather than a range comparator — cheaper in hardware, and
 far more readable in the output. Address space is free; decode logic is not.
 
-The host API mirrors the hierarchy: `dev.left.ccm.m00 = 512`.
+The host API mirrors the hierarchy: `dev.left.ccm.m_0_0 = 512`.
 
 ### 3. Verification is bit-exact
 
@@ -113,13 +115,16 @@ A generated file that is correct but unreadable has failed.
 kept apart deliberately:
 
 - **Block config** — CCM coefficients, gamma tables, WB gains. Lives in that
-  block's register map. Written to a shadow register; committed to the live value
-  at the **frame boundary**, so a frame is never processed with half-updated
-  coefficients. A write made during frame N takes effect on frame N+1. Software
-  that needs a change sooner has to wait for the boundary, not race it.
-- **Pipeline context** — width, height, active window, Bayer phase, bit depth.
-  Lives in a single `pipe` block at base 0 and is fanned out to blocks as
-  **WIRES**, never duplicated as per-block CSRs. One width register per pipeline,
+  block's register map. Written to a shadow register and committed as ONE
+  batch when software writes `pipe.commit`; the datapath takes the batch at the
+  next **frame boundary** and clears the bit, so a frame is never processed with
+  half-updated coefficients. While a batch is pending, coefficient writes are
+  refused, so the batch cannot change under the commit.
+- **Pipeline context** — the facts every block shares: width, height, active
+  window, Bayer phase, bit depth. Each comes from ONE place: those named in
+  `stream.context` arrive with the stream, and the rest (the active window) are
+  registers in a single `pipe` block at base 0. Either way they are fanned out
+  to blocks as **WIRES**, never duplicated as per-block CSRs. One width register per pipeline,
   read by everyone. The alternative — a width register in every block — makes a
   resolution change N writes that must all land in the same frame, and any block
   whose write is missed corrupts the image in a way that looks like a bug in that
@@ -195,8 +200,8 @@ window to double-buffer. The region is in the map; the RAM is not in the RTL.
 
 ## Pipeline descriptions
 
-A pipeline's structure is a NETLIST in JSON -- `revela/designs/schema.json`,
-versioned and validated in CI exactly like the sensor schema -- built with
+A pipeline's structure is a NETLIST in JSON: a composite, validated against
+`revela/designs/blocks.schema.json` on load, and built with
 `revela.designs.load()`. This is the form a pipeline builder GUI would edit.
 
 **A netlist, not a list, because a real ISP is not a chain.** Statistics TAP the
@@ -226,43 +231,58 @@ np2hw's streaming handshake and a copy of them here would be free to disagree
 with the emitter -- which is exactly what happened before they moved. revela
 declares what each node MEANS; np2hw decides whether the graph is buildable.
 
-**There are three JSON files and they point in different directions:**
+**There are three kinds of JSON and they point in different directions:**
 
-    pipeline description   INPUT    structure, no addresses   revela/designs/
-    profile                INPUT    values, no structure      revela/profiles/
+    design (composite)     INPUT    structure, no addresses   revela/pipelines/
+    profile                INPUT    values, no structure      revela/sensors/
     register map           OUTPUT   addresses, generated      revela/compose.py
 
-**Neither input can express an address**, and both schemas reject an `addresses`
-key outright. Blocks declare local offsets; revela assigns each block instance a
-base at composition time. If an input could pin an address, a builder could emit
-a map that silently disagreed with the hardware it generated -- the exact failure
-rule 2 exists to prevent. Region *bases* are a platform choice and may be set;
-individual addresses never are.
+**Neither input can express an address**: the schema has nowhere to write one.
+Blocks declare local offsets; revela assigns each block instance a base at
+composition time. If an input could pin an address, a builder could emit a map
+that silently disagreed with the hardware it generated -- the exact failure
+rule 2 exists to prevent. Region *bases* are a platform choice; individual
+addresses never are.
 
 Allocation must therefore be a pure function of structure, and there is a test
-that proves it: a description recovered from a built pipeline, rebuilt, produces
-byte-identical Verilog and an identical register map. Note that allocation
-follows DECLARATION order, not topological order -- `Pipeline.nodes` versus
-`Pipeline.datapath` -- and conflating the two silently changes every address.
+that proves it: the same design built twice is the same Verilog at the same
+addresses, and writing its connections in another order moves nothing. Note
+that allocation follows DECLARATION order, not topological order --
+`Pipeline.nodes` versus `Pipeline.datapath` -- and conflating the two silently
+changes every address.
 
-A design that runs the same chain twice describes it once, as a `subsystem`,
-and instantiates it by name. Addresses are still allocated per INSTANCE, so the
-register map is byte-identical to spelling the graph out -- only the emitted RTL
-changes, from N copies of a module to one instantiated N times. A subsystem's
-boundary port is a name, not a component: it joins two edges into one, so the
-pipeline graph stays flat and allocation knows nothing about subsystems.
+A design is a composite: blocks and composites as nodes, referenced as
+`package.module:block`, and the connections between their ports. A design that
+runs the same chain twice describes it once, as a composite, and instantiates
+it twice. Addresses are still allocated per INSTANCE, so the register map is
+byte-identical to spelling the graph out -- only the emitted RTL changes: a
+composite instantiated more than once, built alike and made of blocks alone,
+is one module per block instantiated per instance. A composite's boundary port
+is a name, not a component: it joins two edges into one, so the pipeline graph
+stays flat and allocation knows nothing about the hierarchy.
 
-Designs live in `pipelines/<topology>/<sensor>/<variant>/`, one directory each:
-`pipeline.json`, a `profiles/` directory, and a git-ignored `build/`. A profile
-carries register VALUES and names the sensor it was tuned for, so one structure
-serves several sensors and several scenes. It cannot add a block or reorder the
-graph. Values layer as block reset -> sensor-derived -> profile, and the resolved
-settings record which layer each value came from.
+The ISP is sensor-independent. What it is built for is the stream entering it
+-- the depth its samples arrive at, the widest frame and the tallest -- stated
+on its input port, and nowhere else; a sensor whose mode fits them is served.
+There is one standard ISP, `revela.pipelines.bayer_isp`, and every design is
+built of it -- the pipelines in `revela/pipelines/` and the board's -- rather
+than spelling a chain out beside it, which would be a second description of
+it free to drift.
 
-Blocks are resolved by name through `revela.blocks.registry()`, which discovers
-every module declaring a `ParamSet`. A declared stub has no `ParamSet` and so
-cannot be named in a description -- better to fail at composition than to build a
-pipeline containing a block that has no model and cannot be verified.
+A sensor's tunings live with the sensor in `revela/sensors/<name>/`, as a
+profile: register values for one block, keyed relative to it, so a profile for
+`bayer_isp` tunes every design built of it, at every instance. A profile may
+include another by reference, and the value it sets itself wins. It cannot add
+a block or reorder the graph, and every value is checked against the built
+register map -- name, shape and range -- so a bad number fails at load rather
+than on hardware. A design's own values are its reset values; a profile is the
+layer on top, and nothing is derived from a sensor description behind it.
+
+A block is found by its reference through the import path, so a checkout and an
+installed wheel resolve alike, and a library outside any package is a folder on
+that path (`--library`). A declared stub has no `ParamSet` and is not a block --
+better to fail at composition than to build a pipeline containing a block that
+has no model and cannot be verified.
 
 ## Stream interface
 
@@ -282,7 +302,7 @@ possible, because a block with its own buffers can be instantiated alone and hel
 bit-exact against its model. If fusion is ever needed, the route is to trace a
 sub-chain as ONE np2hw expression (np2hw already hash-conses and shares line
 buffers within a single traced expression) — a composition choice in
-`pipeline.py`, not an architectural rewrite.
+`revela/compose.py`, not an architectural rewrite.
 
 ## Sensors
 
@@ -297,16 +317,19 @@ typically `256/(256-code)`), and register sequences per mode.
 **Where each part is consumed:**
 
 - **Software at runtime** — exposure/gain conversion, mode selection, I2C
-  sequences. The 3A loop reads the JSON and computes the writes. This is most of
-  the file.
-- **Build-time parameters** — bit depth (datapath width) and image width (line
-  buffer sizing). **Only these.**
+  sequences. The sensor package carries the laws to the source, where the 3A
+  loops compute the writes from them. This is most of the file.
+- **Build time — nothing.** The ISP is built for a stream: the depth its
+  samples arrive at, its widest frame and its tallest, stated on its input
+  port. A sensor whose mode fits is served; `sensor.json` never feeds a
+  build.
 - **Generated logic, ONE case** — on a headless target with no CPU, generate an
   I2C init sequencer from the register sequences: a ROM of register writes plus
   the state machine that walks it. A good demonstration of np2hw beyond datapath.
 
-**Prefer runtime registers over build-time generation.** Bayer phase as a two-bit
-register costs almost nothing and lets one bitstream serve every sensor. **Never
+**Prefer run-time facts over build-time generation.** Bayer phase as a run-time
+fact -- from the stream's header, or a two-bit register -- costs almost nothing
+and lets one bitstream serve every sensor. **Never
 generate a different pipeline per sensor** — that turns the verification matrix
 into sensors × modes and it will not stay green.
 
@@ -354,8 +377,13 @@ The name is not covered by the licence: see [TRADEMARK.md](../TRADEMARK.md).
 revela/
   params.py       Param, Context, StatsWindow, ParamSet, AddressAllocator
   stream.py       stream interface + AXI4-Stream Video adapter
-  pipeline.py     composition, address allocation, JSON map emission
-  fusesoc.py      design packs: pipeline JSON -> .core + Verilog + maps
+  compose.py      composition, address allocation, JSON map emission
+  fusesoc.py      design packs: a composite reference -> .core + Verilog + maps
+  cli.py, run.py  `revela generate` and `revela run`
+  designs/        composites: composite.py loads them, profile.py resolves a
+                  sensor's values for a block, blocks.schema.json the format
+  pipelines/      compositions of blocks: bayer_isp.json (the standard ISP),
+                  stereo.json (two of it)
   blocks/         one file per block; the decorated model IS the block
                   (its .params is the register set, .run() the reference,
                   .generate() the RTL)
@@ -389,12 +417,15 @@ revela/
       malvar.py   stub; the usual default, gradient-corrected 5x5
       menon.py    stub; directional with refinement, the quality tier
     ...           stubs with intent documented
-  sensors/        schema.json + <name>/sensor.json
-  control/        AE/AWB/AF — pure Python, frame rate, no hardware
-  host/           transports (spi, udp, pynq) + generated register accessors
+  sensors/        schema.json + <name>/sensor.json, and a sensor's profile.json
+  host/           transports (spi, udp, pynq), register accessors, and the
+                  source's packages (bridge_module.py, sensor_module.py)
+  boards/         vivado.py renders a design for Vivado, rtl.py reads our
+                  modules' ports, bdtrace.py traces a block design;
+    zynq7/        the family: vendor IP, the PS, the bus, GPIO words
+    pynq_z2/      the board: its jacks, glue modules, pynq_demo, build.sh
 tests/            pytest + cocotb testbenches
 experiments/      exploratory work, NOT part of the library, float allowed
-boards/           tang-primer-20k/, pynq-z2/
 ```
 
 ## Current status and known gaps
@@ -430,10 +461,14 @@ boards/           tang-primer-20k/, pynq-z2/
   math is the check.
 ## The revela / np2hw interface
 
-Four things cross the boundary, and nothing else:
+These cross the boundary, and nothing else:
 
     revela -> np2hw   Param, Image2D, to_ir(model, image, *params)
                       compose(instances, connections, ports)
+                      Netlist -- the graph, checked before emission
+                      Reg, RegBlock, AddrMap, systemrdl, control_wrap --
+                        the register file in front of the composed top
+                      np2hw.fusesoc -- the pack's manifest
     np2hw -> revela   Core (verilog, module, interface, line_buffers, ...)
 
 **A module describes itself.** `Core.interface` states its clock and reset names,
@@ -474,11 +509,10 @@ width, and revela reads them instead of keeping its own table.
 - `compose()` type-checks every net before emitting a line: a source and sink
   must agree on width and framing. Connecting a 10-bit Bayer stream to a block
   built for 12-bit RGB used to elaborate happily.
-- Still missing, deliberately: a **buffered fork** (a fan-out to two consumers
-  that both apply backpressure is refused rather than emitted as something that
-  deadlocks under load), and a **register file** — the top still exposes flat
-  `param_*` inputs, with no CSR block, shadow registers, commit-on-SOF or stats
-  RAM windows behind them.
+- Next: a **buffered fork** -- a fan-out to two consumers that both apply
+  backpressure is refused today rather than emitted as something that
+  deadlocks under load -- and statistics RAM windows behind the region the
+  allocator already reserves for them.
 - `demosaic/bilinear` is complete: the first phase-selected STENCIL block
   (np2hw traces `out[r::2, c::2] = taps[r::2, c::2]` to one shared window
   with a positional tap-combination mux) and the first three-channel

@@ -55,8 +55,8 @@ np2hw; the top level is built by `np2hw.compose()`, which instantiates the
 generated cores and wires the netlist; the AXI4-Lite register file in front of it
 is emitted by `np2hw.control_wrap()`. revela supplies the models, the register
 declarations and their descriptions, the design JSON, and the software — the
-register map with per-instance address allocation, sensor descriptions, the 3A
-control loops and the host API.
+register map with per-instance address allocation, sensor descriptions, the
+statistics block the 3A loops read, and the host API.
 
 The split at the control plane is the same one: **revela decides where every
 register lives, np2hw decides what an AXI4-Lite slave looks like.** Neither holds
@@ -67,11 +67,12 @@ generated Verilog and compares them with the map.
 ## Architecture in one diagram
 
 ```
-sensor ─▶ [ blacklevel ] ─▶ [ lsc ] ─▶ [ demosaic ] ─▶ [ ccm ] ─▶ [ gamma ] ─▶ out
-               │                │                          │
-               ╰────────────────┴──── stats ───▶ AE / AWB (host, frame rate)
+           width, height, bayer_phase, bit_depth  (with each frame, from its header)
+              │
+sensor ─▶ [ blacklevel ] ─▶ [ whitebalance ] ─▶ [ ha_green ] ─▶ [ ha_rb ] ─▶ [ ccm ] ─▶ out
+          └──────────────────────────── bayer_isp ────────────────────────────┘
 
-  pipe @ 0x0000 ── width, height, window, bayer_phase, bit_depth ──▶ (wires to all)
+  pipe @ 0x0000 ── window, commit ──▶ (wires to all)
 ```
 
 The pipeline context has one owner and reaches every block as wires, never
@@ -137,46 +138,50 @@ pytest                            # includes the bit-exact model-vs-RTL tests
 Verilator must be on the path — `apt install verilator` or `brew install
 verilator`. The bit-exact tests skip without it; everything else still runs.
 
-A pipeline is described in JSON and nowhere else — a **netlist** of named block
-instances and the connections between their ports:
+A pipeline is described in JSON and nowhere else — a **composite**: named
+block instances, the connections between their ports, and the stream it is
+built for. The standard ISP, `revela.pipelines.bayer_isp`, is one:
 
 ```json
-{
-  "name": "revela_mono_imx219_basic",
-  "sensor": { "name": "imx219", "mode": "binned_2x2" },
-  "inputs":  [{ "name": "sensor" }],
-  "outputs": [{ "name": "video" }],
-  "nodes": [
-    { "instance": "blacklevel",   "block": "blacklevel" },
-    { "instance": "whitebalance", "block": "whitebalance" },
-    { "instance": "gamma",        "block": "gamma" },
-    { "instance": "stats",        "block": "stats" }
-  ],
+{"blocks": {"bayer_isp": {
+  "parameters": { "bit_depth": {}, "max_width": {}, "max_height": {} },
+  "inputs":  [{ "name": "in", "bits": "bit_depth",
+                "max_width": "max_width", "max_height": "max_height",
+                "context": ["width", "height", "bayer_phase", "bit_depth"] }],
+  "outputs": [{ "name": "out" }],
+  "nodes": {
+    "blacklevel":   { "block": "revela.blocks.blacklevel" },
+    "whitebalance": { "block": "revela.blocks.whitebalance" },
+    "ha_green":     { "block": "revela.blocks.demosaic.hamilton_adams:ha_green" },
+    "ha_rb":        { "block": "revela.blocks.demosaic.hamilton_adams:ha_rb" },
+    "ccm":          { "block": "revela.blocks.ccm" }
+  },
   "connections": [
-    { "from": "sensor",           "to": "blacklevel.in" },
-    { "from": "blacklevel.out",   "to": "whitebalance.in" },
-    { "from": "whitebalance.out", "to": "gamma.in" },
-    { "from": "gamma.out",        "to": "video" },
-    { "from": "blacklevel.out",   "to": "stats.in" }
+    ["in", "blacklevel.in"], ["blacklevel.out", "whitebalance.in"],
+    ["whitebalance.out", "ha_green.in"], ["ha_green.out", "ha_rb.in"],
+    ["ha_rb.out", "ccm.in"], ["ccm.out", "out"]
   ]
-}
+}}}
 ```
 
-A netlist rather than a list, because a real ISP is not a chain. Note the last
-connection: `stats` **taps** the datapath — deliberately PRE-whitebalance,
-because AWB must meter the illuminant's cast, and a loop that meters its own
-correction chases its tail. The tap consumes the stream and produces no
-pixels, so the image path runs `blacklevel → whitebalance → gamma` to the
-output. A list of blocks cannot say either of those things — which is the
-error the format is shaped to prevent.
+A netlist rather than a list, because a real ISP is not a chain: statistics
+tap the datapath and produce no pixels, a preview path forks off the main one,
+HDR merges two exposures. A list of blocks cannot say any of that — which is
+the error the format is shaped to prevent.
 
-A node may also override a declared register's build-time attributes —
-`"registers": { "gain": { "frac": 12 } }` — values only, never addresses; the
-model, the RTL, the register map and the host all follow the one overridden
-declaration.
+The ISP is sensor-independent. What it is built for is three numbers — the
+depth samples arrive at, the widest frame and the tallest — and they are its
+parameters, stated on the input port; a sensor whose mode fits them is
+served. Geometry and Bayer phase ride the stream as context, latched each
+frame, never registers. Blocks are referenced as `package.module:block`, and a
+composite is a block like any other, so designs are built of it: the stereo
+pipeline is two of it, and the PYNQ-Z2's ISP is it followed by a display
+curve. A node may also set a declared register's build-time attributes —
+`"build": { "knots.bits": 11 }` — values only, never addresses; the model, the
+RTL, the register map and the host all follow the one declaration.
 
 ```bash
-revela generate pipelines/mono/imx219/basic/pipeline.json --out build --clock-mhz 148.5
+revela generate revela.pipelines.stereo:revela_stereo --out build --clock-mhz 148.5
 ```
 
 That is the shipping path: it builds the design, proves the generated Verilog
@@ -189,28 +194,25 @@ part of that pack, not a later step. To read a design rather than ship it,
 and prints the address map, the stream topology and a profile's resolved
 values.
 
-Designs live in `pipelines/<topology>/<sensor>/<variant>/`, holding the netlist,
-every tuning for it, and a git-ignored `build/`:
+`revela/blocks/` holds the blocks -- algorithms, each with its model.
+`revela/pipelines/` holds what is composed of them, one to a file: the
+standard ISP, `bayer_isp.json`, and designs built of it; the board's design is
+in `revela/boards/`. A sensor's tunings are with the sensor, in
+`revela/sensors/<name>/`.
 
-```
-pipelines/mono/imx219/basic/
-  pipeline.json                structure  — nodes and connections
-  profiles/indoor.json         values     — registers + 3A tuning
-  profiles/outdoor.json        values     — same structure, different numbers
-  build/                       generated  — .v, register map, SystemRDL, docs
-```
+A **profile** is a sensor's register values for one block — the ov5647's is
+for `bayer_isp` — keyed relative to it, so it tunes every design built of that
+block, at every instance: both eyes of the stereo design, the board's one ISP.
+It cannot add a block or rewire the graph, and every value is checked against
+the built register map — its name, its shape, its range. A design's own values
+are its reset values; a profile is the layer on top.
 
-A **profile** carries values and names the sensor it was tuned for, so one
-pipeline serves several sensors and scenes. It cannot add a block or rewire the
-graph. Values layer: block reset → sensor-derived → profile, and the resolved
-settings record which layer each value came from.
-
-**Inputs carry no addresses.** The netlist and the profile are *inputs*, and both
-schemas reject an `addresses` key outright. The register map is the *output*.
+**Inputs carry no addresses.** The design and the profile are *inputs*, and
+neither has anywhere to write an address. The register map is the *output*.
 That is what stops a builder GUI from emitting a map that disagrees with the
-hardware it generated — and a test proves a described pipeline rebuilds to
-byte-identical Verilog and addresses, so allocation is a pure function of
-structure.
+hardware it generated — and a test proves the same design, its connections
+written in any order, builds to the same addresses, so allocation is a pure
+function of structure.
 
 The register map JSON is the authoritative address map. The host API and the
 register-map documentation are both generated from it; nothing anywhere

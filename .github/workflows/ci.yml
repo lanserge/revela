@@ -193,8 +193,8 @@ jobs:
       - name: Sensor descriptions validate against the schema
         run: pytest tests/test_sensors.py -v
 
-      - name: Design netlists validate against the schema
-        run: pytest tests/test_designs.py -v
+      - name: Designs build as composites
+        run: pytest tests/test_composite.py tests/test_netlist.py tests/test_pipelines.py -v
 
       - name: Register map allocation
         run: pytest tests/test_address_allocation.py -v
@@ -204,7 +204,9 @@ jobs:
           pytest -v -m "not verilog" \
             --ignore=tests/test_spdx_headers.py \
             --ignore=tests/test_sensors.py \
-            --ignore=tests/test_designs.py \
+            --ignore=tests/test_composite.py \
+            --ignore=tests/test_netlist.py \
+            --ignore=tests/test_pipelines.py \
             --ignore=tests/test_address_allocation.py
 
       - name: Generated Verilog is bit-exact with the NumPy models
@@ -214,16 +216,24 @@ jobs:
         # The examples are documentation that executes; if they break, the
         # README is wrong and nobody finds out from a unit test.
         run: |
-          for design in pipelines/*/*/*/; do
-            python examples/build_pipeline.py "$design/pipeline.json"
+          for design in revela/pipelines/*.json; do
+            name=$(basename "$design" .json)
+            # a design holds the top revela_<file>; a standard ISP is built
+            # by the designs that hold it
+            grep -q "\"revela_${name}\"" "$design" || continue
+            python examples/build_pipeline.py "revela.pipelines.${name}:revela_${name}"
           done
-          for profile in pipelines/*/*/*/profiles/*.json; do
-            python - "$profile" <<'PY'
-          import sys
-          from revela import profiles
-          p = profiles.load(sys.argv[1])
-          s = profiles.resolve(p, profiles.pipeline_for(p))
-          print(s.summary())
+          for library in revela/sensors/*/profile.json; do
+            python - "$library" <<'PY'
+          import json, sys
+          from pathlib import Path
+          from revela.designs import profile
+          library = Path(sys.argv[1])
+          for name in json.loads(library.read_text())["profiles"]:
+              resolved = profile.resolve(
+                  f"revela.sensors.{library.parent.name}.profile:{name}")
+              print(f"{resolved.ref}: {len(resolved.values)} value(s) for "
+                    f"{resolved.for_ref}")
           PY
           done
 
@@ -246,9 +256,9 @@ jobs:
           #                or horizontal extent.
           # Elaborated from the CONTROL top, so the register file and its decode
           # are linted too -- that is the module a board actually instantiates.
-          verilator --lint-only --top-module revela_stereo_imx219_basic_ctrl \
+          verilator --lint-only --top-module revela_stereo_ctrl \
             -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-UNSIGNED \
-            pipelines/stereo/imx219/basic/build/revela_stereo_imx219_basic.v
+            build/revela_stereo/revela_stereo.v
 
       - name: Upload generated output
         # So a reviewer can read the RTL and the register map without running
@@ -258,7 +268,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: generated-verilog-and-register-map
-          path: pipelines/*/*/*/build/
+          path: build/revela_*/
           if-no-files-found: error
 
   package:
@@ -285,23 +295,16 @@ jobs:
           cd /tmp
           /tmp/clean/bin/python -c "
           import revela
-          from revela import designs, profiles, sensors
+          from revela import designs, sensors
+          from revela.designs import composite, profile
 
           print('revela', revela.__version__)
           assert sensors.available(), 'sensor descriptions missing from the wheel'
           assert sensors.load('imx219')['name'] == 'imx219'
-          assert designs.schema()['title'], 'pipeline schema missing from the wheel'
-          assert profiles.schema()['title'], 'profile schema missing from the wheel'
-          pipeline = designs.build({
-              'schema_version': 1, 'name': 'smoke',
-              'stream': {'bit_depth': 12},
-              'geometry': {'width': 64, 'height': 32},
-              'inputs': [{'name': 'in'}], 'outputs': [{'name': 'out'}],
-              'nodes': [{'instance': 'bl', 'block': 'blacklevel'}],
-              'connections': [{'from': 'in', 'to': 'bl.in'},
-                              {'from': 'bl.out', 'to': 'out'}],
-          })
+          assert composite.schema()['\$defs'], 'composite schema missing from the wheel'
+          pipeline = designs.load('revela.pipelines.stereo:revela_stereo')
           assert pipeline.generate().verilog
-          assert pipeline.register_map()['blocks']
+          assert profile.flatten(profile.resolve('revela.sensors.ov5647.profile:ov5647'),
+                                 pipeline.register_map())
           print('wheel is self-contained')
           "

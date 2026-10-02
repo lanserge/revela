@@ -2,7 +2,7 @@
   "profiles": {
     "ov5647": {
       "description": "The reference sensor's fitted tuning, for any design built on bayer_isp: pedestal, white balance, colour matrix. Where each number came from is NOTES.md, beside this file.",
-      "for": "revela.blocks.bayer_isp",
+      "for": "revela.pipelines.bayer_isp",
       "values": {
         "blacklevel.offset": [
           [

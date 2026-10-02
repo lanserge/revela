@@ -15,8 +15,9 @@ fails inside the model; an array it CAN digest is accepted, meaningful or
 not. That is a deliberate trade -- just math, no meaning tags -- and it is
 the same one every NumPy user already lives with.
 
-Register values layer exactly as they do on hardware (reset, then sensor,
-then profile -- see :mod:`revela.profiles`), with one CLI layer on top:
+Register values layer exactly as they do on hardware (the design's reset,
+then a sensor's profile -- see :mod:`revela.designs.profile`), with one CLI
+layer on top:
 ``--set instance.register=value``, checked against the declared range like
 every other layer. ``explain`` reports where each value came from, because
 "where did this number come from" is the first question a strange picture
@@ -155,43 +156,34 @@ def _split_port(text: str) -> tuple[str, str]:
 # Values: reset -> sensor -> profile -> --set, with provenance
 # --------------------------------------------------------------------------- #
 
+FROM_DEFAULT = "default"
+FROM_PROFILE = "profile"
 FROM_CLI = "cli"
 
 
-def resolve_values(pipeline, design: dict, profile: dict | None = None,
+def resolve_values(pipeline, profile: str | None = None,
                    sets: dict[str, dict[str, int]] | None = None):
     """Every register value for the run, and where each one came from.
 
-    With a profile, :func:`revela.profiles.resolve` does the layering it
-    already owns. Without one, the same first two layers apply -- reset
-    values, then what the DESIGN's own sensor implies -- so ``revela run``
-    on a bare design still black-levels at the sensor's pedestal instead
-    of silently running everything at reset. The CLI's ``--set`` is one
-    more layer with the same range checks, never a bypass.
+    The design's reset values first -- a design's own values ARE its reset
+    -- then a profile, by reference, anchored at every instance of the block
+    it is for and checked against the map the way the board's tools check
+    it; then the CLI's ``--set``, one more layer with the same range checks,
+    never a bypass.
     """
-    from revela import profiles, sensors
+    from revela.designs import profile as profiles
 
+    values = {stage.path: dict(stage.paramset.defaults())
+              for stage in pipeline.stages}
+    origin = {path: {name: FROM_DEFAULT for name in registers}
+              for path, registers in values.items()}
     if profile is not None:
-        settings = profiles.resolve(profile, pipeline)
-        values = {path: dict(registers)
-                  for path, registers in settings.values.items()}
-        origin = {path: dict(registers)
-                  for path, registers in settings.origin.items()}
-    else:
-        values = {stage.path: dict(stage.paramset.defaults())
-                  for stage in pipeline.stages}
-        origin = {path: {name: profiles.FROM_DEFAULT for name in registers}
-                  for path, registers in values.items()}
-        if "sensor" in design:
-            sensor = sensors.load(design["sensor"]["name"])
-            mode = design["sensor"].get("mode")
-            for stage in pipeline.stages:
-                if stage.block.sensor_hook is None:
-                    continue
-                for name, value in stage.block.sensor_hook(sensor, mode).items():
-                    _assign(stage, values, origin, name, value,
-                            profiles.FROM_SENSOR)
-
+        anchored = profiles.flatten(profiles.resolve(profile),
+                                    pipeline.register_map())
+        for key, value in anchored.items():
+            path, _, name = key.rpartition(".")
+            _assign(pipeline.stage(path), values, origin, name, value,
+                    FROM_PROFILE)
     for path, registers in (sets or {}).items():
         stage = pipeline.stage(path)
         for name, value in registers.items():

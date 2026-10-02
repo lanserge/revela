@@ -93,8 +93,9 @@ per unit, per lens and per illuminant. `sensor.json` holds what is true of
 wherever your calibration process writes them. The schema rejects a `calibration`
 key outright.
 
-**Prefer runtime registers to build-time generation.** Bayer phase as a two-bit
-register costs almost nothing and lets one bitstream serve every sensor. Never
+**Prefer run-time facts to build-time generation.** Bayer phase as a run-time
+fact -- from the stream's header, or a two-bit register -- costs almost nothing
+and lets one bitstream serve every sensor. Never
 generate a different pipeline per sensor: it turns the verification matrix into
 sensors × modes, and a matrix like that does not stay green.
 

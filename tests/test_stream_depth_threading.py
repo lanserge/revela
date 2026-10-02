@@ -178,10 +178,9 @@ def test_geometry_is_threaded_from_the_driver_not_broadcast():
     import io
     from contextlib import redirect_stdout
 
-    from conftest import chain, describe
-    from revela import designs
+    from conftest import build, chain, describe
 
-    pipeline = designs.build(describe(
+    pipeline = build(describe(
         "geo", chain("blacklevel", "ha_green", "ha_rb"),
         bit_depth=10, width=64, height=32))
 

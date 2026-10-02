@@ -16,7 +16,7 @@ import jsonschema
 import pytest
 
 from revela import sensors
-from revela.blocks import blacklevel, pipe
+from revela.blocks import pipe
 
 SENSOR_NAMES = sensors.available()
 
@@ -138,44 +138,13 @@ def test_coarse_integration_fits_the_shortest_mode(name):
 # --------------------------------------------------------------------------- #
 
 @pytest.mark.parametrize("name", SENSOR_NAMES)
-def test_only_bit_depth_and_width_are_build_time(name):
-    """Rule: exactly two things come from a sensor at build time."""
-    parameters = sensors.build_parameters(sensors.load(name))
-    assert set(parameters) == {"bit_depth", "width"}
-
-
-@pytest.mark.parametrize("name", SENSOR_NAMES)
-def test_context_registers_derive_from_the_description(name):
-    """Bayer phase reaches the hardware as a register, never as a build option."""
+def test_the_cfa_order_names_a_bayer_phase(name):
+    """Bayer phase reaches the hardware with the stream or as a register,
+    never as a build option -- and every sensor's CFA order names one."""
     description = sensors.load(name)
-    context = pipe.from_sensor(description)
-    assert 0 <= context["bayer_phase"] <= 3
-    assert pipe.BAYER_ORDER_NAMES[context["bayer_phase"]] == description["cfa"]["order"]
-    assert context["bit_depth"] == description["format"]["bit_depth"]
-    # Every value must fit the register the pipe block declares for it.
-    for signal, value in context.items():
-        declared = pipe.pipe.params.param(signal)
-        low, high = declared.limits
-        assert low <= value <= high, (
-            f"{name}: context {signal}={value} does not fit the "
-            f"{declared.bits}-bit register the pipe block declares")
-
-
-@pytest.mark.parametrize("name", SENSOR_NAMES)
-def test_black_level_registers_derive_from_the_pedestal(name):
-    """The datasheet's positive pedestal becomes the register's negative offset."""
-    description = sensors.load(name)
-    values = blacklevel.offsets_from_sensor(description)
-    pedestal = description["black_level"]["pedestal"]
-    assert set(values) == {"offset_0_0", "offset_0_1", "offset_1_0", "offset_1_1"}
-    assert all(v <= 0 for v in values.values()), (
-        f"{name}: black level offsets must be negative to remove a pedestal")
-    if "per_colour" not in description["black_level"]:
-        assert all(v == -pedestal for v in values.values())
-    # And they must fit the declared register.
-    for register, value in values.items():
-        low, high = blacklevel.blacklevel.params.param(register).limits
-        assert low <= value <= high
+    phase = pipe.bayer_phase_of(description["cfa"]["order"])
+    assert 0 <= phase <= 3
+    assert pipe.BAYER_ORDER_NAMES[phase] == description["cfa"]["order"]
 
 
 # --------------------------------------------------------------------------- #

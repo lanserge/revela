@@ -5,9 +5,16 @@
 #   sudo cp load-bitstream.service /etc/systemd/system/
 #   sudo systemctl enable load-bitstream
 # with rx.bit and rx.hwh in /home/xilinx/.
+#
+# AFTER bootpy: a PYNQ image runs /boot/boot.py at every boot, and the
+# stock one ends by loading the base overlay. Whichever of the two
+# programs the fabric last owns it, so this one goes last; unordered, the
+# base overlay won a reboot 13 s after this had loaded rx.bit. On an
+# image without bootpy the ordering names a unit that is not there,
+# which systemd ignores.
 [Unit]
 Description=bayerlink ISP bitstream loader (oneshot)
-After=multi-user.target
+After=multi-user.target bootpy.service
 
 [Service]
 Type=oneshot

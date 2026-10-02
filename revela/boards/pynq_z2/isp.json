@@ -16,7 +16,7 @@
       ],
       "nodes": {
         "isp": {
-          "block": "revela.blocks.bayer_isp",
+          "block": "revela.pipelines.bayer_isp",
           "build": {
             "bit_depth": 12,
             "max_width": 1920,

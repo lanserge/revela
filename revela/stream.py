@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
 """The video stream interface, and its AXI4-Stream Video adapter.
 
-Every block in revela consumes one stream and produces one stream. The interface
-is deliberately small: pixel data, two framing flags, and a ready/valid
+Blocks in revela pass pixels as streams -- a block declares its stream ports,
+and a sink, statistics say, consumes one and produces none. The interface is
+deliberately small: pixel data, two framing flags, and a ready/valid
 handshake at every block boundary.
 
     clk, rst

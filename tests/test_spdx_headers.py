@@ -45,7 +45,7 @@ CHECKED_ROOTS = ("revela", "tests", "examples")
 # core file beside them went uncovered for exactly that reason.
 OTHER_SUFFIXES = (".c", ".h", ".v", ".sv", ".sh", ".tcl", ".xdc", ".core")
 ROOT_FILES = ("revela.core",)
-# JSON carries no comment syntax, so a pipeline description cannot hold a
+# JSON carries no comment syntax, so a design or a profile cannot hold a
 # header and is covered by the repository's LICENSE files instead. Named
 # here so the gap is a decision rather than an oversight.
 NO_COMMENT_SYNTAX = (".json",)

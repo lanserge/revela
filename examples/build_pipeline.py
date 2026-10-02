@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
 """Read a pipeline: its address map, its topology, its resolved values.
 
-    python examples/build_pipeline.py pipelines/mono/imx219/basic/pipeline.json
-    python examples/build_pipeline.py pipelines/stereo/imx219/basic/pipeline.json
+    python examples/build_pipeline.py revela.pipelines.stereo:revela_stereo
+    python examples/build_pipeline.py revela.boards.pynq_z2.isp:revela_isp_core
 
 The artifacts come from ``revela.fusesoc.emit`` -- the same one emitter
 ``revela generate`` and the FuseSoC generator call, which proves the RTL
@@ -24,20 +24,21 @@ by hand.
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
-from revela import designs, fusesoc, profiles, sensors
+from revela import designs, fusesoc
+from revela.designs import profile as profiles
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("description", type=Path,
-                        help="pipeline description JSON, e.g. pipelines/mono/imx219/basic/pipeline.json")
+    parser.add_argument("description",
+                        help="a composite, e.g. revela.pipelines.stereo:revela_stereo")
     parser.add_argument("--out", type=Path, default=None,
-                        help="output directory (default: <design>/build/)")
-    parser.add_argument("--profile", type=Path, default=None,
-                        help="also resolve this profile and report its settings")
+                        help="output directory (default: build/<pipeline>/)")
+    parser.add_argument("--profile", default=None,
+                        help="also anchor this profile (package.module:name) "
+                             "in the design and report what it sets")
     parser.add_argument("--clock-mhz", type=float, default=None,
                         help="the clock the design must make; every pointwise "
                              "stage is depth-checked and cut against it")
@@ -46,19 +47,12 @@ def main() -> int:
                              "read, not a pack to build anything from")
     args = parser.parse_args()
 
-    out = args.out or args.description.parent / "build"
+    pipeline = designs.load(args.description)
+    out = args.out or Path("build") / pipeline.name
     written = fusesoc.emit(args.description, out,
                            clock_mhz=args.clock_mhz,
                            verify=not args.no_verify)
-    pipeline = designs.load(args.description)
 
-    declared = json.loads(args.description.read_text()).get("sensor")
-    if declared:
-        sensor = sensors.load(declared["name"])
-        mode = sensors.mode(sensor, declared.get("mode"))
-        print(f"sensor      {sensor['name']} ({sensor['vendor']}), mode "
-              f"{mode['name']} {mode['width']}x{mode['height']}, "
-              f"CFA {sensor['cfa']['order']}")
     print(f"design      {args.description}")
     print(f"pipeline    {pipeline.name}: "
           + " | ".join(_stream_summary(pipeline)))
@@ -75,11 +69,13 @@ def main() -> int:
               + (f"   stats: {windows}" if windows else ""))
 
     if args.profile is not None:
-        profile = profiles.load(args.profile)
-        settings = profiles.resolve(profile, pipeline)
+        profile = profiles.resolve(args.profile)
+        anchored = profiles.flatten(profile, pipeline.register_map())
         print()
-        print(settings.summary())
-        print(f"  control: {settings.control}")
+        print(f"profile     {profile.ref}, for {profile.for_ref}: "
+              f"{len(anchored)} register(s)")
+        for key, value in anchored.items():
+            print(f"  {key:<32} {value}")
 
     print()
     for artifact in ("verilog", "regmap", "systemrdl", "docs", "core"):

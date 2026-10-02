@@ -1,0 +1,44 @@
+{
+ "blocks": {
+  "run_chain": {
+   "description": "The standard ISP and a display curve, built for the small frames the run CLI's tests use: a test fixture, not a shipped pipeline.",
+   "inputs": [
+    {
+     "name": "sensor"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "video"
+    }
+   ],
+   "nodes": {
+    "isp": {
+     "block": "revela.pipelines.bayer_isp",
+     "build": {
+      "bit_depth": 10,
+      "max_width": 64,
+      "max_height": 48
+     }
+    },
+    "rgb_gamma": {
+     "block": "revela.blocks.gamma:rgb_gamma"
+    }
+   },
+   "connections": [
+    [
+     "sensor",
+     "isp.in"
+    ],
+    [
+     "isp.out",
+     "rgb_gamma.in"
+    ],
+    [
+     "rgb_gamma.out",
+     "video"
+    ]
+   ]
+  }
+ }
+}

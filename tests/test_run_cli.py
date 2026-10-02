@@ -8,17 +8,29 @@ through. Everything else here is the refusals -- a wrong-shaped injection,
 a register outside its range -- because a runner that guesses is a runner
 that produces plausible wrong pictures.
 """
+import os
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 from revela import cli
 
-DESIGN = "pipelines/mono/imx219/color/pipeline.json"
-PROFILE = "pipelines/mono/imx219/color/profiles/indoor.json"
+# The standard ISP and a display curve, built for these small frames: a
+# fixture in tests/data/composites, found through the import path.
+DATA = Path(__file__).parent / "data"
+DESIGN = "composites.run_chain:run_chain"
+# The reference sensor's measured tuning, for any design built on the
+# standard ISP -- the fixture is one.
+PROFILE = "revela.sensors.ov5647.profile:ov5647"
+
+
+@pytest.fixture(autouse=True)
+def fixtures_importable(monkeypatch):
+    monkeypatch.syspath_prepend(str(DATA))
 
 
 @pytest.fixture()
@@ -35,7 +47,7 @@ def test_split_at_a_port_equals_one_run(tmp_path, mosaic):
     np.save(tmp_path / "in.npy", mosaic)
 
     assert _run(DESIGN, str(tmp_path / "in.npy"), str(tmp_path / "full.npy")) == 0
-    assert _run(DESIGN, "--to", "ccm.out",
+    assert _run(DESIGN, "--to", "isp.ccm.out",
                 str(tmp_path / "in.npy"), str(tmp_path / "mid.npy")) == 0
     assert _run(DESIGN, "--from", "rgb_gamma.in",
                 str(tmp_path / "mid.npy"), str(tmp_path / "rest.npy")) == 0
@@ -51,7 +63,7 @@ def test_injection_is_just_math(tmp_path, mosaic):
     # trusted to know what the port eats, exactly as NumPy trusts them.
     rgbish = np.stack([mosaic, mosaic, mosaic], axis=-1)
     np.save(tmp_path / "in.npy", rgbish)
-    assert _run(DESIGN, "--from", "ccm.in",
+    assert _run(DESIGN, "--from", "isp.ccm.in",
                 str(tmp_path / "in.npy"), str(tmp_path / "out.npy")) == 0
     assert np.load(tmp_path / "out.npy").shape == rgbish.shape
 
@@ -60,12 +72,12 @@ def test_set_layer_changes_the_output_and_is_range_checked(tmp_path, mosaic,
                                                            capsys):
     np.save(tmp_path / "in.npy", mosaic)
     assert _run(DESIGN, str(tmp_path / "in.npy"), str(tmp_path / "a.npy")) == 0
-    assert _run(DESIGN, "--set", "whitebalance.gain_0_0=512",
+    assert _run(DESIGN, "--set", "isp.whitebalance.gain_0_0=512",
                 str(tmp_path / "in.npy"), str(tmp_path / "b.npy")) == 0
     assert not np.array_equal(np.load(tmp_path / "a.npy"),
                               np.load(tmp_path / "b.npy"))
 
-    code = _run(DESIGN, "--set", "whitebalance.gain_0_0=99999999",
+    code = _run(DESIGN, "--set", "isp.whitebalance.gain_0_0=99999999",
                 str(tmp_path / "in.npy"), str(tmp_path / "c.npy"))
     assert code == 2
     assert "outside" in capsys.readouterr().err
@@ -73,11 +85,10 @@ def test_set_layer_changes_the_output_and_is_range_checked(tmp_path, mosaic,
 
 def test_profile_for_another_design_is_refused(tmp_path, mosaic, capsys):
     np.save(tmp_path / "in.npy", mosaic)
-    code = _run("pipelines/mono/imx219/basic/pipeline.json",
-                "--profile", PROFILE,
+    code = _run(DESIGN, "--profile", "composites.elsewhere:elsewhere",
                 str(tmp_path / "in.npy"), str(tmp_path / "out.npy"))
     assert code == 2
-    assert "refusing" in capsys.readouterr().err
+    assert "has no revela.blocks.ccm:ccm" in capsys.readouterr().err
 
 
 def test_png_out_and_back(tmp_path, mosaic):
@@ -96,7 +107,7 @@ def test_png_out_and_back(tmp_path, mosaic):
 
 def test_two_channel_png_is_refused(tmp_path, mosaic, capsys):
     np.save(tmp_path / "in.npy", mosaic)
-    code = _run(DESIGN, "--to", "ha_green.out",
+    code = _run(DESIGN, "--to", "isp.ha_green.out",
                 str(tmp_path / "in.npy"), str(tmp_path / "out.png"))
     assert code == 2
     assert "2-channel" in capsys.readouterr().err
@@ -104,11 +115,12 @@ def test_two_channel_png_is_refused(tmp_path, mosaic, capsys):
 
 def test_explain_names_every_layer(tmp_path, mosaic, capsys):
     np.save(tmp_path / "in.npy", mosaic)
-    assert _run(DESIGN, "--explain", "--set", "blacklevel.offset_0_0=-60",
+    assert _run(DESIGN, "--profile", PROFILE, "--explain",
+                "--set", "isp.blacklevel.offset_0_0=-60",
                 str(tmp_path / "in.npy"), str(tmp_path / "out.npy")) == 0
     output = capsys.readouterr().out
-    assert "blacklevel.offset_0_0 = -60  (cli)" in output
-    assert "(sensor)" in output      # the design's imx219 spoke
+    assert "isp.blacklevel.offset_0_0 = -60  (cli)" in output
+    assert "isp.ccm.m_0_0 = 547  (profile)" in output   # ov5647's matrix
     assert "(default)" in output
 
 
@@ -138,5 +150,6 @@ def test_cli_subprocess_smoke(tmp_path, mosaic):
     done = subprocess.run(
         [sys.executable, "-m", "revela.cli", "run", DESIGN,
          str(tmp_path / "in.npy"), str(tmp_path / "out.npy")],
-        capture_output=True, text=True)
+        capture_output=True, text=True,
+        env={**os.environ, "PYTHONPATH": str(DATA)})
     assert done.returncode == 0, done.stderr

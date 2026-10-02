@@ -88,8 +88,8 @@ pip install -e ".[dev]" && pip install -e ../np2hw
 - [ ] `CHANGELOG.md` has an entry for this version, and anything breaking
       is named as breaking.
 - [ ] `AUTHORS` includes everyone whose work is in the release.
-- [ ] Generated output under `pipelines/*/*/*/build/` is regenerated and
-      still ignored by git — it must not enter the repository.
+- [ ] Generated output (`build/`) is regenerated and still ignored by
+      git — it must not enter the repository.
 - [ ] Every published tag is still an ancestor of `origin/main`. A
       released tag is immutable: make a new version, never move one.
 

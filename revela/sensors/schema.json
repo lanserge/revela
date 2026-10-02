@@ -107,7 +107,7 @@
     },
 
     "black_level": {
-      "description": "The pedestal the sensor deliberately adds so read noise stays representable instead of clipping at zero. Stated as a POSITIVE number, the way the datasheet states it; revela's black level register holds a signed offset that is ADDED, so software negates this exactly once (blacklevel.offsets_from_sensor).",
+      "description": "The pedestal the sensor deliberately adds so read noise stays representable instead of clipping at zero. Stated as a POSITIVE number, the way the datasheet states it; revela's black level register holds a signed offset that is ADDED, in the ISP's units -- a sensor's profile states that value, at the ISP's depth.",
       "type": "object",
       "required": ["pedestal"],
       "additionalProperties": false,

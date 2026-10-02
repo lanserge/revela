@@ -21,12 +21,11 @@ same JSON the host API reads, which comes from the same block declarations that
 produced the Verilog:
 
 ```bash
-revela generate pipelines/mono/imx219/basic/pipeline.json \
-    --out pipelines/mono/imx219/basic/build
+revela generate revela.pipelines.stereo:revela_stereo --out build
 ```
 
 writes `build/<name>.v`, `build/<name>_regmap.json`, `build/<name>.rdl`,
-`build/<name>-registers.md` and `build/<name>.core`. The documentation is part
+`build/<name>-registers.md`, `build/<name>_build.json` and `build/<name>.core`. The documentation is part
 of the pack rather than a later step, so it cannot come from a different build
 than the Verilog beside it.
 

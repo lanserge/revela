@@ -1,6 +1,10 @@
 # Pipeline descriptions: what the primitives are
 
-DRAFT research, 2026-09-26. Not a decision and not a patch list: an attempt to
+DRAFT research, 2026-09-26. Since settled: composites
+(`revela/designs/composite.py`), the whole board path in JSON, one profile
+shape -- and the flat schema this calls "current" is retired.
+
+Not a decision and not a patch list: an attempt to
 derive, from what a camera pipeline actually IS, the smallest set of primitives
 a description needs, how they are written, and how they connect -- then to test
 that set against every pipeline we know we must express.

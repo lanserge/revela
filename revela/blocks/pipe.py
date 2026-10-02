@@ -4,7 +4,10 @@
 
 Width, height, the active window, the Bayer phase and the bit depth are facts
 about the pipeline, not about any one block. They are declared here, once, and
-reach their consumers as WIRES. No other block holds a copy.
+reach their consumers as WIRES. No other block holds a copy. A fact the design
+names in ``stream.context`` arrives with the stream instead, and takes no
+register here -- the standard ISP takes width, height, Bayer phase and depth
+that way, leaving ``pipe`` the active window.
 
 That is worth being firm about. The tempting alternative -- give every block its
 own width register -- means a resolution change is N register writes that must
@@ -194,24 +197,3 @@ def bayer_phase_of(order: str) -> int:
         raise KeyError(
             f"unknown CFA order {order!r}; expected one of "
             f"{sorted(BAYER_ORDER_CODES)}") from None
-
-
-@pipe.sensor_values
-def from_sensor(sensor: dict, mode_name: str | None = None) -> dict[str, int]:
-    """Context register values implied by a sensor description and its mode.
-
-    Only what the sensor genuinely determines. Everything else -- the active
-    window in particular -- is an application choice and is left at its default,
-    for a profile to set if it has a reason to.
-    """
-    from revela import sensors
-
-    mode = sensors.mode(sensor, mode_name)
-    return {
-        "width": int(mode["width"]),
-        "height": int(mode["height"]),
-        "window_x1": int(mode["width"]),
-        "window_y1": int(mode["height"]),
-        "bayer_phase": bayer_phase_of(sensor["cfa"]["order"]),
-        "bit_depth": int(sensor["format"]["bit_depth"]),
-    }

@@ -21,15 +21,17 @@ Three kinds of state, deliberately kept distinct
 
 ``Param``      BLOCK-OWNED CONFIG. CCM coefficients, gamma tables, WB gains.
                Lives in the owning block's register map. Written to a shadow
-               register; the shadow is committed to the live value at the FRAME
+               register and committed as one batch when software writes
+               ``pipe.commit``; the datapath takes the batch at the next FRAME
                BOUNDARY, so a frame is never processed with half-updated
-               coefficients. A write during frame N takes effect on frame N+1.
+               coefficients.
 
 ``Context``    PIPELINE CONTEXT. Width, height, active window, Bayer phase, bit
                depth. Declared by the ``pipe`` block, which is an ordinary block
-               at base 0, and fanned out to consumers as WIRES. Never duplicated
-               as a per-block CSR -- there is exactly one width register in a
-               pipeline, not one per block.
+               at base 0, and fanned out to consumers as WIRES; a fact the
+               design names in ``stream.context`` arrives with the stream
+               instead and takes no register. Never duplicated as a per-block
+               CSR -- one owner per fact, not one per block.
 
 ``StatsWindow`` STATISTICS. A memory-mapped RAM window in a separate address
                region, read in bulk rather than as scattered CSR words, and
@@ -481,8 +483,10 @@ class Context:
 
     Width, height, active window, Bayer phase, bit depth. A block that needs one
     of these lists its name in ``CONSUMES``; :mod:`revela.compose` connects the
-    wire. It is emphatically not copied into the consuming block's register map
-    -- there is one width register in a pipeline, and every block reads it.
+    wire, from the stream where the design names the fact in ``stream.context``
+    and from ``pipe`` otherwise. It is emphatically not copied into the
+    consuming block's register map -- one owner per fact, and every block reads
+    it.
     """
 
     name: str

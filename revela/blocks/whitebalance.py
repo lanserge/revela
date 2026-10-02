@@ -41,11 +41,11 @@ convention once.
 Where the values come from
 --------------------------
 
-The AWB loop in :mod:`revela.control.awb`, at frame rate, from the statistics
-block's per-zone colour sums -- gains are a property of the SCENE and its
-illuminant. There is deliberately no ``sensor_values`` hook here: a sensor
-description cannot know what light the camera is standing in, and a hook
-returning a plausible default would be a guess wearing provenance.
+The AWB loop on the source, at frame rate, from the statistics block's
+per-zone colour sums -- gains are a property of the SCENE and its
+illuminant. A sensor description cannot know what light the camera is
+standing in, so nothing derives these from it; a plausible default derived
+that way would be a guess wearing provenance.
 
 How this is built
 -----------------
@@ -154,7 +154,7 @@ def registers_from_gains(r: int, b: int, g: int = GAIN_ONE) -> dict[str, int]:
 
     Args:
         r, b, g: gains in the BASE declaration's Q8.8, as
-            :mod:`revela.control.awb` produces them. A variant with a
+            an AWB loop produces them. A variant with a
             different frac scales its own values; this helper serves the
             base convention the loop speaks.
     """

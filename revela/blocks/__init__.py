@@ -26,8 +26,9 @@ which is an ordinary block and not a special case:
     ``generate()`` emits the Verilog, returning a :class:`Generated`.
 
 Blocks that need pipeline context (width, height, active window, Bayer phase,
-bit depth) name it in ``consumes``; it arrives as a wire from the ``pipe``
-block, never as a copy in the block's own register map.
+bit depth) name it in ``consumes``; it arrives as a wire -- from the stream
+where the design names it in ``stream.context``, otherwise from the ``pipe``
+block -- never as a copy in the block's own register map.
 """
 from __future__ import annotations
 
@@ -225,10 +226,6 @@ class Block:
     # Stated as a REASON rather than a flag, because "declared but not built" is
     # a fact about np2hw's current reach and the reader deserves to know which.
     not_traceable: str = ""
-    # Optional hook: register values this block's sensor description implies.
-    # Registered with @<block>.sensor_values so it lives on the block rather
-    # than being fished out of the defining module by name.
-    sensor_hook: object = None
 
     @property
     def name(self) -> str:
@@ -382,17 +379,6 @@ class Block:
                                      .encode(), digest_size=4).hexdigest()
             parts.append(f"reset{digest}")
         return "__" + "_".join(parts)
-
-    def sensor_values(self, function):
-        """Register the hook that turns a sensor description into register values.
-
-            @blacklevel.sensor_values
-            def from_sensor(sensor, mode_name=None): ...
-
-        Returns the function unchanged, so it stays callable under its own name.
-        """
-        self.sensor_hook = function
-        return function
 
     # -- generation ----------------------------------------------------------- #
 

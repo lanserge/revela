@@ -49,8 +49,9 @@ def test_the_schema_admits_exactly_the_contexts_a_stream_may_carry():
     """The schema's enum is how a static JSON file states the policy, so it
     must say what ``pipe`` says -- a second list kept by hand is the drift
     ``run.py`` once had."""
-    schema = json.loads((ROOT / "revela/designs/schema.json").read_text())
-    enum = schema["properties"]["stream"]["properties"]["context"]["items"]["enum"]
+    schema = json.loads((ROOT / "revela/designs/blocks.schema.json").read_text())
+    port = schema["$defs"]["ports"]["items"]["properties"]
+    enum = port["context"]["items"]["enum"]
     assert sorted(enum) == sorted(c.name for c in pipe_block.CONTEXT
                                   if c.origin != "register")
 

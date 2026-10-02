@@ -14,12 +14,14 @@ Where each part of a description is consumed
 --------------------------------------------
 
 Software at runtime
-    Exposure and gain conversion, mode selection, I2C sequences. The 3A loop
-    reads the JSON and computes register writes. This is most of the file.
+    Exposure and gain conversion, mode selection, I2C sequences. The sensor
+    package carries the laws to the source, where the 3A loops compute the
+    writes from them. This is most of the file.
 
-Build-time parameters
-    Bit depth (datapath width) and image width (line buffer sizing). ONLY these.
-    Everything else that varies between sensors is a runtime register, because
+Build time -- nothing
+    The ISP is built for a stream -- a depth, a widest and a tallest frame --
+    stated on its input port, and a sensor whose mode fits is served.
+    Everything that varies between sensors is a run-time fact, because
     generating a different pipeline per sensor turns the verification matrix
     into sensors x modes, and a matrix like that does not stay green.
 
@@ -103,19 +105,6 @@ def mode(description: dict, name: str | None = None) -> dict:
 def _timing(description: dict, mode_entry: dict, key: str) -> int:
     """A timing figure, taking the mode's override when it has one."""
     return int(mode_entry.get(key, description["timing"][key]))
-
-
-def build_parameters(description: dict, mode_name: str | None = None) -> dict:
-    """The ONLY things revela takes from a sensor at build time.
-
-    Bit depth sets the datapath width; width sizes the line buffers. Everything
-    else -- Bayer phase included -- is a runtime register.
-    """
-    entry = mode(description, mode_name)
-    return {
-        "bit_depth": int(description["format"]["bit_depth"]),
-        "width": int(entry["width"]),
-    }
 
 
 # --------------------------------------------------------------------------- #

@@ -19,8 +19,7 @@ import re
 import numpy as np
 import pytest
 
-from conftest import chain, describe, raw_frame, requires_verilator, run_cocotb
-from revela import designs
+from conftest import build, chain, describe, raw_frame, requires_verilator, run_cocotb
 from revela.blocks import blacklevel
 from revela.params import BLOCK_ALIGN
 
@@ -40,7 +39,7 @@ BAYER_PHASE = 0b11
 
 @pytest.fixture
 def pipeline():
-    return designs.build(describe("revela_isp", chain("blacklevel"),
+    return build(describe("revela_isp", chain("blacklevel"),
                                   bit_depth=BIT_DEPTH, width=WIDTH, height=HEIGHT))
 
 
@@ -217,7 +216,7 @@ def test_a_declared_but_unbuilt_block_says_so_in_both_artefacts():
     one document. What must not happen is software writing a coefficient, seeing
     it read back, and having no way to know it reached nothing.
     """
-    pipeline = designs.build(describe("revela_isp", chain("blacklevel", "stats"),
+    pipeline = build(describe("revela_isp", chain("blacklevel", "stats"),
                                       bit_depth=BIT_DEPTH, width=WIDTH,
                                       height=HEIGHT))
     blocks = {block["path"]: block for block in pipeline.register_map()["blocks"]}
@@ -346,7 +345,7 @@ def test_the_map_states_every_register_presentation():
     """min/max/widget ride the map, so a UI never re-derives two's
     complement in JavaScript -- the map is generated output and states
     what one rule derived."""
-    built = designs.build(describe(
+    built = build(describe(
         "present", chain("blacklevel", "whitebalance"),
         bit_depth=BIT_DEPTH, width=WIDTH, height=HEIGHT))
     blocks = {b["path"]: {r["name"]: r for r in b["registers"]}

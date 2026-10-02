@@ -7,8 +7,8 @@ named the way Python names an entry point, from the top of the import path:
 
     revela.blocks.ccm:ccm                  a leaf: an @ispblock in ccm.py
     np2hw.frame_history:frame_history      a leaf: a structural generator
-    revela.boards.pynq_z2.hdmi_in:hdmi_in  a primitive: a JSON block, no nodes
-    revela.blocks.bayer_isp:bayer_isp      a composite: a JSON block with nodes
+    revela.boards.zynq7.ip:axi_gpio        a primitive: a JSON block, no nodes
+    revela.pipelines.bayer_isp:bayer_isp      a composite: a JSON block with nodes
 
 A module alone names the block called after its file: ``revela.blocks.ccm``
 is ``revela.blocks.ccm:ccm``, the common case spelt once; the full form
@@ -19,7 +19,7 @@ A JSON file always has one shape, ``{"blocks": {name: {...}}}``
 block, by reference -- the connections between them, and SETTINGS for what
 it contains, written on the node they set:
 
-    "isp": {"block": "revela.blocks.bayer_isp:bayer_isp",
+    "isp": {"block": "revela.pipelines.bayer_isp:bayer_isp",
             "build":  {"bit_depth": 12},          what changes the hardware
             "values": {"ccm.m": [[...], ...]}}    what the hardware holds
 
@@ -126,8 +126,8 @@ def _library_file(path: Path) -> dict:
 
 def canonical(ref: str) -> str:
     """A reference in its full form. ``package.module`` alone names the
-    block called after its file -- ``revela.blocks.bayer_isp`` is
-    ``revela.blocks.bayer_isp:bayer_isp`` -- which is the common case, one
+    block called after its file -- ``revela.pipelines.bayer_isp`` is
+    ``revela.pipelines.bayer_isp:bayer_isp`` -- which is the common case, one
     block to a file, spelt once. Everything that compares references
     compares this form."""
     module, sep, name = ref.partition(":")
@@ -980,6 +980,51 @@ def _generated(found: Found, entry: dict, where: str) -> Found:
     return Found(found.ref, "composite", block, found.folder)
 
 
+def _shared_subsystems(design: Design) -> dict:
+    """Composite instances to emit as ONE module instantiated per instance.
+
+    A composite instantiated more than once, built identically and made of
+    blocks alone, is the same sub-graph twice -- a stereo pair's eyes --
+    and is emitted once, as the flat format's subsystem was. Addresses are
+    allocated per instance either way, so the register map is the same; only
+    the emitted structure changes. A composite used once stays spelled out,
+    so a design's RTL does not change for wrapping a chain in a block."""
+    from revela.compose import Subsystem
+    by_ref: dict = {}
+    for path, ref in design.composites.items():
+        if path:
+            by_ref.setdefault(ref, []).append(path)
+    shared = {}
+    for ref, paths in by_ref.items():
+        if len(paths) < 2:
+            continue
+        obj = find(ref).obj
+        connections = obj.get("connections", [])
+        if any(isinstance(c, dict) and "when" in c for c in connections) or \
+                any("when" in n for n in obj["nodes"].values()):
+            continue
+        templates = []
+        for path in paths:
+            inner = [(i.path[len(path) + 1:], i.leaf)
+                     for i in design.instances.values()
+                     if i.path.startswith(path + ".")]
+            if any("." in name for name, _ in inner) or \
+                    len(inner) != len(obj["nodes"]):
+                break                       # holds composites, not blocks alone
+            templates.append(tuple(inner))
+        else:
+            if all(t == templates[0] for t in templates):
+                edges = tuple((c["from"], c["to"]) if isinstance(c, dict)
+                              else tuple(c) for c in connections)
+                subsystem = Subsystem(
+                    name=block_name(ref),
+                    inputs=tuple(p["name"] for p in obj.get("inputs", [])),
+                    outputs=tuple(p["name"] for p in obj.get("outputs", [])),
+                    nodes=templates[0], edges=edges)
+                shared.update({path: subsystem for path in paths})
+    return shared
+
+
 def _vendor_ip(obj) -> bool:
     """A leaf whose settings pass straight to its tool -- vendor IP, or a
     procedure -- which checks them: restating its list here would be a
@@ -1087,7 +1132,15 @@ def to_pipeline(design: Design, name: str | None = None):
         outputs=design.outputs,
         context_from_stream=stream["context"],
     )
+    shared = _shared_subsystems(design)
+    added = set()
     for instance in design.instances.values():
+        owner = instance.path.rpartition(".")[0]
+        if owner in shared:
+            if owner not in added:
+                added.add(owner)
+                pipeline.add_subsystem(owner, shared[owner])
+            continue
         pipeline.add(instance.path, instance.leaf)
     for source, sink in design.edges:
         pipeline.connect(source, sink)

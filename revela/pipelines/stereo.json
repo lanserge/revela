@@ -1,0 +1,79 @@
+{
+ "blocks": {
+  "revela_stereo": {
+   "description": "Two eyes, each the standard ISP: raw Bayer in, linear RGB out, per eye. The ISP is described once, as bayer_isp, and instantiated twice. Every block inside still gets its own instance path and its own base address -- left.ccm and right.ccm are independent registers, so each eye is tuned on its own -- and the emitted RTL is one module per block, instantiated per eye, instead of two identical copies.",
+   "parameters": {
+    "bit_depth": {
+     "default": 12,
+     "description": "Depth samples arrive at, on both eyes."
+    },
+    "max_width": {
+     "default": 1920,
+     "description": "Widest frame either eye may carry: what the demosaic's line buffers are sized from."
+    },
+    "max_height": {
+     "default": 1080,
+     "description": "Tallest frame either eye may carry."
+    }
+   },
+   "inputs": [
+    {
+     "name": "left_sensor",
+     "description": "Raw Bayer from the left sensor."
+    },
+    {
+     "name": "right_sensor",
+     "description": "Raw Bayer from the right sensor."
+    }
+   ],
+   "outputs": [
+    {
+     "name": "left_video",
+     "description": "Linear RGB from the left eye: R low, G mid, B high."
+    },
+    {
+     "name": "right_video",
+     "description": "Linear RGB from the right eye."
+    }
+   ],
+   "nodes": {
+    "left": {
+     "block": "revela.pipelines.bayer_isp",
+     "build": {
+      "bit_depth": "bit_depth",
+      "max_width": "max_width",
+      "max_height": "max_height"
+     },
+     "description": "The left eye."
+    },
+    "right": {
+     "block": "revela.pipelines.bayer_isp",
+     "build": {
+      "bit_depth": "bit_depth",
+      "max_width": "max_width",
+      "max_height": "max_height"
+     },
+     "description": "The right eye: its own white balance and colour matrix, since the eyes may not see the same illuminant."
+    }
+   },
+   "connections": [
+    [
+     "left_sensor",
+     "left.in"
+    ],
+    [
+     "left.out",
+     "left_video"
+    ],
+    [
+     "right_sensor",
+     "right.in"
+    ],
+    [
+     "right.out",
+     "right_video"
+    ]
+   ]
+  }
+ }
+}

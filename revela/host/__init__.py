@@ -6,10 +6,9 @@ The device object mirrors the pipeline's hierarchy, so the instance path that
 :mod:`revela.compose` allocated is the attribute chain software uses::
 
     dev = Device(register_map, transport)
-    dev.pipe.bayer_phase = 0
+    dev.pipe.window_x0 = 0
     dev.left.blacklevel.offset_0_0 = -64
-    dev.left.ccm.m00 = 512
-    zones = dev.left.stats.zones.read()
+    dev.left.ccm.m_0_0 = 512
 
 **Nothing here hardcodes an address.** Every address comes from the JSON the
 pipeline emitted, which came from the same declarations that produced the

@@ -18,15 +18,14 @@ from revela.host import Device, MemoryTransport, Register
 from revela.host.pynq import PynqTransport
 from revela.host.spi import SpiTransport
 from revela.host.udp import UdpTransport
-from conftest import chain, describe
+from conftest import build, chain, describe
 
-from revela import designs
 from revela.stream import StreamSpec
 
 
 @pytest.fixture
 def register_map() -> dict:
-    return designs.build(describe(
+    return build(describe(
         "revela_stereo",
         chain("blacklevel", "stats", prefix="left",
               source="left_in", sink="left_out"),

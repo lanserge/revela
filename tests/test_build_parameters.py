@@ -15,8 +15,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from conftest import chain, describe, raw_frame, requires_verilator, run_cocotb
-from revela import designs
+from conftest import build, chain, describe, raw_frame, requires_verilator, run_cocotb
 from revela.blocks import whitebalance
 from revela.stream import StreamSpec
 
@@ -26,9 +25,8 @@ WIDTH, HEIGHT, BIT_DEPTH = 16, 8, 12
 def _design_with_override(frac=12, name="revela_isp"):
     description = describe(name, chain("blacklevel", "whitebalance"),
                            bit_depth=BIT_DEPTH, width=WIDTH, height=HEIGHT)
-    for node in description["nodes"]:
-        if node["block"] == "whitebalance":
-            node["registers"] = {"gain": {"frac": frac}}
+    whitebalance = description["blocks"][name]["nodes"]["whitebalance"]
+    whitebalance["build"] = {"gain.frac": frac}
     return description
 
 
@@ -84,7 +82,7 @@ def test_refused_attributes_name_what_is_allowed():
 
 @requires_verilator
 def test_a_design_override_reaches_the_map_the_rtl_and_the_docs(rng):
-    pipeline = designs.build(_design_with_override(frac=12))
+    pipeline = build(_design_with_override(frac=12))
     blocks = {b["path"]: b for b in pipeline.register_map()["blocks"]}
     wb = blocks["whitebalance"]
     assert wb["register_overrides"] == {"gain": {"frac": 12}}
@@ -114,12 +112,7 @@ def test_a_design_override_reaches_the_map_the_rtl_and_the_docs(rng):
 
 def test_two_variants_of_one_block_are_two_types_not_one():
     """The map must never say two different Q formats are the same hardware."""
-    description = describe("revela_isp",
-                           chain("whitebalance", prefix="a",
-                                 source="in", sink="mid_unused"),
-                           inputs=("in",), outputs=("mid_unused",),
-                           bit_depth=BIT_DEPTH, width=WIDTH, height=HEIGHT)
-    # Hand-build instead: two parallel whitebalance instances, distinct fracs.
+    # Two parallel whitebalance instances, distinct fracs, built by hand.
     from revela.compose import Pipeline
     from revela.blocks import resolve
 
@@ -148,26 +141,12 @@ def test_two_variants_of_one_block_are_two_types_not_one():
     assert formats[("wb_b", "gain_0_0")] == "u8.8"
 
 
-def test_describe_round_trips_the_overrides_to_identical_hardware():
-    """The guard that makes the feature safe: recover, rebuild, compare."""
-    original = designs.build(_design_with_override(frac=10))
-    recovered = designs.describe(original)
-    node = next(n for n in recovered["nodes"] if n["block"] == "whitebalance")
-    assert node["registers"] == {"gain": {"frac": 10}}
-
-    designs.validate(recovered)
-    rebuilt = designs.build(recovered)
-    assert rebuilt.register_map() == original.register_map()
-    assert rebuilt.generate().verilog == original.generate().verilog
-
-
 def test_an_undeclared_override_fails_at_build_naming_the_rules():
     description = _design_with_override()
-    for node in description["nodes"]:
-        if node["block"] == "whitebalance":
-            node["registers"] = {"gain": {"default": 999}}
+    description["blocks"]["revela_isp"]["nodes"]["whitebalance"]["build"] = \
+        {"gain.default": 999}
     with pytest.raises(ValueError, match="allows \\['bits', 'frac'\\]"):
-        designs.build(description)
+        build(description)
 
 
 # --------------------------------------------------------------------------- #

@@ -13,8 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from conftest import chain, describe
-from revela import designs
+from conftest import build, chain, describe
 
 systemrdl = pytest.importorskip(
     "systemrdl", reason="systemrdl-compiler (MIT) validates the emitted .rdl")
@@ -28,7 +27,7 @@ WIDTH, HEIGHT, BIT_DEPTH = 16, 8, 12
 @pytest.fixture(scope="module")
 def stereo():
     """Two eyes: the design where hierarchy has something to prove."""
-    return designs.build(describe(
+    return build(describe(
         "revela_stereo",
         chain("blacklevel", "stats", prefix="left", source="l_in", sink="l_out"),
         chain("blacklevel", "stats", prefix="right", source="r_in", sink="r_out"),
@@ -117,7 +116,7 @@ def test_read_only_identity_words_have_no_write_access(elaborated):
 
 def test_the_flat_list_is_a_projection_of_the_map():
     """registers() must be address_map().flatten() -- one source, one shadow."""
-    pipeline = designs.build(describe(
+    pipeline = build(describe(
         "revela_isp", chain("blacklevel"),
         bit_depth=BIT_DEPTH, width=WIDTH, height=HEIGHT))
     flat = pipeline.registers()
