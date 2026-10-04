@@ -40,18 +40,27 @@ that skips a generator fails on a missing file rather than quietly
 using a stale one. In order:
 
 1. `python3 -m bayerlink_fpga <front end>`, the front end named by the
-   `hdmi_in` jack, writes the receiver's Verilog.
+   `hdmi_in` jack, writes what its vendor IP needs at synthesis.
 2. `revela generate revela.boards.pynq_z2.isp:revela_isp_core` builds the
    ISP and proves it.
-3. `scanout.py` and `tee.py` emit the raster and the output tee.
+3. `tee.py` emits the output tee the hand-written `tee_shim` wraps.
 4. `blockdesign.py` loads `pynq_demo` -- supplying what only the build
    knows: the raster's pixel clock from the mode table, and the ISP's
    widths from its traced contract -- checks the board can honour it, and
-   writes the block design. Every wire between our own modules is
-   checked against the widths their RTL has with this build's
-   parameters; a block design would connect the low bits of a mismatch
-   and call it a warning. It runs after the ISP because the ISP's
-   boundary is traced, so there is nothing to read until it is built.
+   writes the block design. Loading it runs the design's leaf generators
+   -- the receiver and its DDC slave (`bayerlink_fpga.receiver`,
+   `bayerlink_fpga.ddc`), the raster and its crossing (`scanout.py`) --
+   with the design's own settings, and their Verilog is written beside
+   the ISP's. Every leaf states its ports: a generated one publishes the
+   list it was written from, a hand-written one declares it in
+   `modules.json`, held to its Verilog by the tests. Every wire between
+   our own modules is checked against those ports, at this build's
+   parameters, when the design is loaded -- a stream or an AXI4-Stream
+   bus whose widths differ, a net whose pins do, a net two leaves drive;
+   a block design would connect the low bits of a mismatch and call it a
+   warning. It runs after the ISP because the
+   ISP's boundary is traced, so there is nothing to read until it is
+   built.
 5. Vivado: the generated `bd.tcl`, `impl_a.tcl` (synthesis, placement),
    `impl_b.tcl` (routing, bitstream); then `checkhwh` audits the design
    as built.

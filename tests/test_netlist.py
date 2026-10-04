@@ -8,6 +8,7 @@ graph: every block input driven exactly once, no cycle, a tap allowed and a
 fork between two real datapaths refused, a port that exists.
 """
 import pytest
+from revela import compose
 
 from conftest import block_ref, build, chain, describe
 from revela.blocks import registry, resolve
@@ -60,9 +61,9 @@ def test_build_creates_the_declared_instances():
     in the datapath where it watches."""
     pipeline = build(describe("ordered",
                               chain("blacklevel", "stats", "whitebalance")))
-    assert [s.path for s in pipeline.datapath] == \
+    assert [s.path for s in compose.datapath(pipeline)] == \
         ["blacklevel", "stats", "whitebalance"]
-    assert pipeline.stages[0].path == "pipe"
+    assert compose.stages(pipeline)[0].path == "pipe"
 
 
 def test_prefixed_chains_are_independent_graphs():
@@ -73,13 +74,13 @@ def test_prefixed_chains_are_independent_graphs():
         chain("blacklevel", "stats", prefix="right", source="right_in",
               sink="right_out"),
         inputs=("left_in", "right_in"), outputs=("left_out", "right_out")))
-    assert {s.path for s in pipeline.datapath} == {
+    assert {s.path for s in compose.datapath(pipeline)} == {
         "left.blacklevel", "left.stats", "right.blacklevel", "right.stats"}
     # Separate instances at separate bases...
-    assert (pipeline.stage("left.blacklevel").instance.base
-            != pipeline.stage("right.blacklevel").instance.base)
+    assert (compose.stage(pipeline, "left.blacklevel").instance.base
+            != compose.stage(pipeline, "right.blacklevel").instance.base)
     # ...and the two graphs genuinely never touch.
-    for source, sink in pipeline.edges:
+    for source, sink in compose.netlist(pipeline).edges:
         eyes = {e.split("_")[0].split(".")[0] for e in (str(source), str(sink))}
         assert len(eyes) == 1, f"{source} -> {sink} crosses between eyes"
 
@@ -89,7 +90,7 @@ def test_two_instances_of_one_block_in_one_graph():
     pipeline = build(_netlist(
         "twice", {"bl_a": "blacklevel", "bl_b": "blacklevel"},
         [("in", "bl_a.in"), ("bl_a.out", "bl_b.in"), ("bl_b.out", "out")]))
-    assert len({s.instance.base for s in pipeline.datapath}) == 2
+    assert len({s.instance.base for s in compose.datapath(pipeline)}) == 2
 
 
 # --------------------------------------------------------------------------- #
@@ -109,13 +110,13 @@ def test_stream_context_becomes_ports_not_registers():
     pipeline = build(_netlist("ctx_carried", {"bl": "blacklevel"},
                               [("in", "bl.in"), ("bl.out", "out")],
                               context=carried))
-    pipe = next(b for b in pipeline.register_map()["blocks"]
+    pipe = next(b for b in compose.register_map(pipeline)["blocks"]
                 if b["path"] == "pipe")
     names = {r["name"] for r in pipe["registers"]}
     assert not names & set(carried), \
         f"{sorted(names & set(carried))} kept registers"
     assert {"window_x0", "window_y0", "window_x1", "window_y1"} <= names
-    assert "ctx_width" in pipeline.generate(control=True).verilog
+    assert "ctx_width" in compose.generate(pipeline, control=True).verilog
 
 
 def test_an_unknown_context_name_is_refused():
@@ -165,8 +166,8 @@ def test_a_tap_to_a_sink_is_allowed():
     pipeline = build(_netlist(
         "tapped", {"bl": "blacklevel", "st": "stats"},
         [("in", "bl.in"), ("bl.out", "out"), ("bl.out", "st.in")]))
-    assert "stats" in {s.paramset.block for s in pipeline.datapath}
-    assert "tap: sink never stalls" in pipeline.generate().verilog
+    assert "stats" in {s.paramset.block for s in compose.datapath(pipeline)}
+    assert "tap: sink never stalls" in compose.generate(pipeline).verilog
 
 
 def test_a_fork_between_two_real_datapaths_is_refused():
@@ -217,14 +218,14 @@ def test_a_shared_composite_keeps_the_spelled_out_register_map():
     """Addresses are allocated per INSTANCE, so sharing the description
     changes nothing a host can see."""
     shared, spelled = build(_two_eyes(True)), build(_two_eyes(False))
-    a, b = shared.register_map(), spelled.register_map()
+    a, b = compose.register_map(shared), compose.register_map(spelled)
     a.pop("composites"), b.pop("composites")
     assert a == b
 
 
 def test_a_shared_composite_emits_one_module_per_block():
-    shared = build(_two_eyes(True)).generate().module_names()
-    spelled = build(_two_eyes(False)).generate().module_names()
+    shared = compose.generate(build(_two_eyes(True))).module_names()
+    spelled = compose.generate(build(_two_eyes(False))).module_names()
     assert "revela_eye_blacklevel" in shared
     assert "revela_left_blacklevel" in spelled and \
         "revela_right_blacklevel" in spelled
@@ -248,13 +249,13 @@ def test_allocation_is_a_pure_function_of_the_design():
     def addresses(pipeline):
         # the map less the record of which library each build was read
         # from -- each build here is its own
-        regmap = pipeline.register_map()
+        regmap = compose.register_map(pipeline)
         regmap.pop("composites")
         return regmap
 
     first, again = build(description), build(copy.deepcopy(description))
     assert addresses(first) == addresses(again)
-    assert first.generate().verilog == again.generate().verilog
+    assert compose.generate(first).verilog == compose.generate(again).verilog
 
     shuffled = copy.deepcopy(description)
     random.Random(7).shuffle(shuffled["blocks"]["pure"]["connections"])

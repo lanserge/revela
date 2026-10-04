@@ -17,13 +17,14 @@ import tarfile
 
 from conftest import build, chain, describe
 from revela import designs
+from revela import compose
 from revela.host import bridge_module
 
 
 def _regmap():
-    return build(describe(
+    return compose.register_map(build(describe(
         "pkg_probe", chain("blacklevel", "whitebalance"),
-        bit_depth=10)).register_map()
+        bit_depth=10)))
 
 
 def test_generated_c_speaks_the_command_vocabulary():
@@ -136,8 +137,8 @@ int main(void) {{
 
 def _board():
     from revela.designs import profile
-    regmap = designs.load(
-        "revela.boards.pynq_z2.isp:revela_isp_core").register_map()
+    regmap = compose.register_map(designs.load(
+        "revela.boards.pynq_z2.isp:revela_isp_core"))
     # Extra design settings a --profile would bake in: the board's own
     # curve is its reset now, so any registers of the design will do.
     design = {"rgb_gamma.knots_1": 60, "rgb_gamma.knots_2": 80}

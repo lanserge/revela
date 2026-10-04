@@ -4,7 +4,7 @@
    "description": "The PYNQ-Z2 demo: raw Bayer frames in over HDMI as bayerlink, the revela ISP, a genlocked raster out over HDMI -- the camera on a TV.",
    "parameters": {
     "pipeline": {
-     "default": "'revela.boards.pynq_z2.isp:revela_isp_core'",
+     "default": "@revela.boards.pynq_z2.isp:revela_isp_core",
      "description": "The ISP this demo builds, by reference: a composite of revela's blocks, generated and proved before the board is built."
     },
     "mode": {
@@ -92,7 +92,13 @@
      }
     },
     "blrx": {
-     "block": "bayerlink_fpga.modules:bayerlink_rx"
+     "block": "bayerlink_fpga.receiver:bayerlink_rx",
+     "build": {
+      "frontend": "hdmi_in.frontend",
+      "fifo_depth": "rx_fifo",
+      "max_line_bytes": "max_line_bytes",
+      "bits": "sample_bits"
+     }
     },
     "isp_in_shim": {
      "block": "bayerlink_fpga.modules:rx_axis",
@@ -153,7 +159,12 @@
      }
     },
     "scanout": {
-     "block": "revela.boards.pynq_z2.modules:scanout"
+     "block": "revela.boards.pynq_z2.scanout:scanout",
+     "build": {
+      "mode": "mode",
+      "genlock": "genlock",
+      "fill": "fill"
+     }
     },
     "irq_cat": {
      "block": "revela.boards.zynq7.ip:xlconcat"
@@ -413,7 +424,10 @@
      "block": "revela.boards.zynq7.ip:proc_sys_reset"
     },
     "ddc": {
-     "block": "bayerlink_fpga.modules:ddc_slave"
+     "block": "bayerlink_fpga.ddc:ddc_slave",
+     "build": {
+      "link_mode": "link_mode"
+     }
     },
     "rstn_pix": {
      "block": "revela.boards.zynq7.ip:util_vector_logic",
@@ -457,7 +471,11 @@
      "when": "genlock"
     },
     "out_cdc": {
-     "block": "revela.boards.pynq_z2.modules:out_cdc",
+     "block": "revela.boards.pynq_z2.scanout:out_cdc",
+     "build": {
+      "mode": "mode",
+      "fill": "fill"
+     },
      "when": "genlock"
     },
     "sw": {

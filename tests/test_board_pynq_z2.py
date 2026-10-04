@@ -130,10 +130,10 @@ def test_the_block_design_is_the_design(built):
 def test_a_mis_wired_design_is_refused_before_vivado(built, tmp_path,
                                                      monkeypatch):
     """Mutation check: the demo with one 5-bit pin wired to a 1-bit one
-    is refused by the emitter, naming the wire."""
-    from revela.boards import vivado
+    is refused as soon as it is loaded, naming the wire -- before any
+    emitter, for any toolchain."""
     from revela.boards.pynq_z2.blockdesign import facts
-    from revela.designs.composite import load
+    from revela.designs.composite import CompositionError, load
     design = json.loads((pynq_z2.HERE / "pynq_demo.json").read_text())
     conns = design["blocks"]["pynq_demo"]["connections"]
     i = conns.index(["link_rst.rst_pix", "isp_in_shim.rst"])
@@ -143,7 +143,5 @@ def test_a_mis_wired_design_is_refused_before_vivado(built, tmp_path,
     (package / "__init__.py").write_text("")
     (package / "pynq_demo.json").write_text(json.dumps(design))
     monkeypatch.syspath_prepend(str(tmp_path))
-    mutant = load("mutant_demo.pynq_demo", build=facts(built))
-    with pytest.raises(vivado.EmitError, match=r"WIDTH MISMATCH.*hdr_bits"):
-        vivado.emit(mutant, out=built, part="p", board_part="b",
-                    board_files=tmp_path, ip_repos=[])
+    with pytest.raises(CompositionError, match=r"WIDTH MISMATCH.*hdr_bits"):
+        load("mutant_demo.pynq_demo", build=facts(built))

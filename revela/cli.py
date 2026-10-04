@@ -110,7 +110,7 @@ def main(argv=None) -> int:
 def _run(arguments) -> int:
     import numpy as np
 
-    from revela import designs
+    from revela import compose, designs
     from revela import run as runner
     from revela.designs.composite import add_libraries
 
@@ -125,7 +125,7 @@ def _run(arguments) -> int:
     if arguments.bayer_phase is not None:
         context["bayer_phase"] = arguments.bayer_phase
 
-    bit_depth = pipeline.spec.bit_depth
+    bit_depth = compose.shape(pipeline).spec.bit_depth
     frame = runner.read_frame(arguments.input, bit_depth)
 
     if arguments.explain:

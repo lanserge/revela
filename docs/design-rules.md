@@ -165,9 +165,9 @@ them. A panel renders the map and decides nothing.
 
 ### The register file
 
-`Pipeline.generate()` emits an AXI4-Lite slave in front of the datapath, so a
-design is configurable on hardware rather than presenting a few hundred flat
-parameter inputs. `generate(control=False)` stops at the datapath, which is what
+`revela.compose.generate(design)` emits an AXI4-Lite slave in front of the
+datapath, so a design is configurable on hardware rather than presenting a few
+hundred flat parameter inputs. `generate(control=False)` stops at the datapath, which is what
 a bit-exact testbench wants: it drives coefficients directly instead of writing
 them over a bus.
 
@@ -248,7 +248,7 @@ Allocation must therefore be a pure function of structure, and there is a test
 that proves it: the same design built twice is the same Verilog at the same
 addresses, and writing its connections in another order moves nothing. Note
 that allocation follows DECLARATION order, not topological order --
-`Pipeline.nodes` versus `Pipeline.datapath` -- and conflating the two silently
+`compose.stages` versus `compose.datapath` -- and conflating the two silently
 changes every address.
 
 A design is a composite: blocks and composites as nodes, referenced as
@@ -260,6 +260,17 @@ composite instantiated more than once, built alike and made of blocks alone,
 is one module per block instantiated per instance. A composite's boundary port
 is a name, not a component: it joins two edges into one, so the pipeline graph
 stays flat and allocation knows nothing about the hierarchy.
+
+Which block fills a node can be a build parameter like any other. A node's
+`block` is a reference, or -- a bare name -- one of its composite's own build
+parameters, whose value is an expression naming a block: `@package.module:block`
+marks a reference inside an expression, so `"@revela.blocks.whitebalance"`,
+`"wb_choice"` or `"@a.b if fast else @c.d"` all say which block fills it. Whatever
+uses the composite sets that parameter through `build`, the outermost setting
+winning, so a generic composite fills a node with a default and its user chooses
+otherwise without editing it. The block chosen must present the ports of the
+default, since everything around the node was wired to them; a setting the new
+block has nowhere to put is refused.
 
 The ISP is sensor-independent. What it is built for is the stream entering it
 -- the depth its samples arrive at, the widest frame and the tallest -- stated
@@ -420,8 +431,8 @@ revela/
   sensors/        schema.json + <name>/sensor.json, and a sensor's profile.json
   host/           transports (spi, udp, pynq), register accessors, and the
                   source's packages (bridge_module.py, sensor_module.py)
-  boards/         vivado.py renders a design for Vivado, rtl.py reads our
-                  modules' ports, bdtrace.py traces a block design;
+  boards/         vivado.py renders a design for Vivado, bdtrace.py traces
+                  a block design;
     zynq7/        the family: vendor IP, the PS, the bus, GPIO words
     pynq_z2/      the board: its jacks, glue modules, pynq_demo, build.sh
 tests/            pytest + cocotb testbenches
@@ -446,7 +457,7 @@ experiments/      exploratory work, NOT part of the library, float allowed
   cannot say -- the register set, which context bits the model takes -- and
   `Block.generate()` is generic, shared by every block. Stream WIDTHS are
   deliberately not declared: np2hw derives them from the trace, and declaring
-  them twice is how `in_flags` and `ctx_ports` went wrong. `Pipeline` holds
+  them twice is how `in_flags` and `ctx_ports` went wrong. A design holds
   Blocks, not modules; the registry discovers Blocks; a block that cannot be
   traced yet says WHY in `not_traceable`.
 - **Streams are just math.** A port declares nothing but its name. The channel

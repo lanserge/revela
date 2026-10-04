@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 
 import pytest
+from revela import compose
 
 from revela import designs
 from revela.designs import composite
@@ -36,7 +37,7 @@ def test_there_are_pipelines():
 
 @pytest.mark.parametrize("path", FILES, ids=lambda p: p.stem)
 def test_a_pipeline_generates(path):
-    generated = designs.load(ref(path)).generate()
+    generated = compose.generate(designs.load(ref(path)))
     assert generated.verilog.strip().endswith("endmodule")
     assert generated.top in generated.module_names()
 
@@ -72,15 +73,17 @@ def test_stereo_is_the_standard_isp_twice():
     """Two eyes, one module per block instantiated per eye -- and each eye
     keeps its own registers, so each is tuned on its own."""
     pipeline = designs.load(ref(FOLDER / "stereo.json"))
-    modules = pipeline.generate().module_names()
+    modules = compose.generate(pipeline).module_names()
     assert "revela_bayer_isp_ccm" in modules
     assert not any(m.startswith(("revela_left_", "revela_right_"))
                    for m in modules)
-    assert sorted(pipeline.subsystem_instances) == ["left", "right"]
-    assert pipeline.stage("left.ccm").instance.base != \
-        pipeline.stage("right.ccm").instance.base
+    from revela.designs.composite import _shared_subsystems
+    assert sorted(_shared_subsystems(pipeline)) == ["left", "right"]
+    assert compose.stage(pipeline, "left.ccm").instance.base != \
+        compose.stage(pipeline, "right.ccm").instance.base
 
 
 def test_a_composite_used_once_is_spelled_out():
     """Wrapping a chain in a block does not change a design's RTL."""
-    assert not designs.load(BOARD).subsystem_instances
+    from revela.designs.composite import _shared_subsystems
+    assert not _shared_subsystems(designs.load(BOARD))

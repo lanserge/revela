@@ -10,9 +10,10 @@ import itertools
 import json
 
 import pytest
+from revela import compose
 
 from revela.designs.composite import (CompositionError, evaluate, find, load,
-                                      parse, references, to_pipeline)
+                                      parse, references)
 
 WB = "revela.blocks.whitebalance:whitebalance"
 BL = "revela.blocks.blacklevel:blacklevel"
@@ -374,30 +375,38 @@ def test_a_stream_fact_on_an_output_is_refused(library):
         load(f"{lib}.m:d")
 
 
-def test_the_bridge_builds_the_pipeline_from_the_stream_entering():
-    pipeline = to_pipeline(load(ISP, build=GEOMETRY))
-    assert (pipeline.name, pipeline.spec.bit_depth, pipeline.width,
-            pipeline.height) == ("bayer_isp", 12, 64, 32)
-    assert [s.path for s in pipeline.nodes] == [
+def _built(design):
+    """A loaded design, checked for generation as designs.load checks it:
+    model blocks, the stream entering, a graph np2hw accepts."""
+    compose.shape(design)
+    compose.netlist(design)
+    return design
+
+
+def test_a_design_is_built_around_the_stream_entering():
+    pipeline = _built(load(ISP, build=GEOMETRY))
+    assert (pipeline.name, compose.shape(pipeline).spec.bit_depth, compose.shape(pipeline).width,
+            compose.shape(pipeline).height) == ("bayer_isp", 12, 64, 32)
+    assert [s.path for s in compose.stages(pipeline)[1:]] == [
         "blacklevel", "whitebalance", "ha_green", "ha_rb", "ccm"]
-    assert pipeline.context_from_stream == {"width", "height",
-                                            "bayer_phase", "bit_depth"}
+    assert compose.shape(pipeline).context == {"width", "height",
+                                               "bayer_phase", "bit_depth"}
 
 
-def test_the_bridge_refuses_a_stream_that_states_no_geometry(library):
+def test_a_stream_that_states_no_geometry_is_refused(library):
     lib = library({"m": {"d": chain(("wb", WB))}})
     with pytest.raises(CompositionError, match="states no bits, max_width"):
-        to_pipeline(load(f"{lib}.m:d"))
+        _built(load(f"{lib}.m:d"))
 
 
-def test_the_bridge_refuses_what_is_not_an_isp_block(library):
+def test_what_is_not_an_isp_block_is_refused(library):
     d = chain(("wb", WB))
     d["nodes"]["hist"] = {"block": "np2hw.frame_history:frame_history",
                           "build": {"frames": 1, "bits": 12, "width": 8,
                                     "height": 8}}
     lib = library({"m": {"d": d}})
     with pytest.raises(CompositionError, match=r"hist \(generator\)"):
-        to_pipeline(load(f"{lib}.m:d"))
+        _built(load(f"{lib}.m:d"))
 
 
 def test_a_designs_values_are_the_register_files_reset_values(library):
@@ -408,14 +417,14 @@ def test_a_designs_values_are_the_register_files_reset_values(library):
     d["nodes"]["wb"]["values"] = {"gain": [[300, 256], [256, 301]]}
     d["nodes"]["gamma"]["values"] = {"knots": list(range(0, 264, 8))[::-1]}
     lib = library({"m": {"d": d}})
-    pipeline = to_pipeline(load(f"{lib}.m:d"))
-    regmap = pipeline.register_map()
+    pipeline = _built(load(f"{lib}.m:d"))
+    regmap = compose.register_map(pipeline)
     default = {f"{b['path']}.{r['name']}": r["default"]
                for b in regmap["blocks"] for r in b["registers"]}
     assert default["wb.gain_0_0"] == 300 and default["wb.gain_1_1"] == 301
     assert default["gamma.knots_0"] == 256 and default["gamma.knots_32"] == 0
-    assert pipeline.stage("wb").paramset.defaults()["gain_1_1"] == 301
-    verilog = pipeline.generate(control=True).verilog
+    assert compose.stage(pipeline, "wb").paramset.defaults()["gain_1_1"] == 301
+    verilog = compose.generate(pipeline, control=True).verilog
     assert "reg_wb_gain_0_0<=300;" in verilog
     assert "reg_gamma_knots_0<=256;" in verilog
 
@@ -424,28 +433,28 @@ def test_undeclared_values_keep_their_declared_reset(library):
     d = chain(("wb", WB))
     d["inputs"][0].update(bits=12, max_width=64, max_height=32)
     lib = library({"m": {"d": d}})
-    regmap = to_pipeline(load(f"{lib}.m:d")).register_map()
+    regmap = compose.register_map(_built(load(f"{lib}.m:d")))
     gain = {r["name"]: r["default"] for b in regmap["blocks"]
             if b["path"] == "wb" for r in b["registers"]}
     assert set(gain.values()) == {256}          # unity, as declared
 
 
-def test_the_bridge_refuses_a_register_that_follows_another(library):
+def test_a_register_that_follows_another_is_refused(library):
     d = chain(("left", WB), ("right", WB))
     d["inputs"][0].update(bits=12, max_width=64, max_height=32)
     d["nodes"]["right"]["values"] = {"gain": "left.gain"}
     lib = library({"m": {"d": d}})
     with pytest.raises(CompositionError, match="sharing one register"):
-        to_pipeline(load(f"{lib}.m:d"))
+        _built(load(f"{lib}.m:d"))
 
 
 def test_a_design_is_named_by_reference_where_a_path_was():
     from revela import designs
     pipeline = designs.load("revela.boards.pynq_z2.isp:revela_isp_core")
     assert pipeline.name == "revela_isp_core"
-    assert (pipeline.spec.bit_depth, pipeline.width, pipeline.height) == \
+    assert (compose.shape(pipeline).spec.bit_depth, compose.shape(pipeline).width, compose.shape(pipeline).height) == \
         (12, 1920, 1080)
-    assert [s.path for s in pipeline.nodes][-2:] == ["rgb_gamma", "logo"]
+    assert [s.path for s in compose.stages(pipeline)[1:]][-2:] == ["rgb_gamma", "logo"]
 
 
 # -- profiles --------------------------------------------------------------- #
@@ -475,7 +484,7 @@ def test_a_profile_is_keyed_relative_to_its_block_and_lands_at_every_instance(
         library):
     lib = _lib(library, lambda lib: {"sensor": {
         "for": ISP, "values": {"whitebalance.gain": GAIN}}})
-    regmap = to_pipeline(load(f"{lib}.design:pair")).register_map()
+    regmap = compose.register_map(_built(load(f"{lib}.design:pair")))
     assert {c["path"] for c in regmap["composites"]} == {"", "l", "r"}
     flat = profiles.flatten(profiles.resolve(f"{lib}.tuning:sensor"), regmap)
     assert flat == {f"{side}.whitebalance.gain_{i}_{j}": GAIN[i][j]
@@ -538,7 +547,7 @@ def test_the_built_map_checks_shape_and_range(library):
         "flat": {"for": ISP, "values": {"whitebalance.gain": [256, 256]}},
         "big": {"for": ISP, "values": {"whitebalance.gain":
                                        [[70000, 256], [256, 256]]}}})
-    regmap = to_pipeline(load(f"{lib}.design:pair")).register_map()
+    regmap = compose.register_map(_built(load(f"{lib}.design:pair")))
     with pytest.raises(CompositionError, match="shape does not match"):
         profiles.flatten(profiles.resolve(f"{lib}.tuning:flat"), regmap)
     with pytest.raises(CompositionError, match="70000 does not fit"):
@@ -548,15 +557,14 @@ def test_the_built_map_checks_shape_and_range(library):
 def test_a_design_without_the_profiles_block_is_refused(library):
     lib = _lib(library, lambda lib: {"sensor": {
         "for": ISP, "values": {"whitebalance.gain": GAIN}}})
-    flat_design = to_pipeline(load(f"{lib}.design:pair")).register_map()
+    flat_design = compose.register_map(_built(load(f"{lib}.design:pair")))
     flat_design["composites"] = []
     with pytest.raises(CompositionError, match="has no revela.pipelines.bayer_isp"):
         profiles.flatten(profiles.resolve(f"{lib}.tuning:sensor"), flat_design)
 
 
 def test_the_board_resets_to_its_curve_and_the_sensor_profile_fits_it():
-    regmap = to_pipeline(
-        load("revela.boards.pynq_z2.isp:revela_isp_core")).register_map()
+    regmap = compose.register_map(_built(load("revela.boards.pynq_z2.isp:revela_isp_core")))
     knots = [r["default"] for b in regmap["blocks"] if b["path"] == "rgb_gamma"
              for r in b["registers"]]
     # The 2.2 curve, not the declared ramp: bright in the shadows.
@@ -647,7 +655,7 @@ def test_short_and_full_references_are_one_block_everywhere(library):
         "tuning": {"profiles": {"s": {
             "for": "revela.pipelines.bayer_isp",
             "values": {"whitebalance.gain": GAIN}}}}})
-    regmap = to_pipeline(load(f"{lib}.design:pair")).register_map()
+    regmap = compose.register_map(_built(load(f"{lib}.design:pair")))
     flat = profiles.flatten(profiles.resolve(f"{lib}.tuning:s"), regmap)
     assert len(flat) == 8
 
@@ -697,7 +705,7 @@ def test_pins_are_gathered_and_are_the_fpgas_so_their_names_are_global(library):
         "nodes": {"j": {"block": f"{lib}.jack:jack"}}, "connections": []}}})
     design = load(f"{one}.top:top")
     assert design.pins == {"led": {"dir": "O"}}
-    assert design.edges == [("j.k.dout", "@led")]
+    assert design.edges == [("j.k.dout", "pin:led")]
 
 
 def test_vendor_settings_are_open_and_config_is_verbatim(library):
@@ -781,3 +789,254 @@ def test_a_written_composite_is_checked_like_one_written_by_hand(library):
         python={"gen": GEN})
     with pytest.raises(CompositionError, match="wrote a composite that is not one"):
         load(f"{lib}.m:d")
+
+
+# -- a hand-written leaf is wired by the ports it declares ------------------ #
+
+ADAPTER = {"inputs": [{"name": "clk"},
+                      {"name": "in", "width": 8, "stream": ["sof"]}],
+           "outputs": [{"name": "out", "width": 8,
+                        "stream": ["sof", "eol", "last"]},
+                       {"name": "busy"}],
+           "vivado": {"module": "adapter"}, "sources": ["adapter.v"]}
+
+
+def _wired(library, *connections):
+    lib = library(lambda name: {"leaves": {"adapter": ADAPTER}, "top": {
+        "top": {"nodes": {"a": {"block": f"{name}.leaves:adapter"},
+                          "b": {"block": f"{name}.leaves:adapter"}},
+                "connections": [list(c) for c in connections]}}})
+    return load(f"{lib}.top:top")
+
+
+def test_a_declared_stream_is_wired_by_its_name(library):
+    design = _wired(library, ("a.out", "b.in"))
+    assert ("a.out", "b.in") in design.edges
+
+
+def test_a_stream_wired_against_its_side_is_refused(library):
+    with pytest.raises(CompositionError, match="has no output 'in'"):
+        _wired(library, ("a.in", "b.in"))
+
+
+def test_a_signal_of_a_stream_may_be_tapped(library):
+    """A status word reads a valid off a stream it does not consume."""
+    design = _wired(library, ("a.out", "b.in"), ("a.in_valid", "b.clk"))
+    assert ("a.in_valid", "b.clk") in design.edges
+
+
+def test_an_undeclared_port_of_a_declaring_leaf_is_refused(library):
+    with pytest.raises(CompositionError, match="has no input 'enable'"):
+        _wired(library, ("a.out", "b.enable"))
+
+
+# -- a generator that makes a leaf ------------------------------------------ #
+
+LEAF_GEN = '''
+def slice(bits: int) -> dict:
+    """A register slice, generated for its width."""
+    from np2hw.stream import skid
+    return skid(bits, module_name="slice")
+
+
+slice.leaf = True
+'''
+
+
+def _sliced(library, a_bits, b_bits, *connections):
+    lib = library(lambda name: {"top": {"top": {
+        "nodes": {"a": {"block": f"{name}.gen:slice",
+                        "build": {"bits": a_bits}},
+                  "b": {"block": f"{name}.gen:slice",
+                        "build": {"bits": b_bits}}},
+        "connections": [list(c) for c in connections]}}},
+        python={"gen": LEAF_GEN})
+    return f"{lib}.top:top"
+
+
+def test_a_leaf_generator_is_wired_by_the_ports_it_publishes(library):
+    design = load(_sliced(library, 8, 8, ("a.m", "b.s")))
+    leaf = design.instances["a"].leaf
+    assert leaf["vivado"]["module"] == "slice"
+    assert "m_data" in {p["name"] for p in leaf["ports"]}
+    assert ("a.m", "b.s") in design.edges
+    # its arguments made the module; none is a parameter of it
+    assert design.instances["a"].build == {}
+
+
+def test_a_published_stream_wired_against_its_side_is_refused(library):
+    with pytest.raises(CompositionError, match="has no output 's'"):
+        load(_sliced(library, 8, 8, ("a.s", "b.s")))
+
+
+def test_two_leaves_generating_one_file_differently_are_refused(library,
+                                                                tmp_path):
+    from revela.designs.composite import write_generated
+    design = load(_sliced(library, 8, 9))
+    with pytest.raises(CompositionError, match="both generate slice.v"):
+        write_generated(design, tmp_path / "hdl")
+
+
+def test_reading_parameters_need_not_run_a_generator(library):
+    ref = _sliced(library, 0, 0, ("a.m", "b.s"))
+    with pytest.raises(CompositionError, match="a .*slice"):
+        load(ref)
+    assert load(ref, generate=False).instances["a"].kind == "generator"
+
+
+# -- every wire against the ports it joins ---------------------------------- #
+
+WIDE = {"parameters": {"W": {"description": "data width"}},
+        "inputs": [{"name": "clk"}, {"name": "in", "width": "W",
+                                     "stream": ["sof"]},
+                   {"name": "level", "width": 4},
+                   {"name": "s_axi", "width": 8, "bus": "axilite"},
+                   {"name": "s_axis", "width": 32, "bus": "axis",
+                    "signals": ["tlast"]}],
+        "outputs": [{"name": "out", "width": "W", "stream": ["sof"]},
+                    {"name": "m_axis", "width": "W", "bus": "axis",
+                     "signals": ["tlast"]},
+                    {"name": "count", "width": 8},
+                    {"name": "flag"}],
+        "vivado": {"module": "wide"}, "sources": ["wide.v"]}
+
+
+def _wide(library, a_w, b_w, *connections):
+    lib = library(lambda name: {"leaves": {"wide": WIDE}, "top": {"top": {
+        "nodes": {"a": {"block": f"{name}.leaves:wide",
+                        "build": {"W": a_w}},
+                  "b": {"block": f"{name}.leaves:wide",
+                        "build": {"W": b_w}}},
+        "connections": [list(c) for c in connections]}}})
+    return f"{lib}.top:top"
+
+
+def test_a_stream_of_one_width_at_both_ends_is_wired(library):
+    load(_wide(library, 12, 12, ("a.out", "b.in")))
+
+
+def test_a_stream_whose_widths_differ_is_refused(library):
+    with pytest.raises(CompositionError, match=r"a.out \(12 bits\) -> "
+                       r"b.in \(10 bits\): WIDTH MISMATCH"):
+        load(_wide(library, 12, 10, ("a.out", "b.in")))
+
+
+def test_a_net_whose_pins_differ_in_width_is_refused(library):
+    with pytest.raises(CompositionError, match="WIDTH MISMATCH on one net"):
+        load(_wide(library, 8, 8, ("a.count", "b.level")))
+
+
+def test_a_net_two_leaves_drive_is_refused(library):
+    """Two outputs on one net is a short, however the net was reached --
+    here through a tap of b's clock that also lands on b's own flag."""
+    with pytest.raises(CompositionError, match="one net driven by"):
+        load(_wide(library, 8, 8, ("a.flag", "b.clk"), ("b.clk", "b.flag")))
+
+
+def test_a_stream_wired_to_a_bus_is_refused(library):
+    with pytest.raises(CompositionError, match="not one kind of bus"):
+        load(_wide(library, 8, 8, ("a.out", "b.s_axi")))
+
+
+def test_a_width_reading_an_unset_parameter_is_refused(library):
+    lib = library(lambda name: {"leaves": {"wide": WIDE}, "top": {"top": {
+        "nodes": {"a": {"block": f"{name}.leaves:wide"},
+                  "b": {"block": f"{name}.leaves:wide", "build": {"W": 8}}},
+        "connections": [["a.out", "b.in"]]}}})
+    with pytest.raises(CompositionError, match="reads W, which this instance "
+                       "never sets"):
+        load(f"{lib}.top:top")
+
+
+def test_an_axi_stream_whose_data_widths_differ_is_refused(library):
+    """The xRGB word into a raster built for the cable's 24 bits."""
+    load(_wide(library, 32, 8, ("a.m_axis", "b.s_axis")))
+    with pytest.raises(CompositionError, match=r"a.m_axis \(24 bits\) -> "
+                       r"b.s_axis \(32 bits\): WIDTH MISMATCH"):
+        load(_wide(library, 24, 8, ("a.m_axis", "b.s_axis")))
+
+
+# -- which block fills a node: a parameter, set like any other -------------- #
+
+WB = "revela.blocks.whitebalance:whitebalance"
+CCM = "revela.blocks.ccm:ccm"
+STATS = "revela.blocks.stats:stats"
+
+
+def _chooser(name, default=f"@{BL}"):
+    """a -> b, where b is whatever the parameter `second` names."""
+    return dict(chain(("a", BL), ("b", BL)),
+                parameters={"second": {"default": default}},
+                nodes={"a": {"block": BL}, "b": {"block": "second"}})
+
+
+def _filled(library, entry, **pair):
+    """`pair` used by `top` as node `isp`, `entry` merged into that node."""
+    lib = library(lambda name: {"lib": {
+        "pair": _chooser(name, **pair),
+        "top": dict(chain(("isp", f"{name}.lib:pair")),
+                    nodes={"isp": {"block": f"{name}.lib:pair", **entry}})}})
+    return load(f"{lib}.lib:top")
+
+
+def test_a_node_may_be_filled_by_a_parameter(library):
+    design = _filled(library, {})
+    assert design.instances["isp.b"].ref == BL
+
+
+def test_the_block_a_parameter_names_is_set_from_outside(library):
+    design = _filled(library, {"build": {"second": f"@{WB}"}})
+    assert design.instances["isp.b"].ref == WB
+    assert design.instances["isp.a"].ref == BL
+
+
+def test_the_outermost_setting_chooses(library):
+    lib = library(lambda name: {"lib": {
+        "pair": _chooser(name),
+        "mid": dict(chain(("p", f"{name}.lib:pair")),
+                    nodes={"p": {"block": f"{name}.lib:pair",
+                                 "build": {"second": f"@{WB}"}}}),
+        "top": dict(chain(("m", f"{name}.lib:mid")),
+                    nodes={"m": {"block": f"{name}.lib:mid",
+                                 "build": {"p.second": f"@{CCM}"}}})}})
+    assert load(f"{lib}.lib:mid").instances["p.b"].ref == WB
+    assert load(f"{lib}.lib:top").instances["m.p.b"].ref == CCM
+
+
+def test_a_reference_is_an_expression_like_any_other(library):
+    """`@` marks a reference inside an expression, so a parameter can
+    choose between blocks by arithmetic on others."""
+    lib = library(lambda name: {"lib": {
+        "pair": dict(_chooser(name), parameters={
+            "fast": {"default": 0},
+            "second": {"default": f"@{WB} if fast else @{BL}"}}),
+        "top": dict(chain(("isp", f"{name}.lib:pair")),
+                    nodes={"isp": {"block": f"{name}.lib:pair",
+                                   "build": {"fast": 1}}})}})
+    assert load(f"{lib}.lib:pair").instances["b"].ref == BL
+    assert load(f"{lib}.lib:top").instances["isp.b"].ref == WB
+
+
+def test_a_bare_name_that_is_no_parameter_is_refused(library):
+    lib = library(lambda name: {"lib": {"pair": dict(
+        _chooser(name), nodes={"a": {"block": BL}, "b": {"block": "nothing"}})}})
+    with pytest.raises(CompositionError, match="neither a reference nor a "
+                       "parameter"):
+        load(f"{lib}.lib:pair")
+
+
+def test_a_parameter_naming_no_block_is_refused(library):
+    with pytest.raises(CompositionError, match="names no block"):
+        _filled(library, {"build": {"second": 3}})
+
+
+def test_a_block_with_other_ports_cannot_fill_a_node(library):
+    """Everything around the node was wired to its default's ports."""
+    with pytest.raises(CompositionError, match="cannot fill isp.second"):
+        _filled(library, {"build": {"second": f"@{STATS}"}})
+
+
+def test_a_setting_for_the_replaced_block_is_refused(library):
+    with pytest.raises(CompositionError, match="has no register 'offset'"):
+        _filled(library, {"build": {"second": f"@{WB}"},
+                          "values": {"b.offset": 0}})

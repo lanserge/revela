@@ -17,25 +17,13 @@ from revela.designs.composite import load
 IP = "revela.boards.zynq7.ip"
 _count = itertools.count()
 
-NARROW = """module narrow (
-    input  wire       clk,
-    output wire [3:0] q
-);
-endmodule
-"""
-WIDE = """module wide #(parameter W = 8) (
-    input  wire         clk,
-    input  wire [W-1:0] d
-);
-endmodule
-"""
 
 
 @pytest.fixture
 def library(tmp_path, monkeypatch):
     monkeypatch.syspath_prepend(str(tmp_path))
 
-    def make(blocks, verilog: dict | None = None) -> str:
+    def make(blocks) -> str:
         """``blocks`` is a dict, or a function of the package name
         returning one, so a block can reference its own library."""
         name = f"emit_lib_{next(_count)}"
@@ -45,8 +33,6 @@ def library(tmp_path, monkeypatch):
         if callable(blocks):
             blocks = blocks(name)
         (package / "lib.json").write_text(json.dumps({"blocks": blocks}))
-        for fname, text in (verilog or {}).items():
-            (package / fname).write_text(text)
         return name
     return make
 
@@ -60,13 +46,6 @@ def render(design, tmp_path):
     script = tmp_path / "bd.tcl"
     script.write_text(tcl)
     return tcl, bdtrace.structure(bdtrace.trace(script, [str(out)]))
-
-
-def modules(lib_blocks):
-    lib_blocks["narrow"] = {"vivado": {"module": "narrow"}, "sources": ["narrow.v"]}
-    lib_blocks["wide"] = {"vivado": {"module": "wide"}, "sources": ["wide.v"],
-                          "parameters": {"W": {}}}
-    return lib_blocks
 
 
 def test_cells_settings_pins_and_nets(library, tmp_path):
@@ -125,34 +104,6 @@ def test_a_procedure_runs_in_place_and_a_late_one_after_the_nets(library, tmp_pa
     assert s["addresses"] == [[]]
 
 
-def _pair(width):
-    def blocks(lib):
-        return modules({"top": {
-            "nodes": {"n": {"block": f"{lib}.lib:narrow"},
-                      "w": {"block": f"{lib}.lib:wide", "build": {"W": width}}},
-            "connections": [["n.q", "w.d"]]}})
-    return blocks
-
-
-def test_a_mis_sized_wire_between_our_modules_is_refused(library, tmp_path):
-    verilog = {"narrow.v": NARROW, "wide.v": WIDE}
-    lib = library(_pair(4), verilog)
-    render(load(f"{lib}.lib:top"), tmp_path)           # 4 bits to 4 bits
-    lib = library(_pair(8), verilog)
-    with pytest.raises(vivado.EmitError, match=r"WIDTH MISMATCH.*n/q \(4 bits\)"):
-        render(load(f"{lib}.lib:top"), tmp_path)
-
-
-def test_a_port_our_module_does_not_have_is_refused(library, tmp_path):
-    lib = library(lambda lib: modules({"top": {
-        "nodes": {"n": {"block": f"{lib}.lib:narrow"},
-                  "k": {"block": f"{IP}:xlconstant"}},
-        "connections": [["k.dout", "n.enable"]]}}),
-        {"narrow.v": NARROW, "wide.v": WIDE})
-    with pytest.raises(vivado.EmitError, match="no port 'enable'"):
-        render(load(f"{lib}.lib:top"), tmp_path)
-
-
 def test_two_leaves_that_would_be_one_cell_are_refused(library, tmp_path):
     lib = library(lambda lib: {
         "jack": {"nodes": {"k": {"block": f"{IP}:xlconstant"}}, "connections": []},
@@ -162,26 +113,14 @@ def test_two_leaves_that_would_be_one_cell_are_refused(library, tmp_path):
         render(load(f"{lib}.lib:top"), tmp_path)
 
 
-SOURCE = """module src (
-    input  wire       clk,
-    (* X_INTERFACE_INFO = "lanserge:interface:np2hw_stream_rtl:1.0 out_stream VALID" *)
-    output wire       out_valid,
-    (* X_INTERFACE_INFO = "lanserge:interface:np2hw_stream_rtl:1.0 out_stream READY" *)
-    input  wire       out_ready,
-    (* X_INTERFACE_INFO = "lanserge:interface:np2hw_stream_rtl:1.0 out_stream DATA" *)
-    output wire [7:0] out_data,
-    (* X_INTERFACE_INFO = "lanserge:interface:np2hw_stream_rtl:1.0 out_stream SOF" *)
-    output wire       out_sof,
-    (* X_INTERFACE_INFO = "lanserge:interface:np2hw_stream_rtl:1.0 out_stream EOL" *)
-    output wire       out_eol,
-    (* X_INTERFACE_INFO = "lanserge:interface:np2hw_stream_rtl:1.0 out_stream LAST" *)
-    output wire       out_last
-);
-endmodule
-"""
-# the same stream, facing the other way
-SINK = SOURCE.replace("module src", "module snk").replace("out_", "in_") \
-    .replace("output", "OUT").replace("input ", "output").replace("OUT", "input ")
+STREAM = ["sof", "eol", "last"]
+# a source and a sink of one stream, as their library entries state them
+SOURCE = {"vivado": {"module": "src"}, "sources": ["src.v"],
+          "inputs": [{"name": "clk"}],
+          "outputs": [{"name": "out", "width": 8, "stream": STREAM}]}
+SINK = {"vivado": {"module": "snk"}, "sources": ["snk.v"],
+        "inputs": [{"name": "clk"},
+                   {"name": "in", "width": 8, "stream": STREAM}]}
 
 
 def _streams(tap):
@@ -192,9 +131,7 @@ def _streams(tap):
         if tap:
             top["nodes"]["t"] = {"block": f"{IP}:xlconcat"}
             top["connections"].append(["s.out_valid", "t.In0"])
-        return {"src": {"vivado": {"module": "src"}, "sources": ["src.v"]},
-                "snk": {"vivado": {"module": "snk"}, "sources": ["snk.v"]},
-                "top": top}
+        return {"src": SOURCE, "snk": SINK, "top": top}
     return blocks
 
 
@@ -204,13 +141,10 @@ def test_a_stream_is_one_interface_net_unless_a_pin_of_it_is_tapped(
     Vivado lets a net on one pin of an interface override the interface's
     connection of it, so a stream with a tapped pin is joined signal by
     signal -- the tap on the same net as the sink, not instead of it."""
-    verilog = {"src.v": SOURCE, "snk.v": SINK}
-    _, s = render(load(f"{library(_streams(False), verilog)}.lib:top"),
-                  tmp_path)
+    _, s = render(load(f"{library(_streams(False))}.lib:top"), tmp_path)
     assert s["intf_nets"] == [["d/in_stream", "s/out_stream"]]
     assert not any("s/out_valid" in n for n in s["nets"])
-    _, s = render(load(f"{library(_streams(True), verilog)}.lib:top"),
-                  tmp_path)
+    _, s = render(load(f"{library(_streams(True))}.lib:top"), tmp_path)
     assert s["intf_nets"] == []
     assert ["d/in_valid", "s/out_valid", "t/In0"] in s["nets"]
     assert ["d/in_data", "s/out_data"] in s["nets"]

@@ -6,8 +6,8 @@ revela's half of the generator conversation is POLICY only: parse the
 design JSON, resolve blocks, allocate addresses, and write the artifacts
 that speak revela's vocabulary (the register map JSON). Everything a
 hardware tool consumes -- the Verilog, the SystemRDL -- is rendered by
-np2hw from revela's decisions, exactly as :meth:`Pipeline.generate` and
-:meth:`Pipeline.write_systemrdl` already do; and the packaging protocol
+np2hw from revela's decisions, exactly as :func:`revela.compose.generate` and
+:func:`revela.compose.write_systemrdl` already do; and the packaging protocol
 itself (the generator input format, the ``.core`` manifest) has ONE
 implementation, in :mod:`np2hw.fusesoc`. This file connects the two and
 adds nothing of its own.
@@ -62,10 +62,11 @@ def emit(design, output_dir, name: str | None = None, control: bool = True,
         ``"latency"`` (its latency in pixels).
     """
     from np2hw.fusesoc import write_core
-    from revela import designs
+    from revela import compose, designs
     from revela.compose import register_map_markdown
 
     pipeline = designs.load(design)
+    form = compose.shape(pipeline)
 
     if verify:
         # Generation and verification are ONE step: the same composition
@@ -79,8 +80,8 @@ def emit(design, output_dir, name: str | None = None, control: bool = True,
 
         values = runner.synthetic_values(pipeline)
         frame = np.random.default_rng(20260813).integers(
-            0, 1 << pipeline.spec.bit_depth,
-            size=(pipeline.height, pipeline.width), dtype=np.uint16)
+            0, 1 << form.spec.bit_depth,
+            size=(form.height, form.width), dtype=np.uint16)
         context = {"bayer_phase": 2}
         # EVERY input's chain, not "the" chain. Asking for the sole input
         # was right for a mono pipeline and refused outright on a stereo
@@ -91,9 +92,9 @@ def emit(design, output_dir, name: str | None = None, control: bool = True,
         for name in pipeline.inputs:
             chain = runner.pixel_chain(pipeline, name, None)
             model = runner.run_model(chain, frame, values, context,
-                                     pipeline.spec.bit_depth)
+                                     form.spec.bit_depth)
             rtl = runner.run_rtl(chain, frame, values, context,
-                                 pipeline.spec.bit_depth)
+                                 form.spec.bit_depth)
             if not np.array_equal(model, rtl):
                 raise ValueError(
                     f"{pipeline.name}: the generated RTL DIFFERS from the "
@@ -106,7 +107,8 @@ def emit(design, output_dir, name: str | None = None, control: bool = True,
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    generated = pipeline.generate(
+    generated = compose.generate(
+        pipeline,
         control=control,
         clk_ns=None if clock_mhz is None else 1000.0 / clock_mhz,
         sync_memory=sync_memory)
@@ -115,15 +117,15 @@ def emit(design, output_dir, name: str | None = None, control: bool = True,
         "regmap": output_dir / f"{pipeline.name}_regmap.json",
     }
     written["verilog"].write_text(generated.verilog)
-    pipeline.write_register_map(written["regmap"])
-    written["systemrdl"] = pipeline.write_systemrdl(
-        output_dir / f"{pipeline.name}.rdl")
+    compose.write_register_map(pipeline, written["regmap"])
+    written["systemrdl"] = compose.write_systemrdl(
+        pipeline, output_dir / f"{pipeline.name}.rdl")
     # The documentation is the map in prose, and it ships WITH the map:
     # whoever reads a register in review reads this, and a pack whose
     # docs were rendered by a separate run is a pack whose docs can
     # describe a different build.
     written["docs"] = output_dir / f"{pipeline.name}-registers.md"
-    written["docs"].write_text(register_map_markdown(pipeline.register_map()))
+    written["docs"].write_text(register_map_markdown(compose.register_map(pipeline)))
 
     written["core"] = write_core(
         output_dir,
@@ -166,7 +168,7 @@ def emit(design, output_dir, name: str | None = None, control: bool = True,
         # the stream's end-of-line nor the header's width, so they cannot
         # notice, and the failure is a sheared picture with the CFA phase
         # inverted on alternate rows rather than an error.
-        "geometry": {"width": pipeline.width, "height": pipeline.height},
+        "geometry": {"width": form.width, "height": form.height},
         "boundary": generated.meta["boundary"],
         # Every memory the pack infers, per stage: instance, the seam
         # module it sits behind (or null), width, depth, and whether its

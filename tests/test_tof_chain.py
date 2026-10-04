@@ -18,7 +18,7 @@ from conftest import requires_verilator
 
 from revela.blocks.tofquad import tofquad
 from revela.blocks.tofrange import tofrange
-from revela.compose import Pipeline
+from revela.designs.composite import assemble
 from revela.run import pixel_chain, run_model, run_rtl
 from revela.stream import StreamSpec
 
@@ -29,14 +29,11 @@ OFFSET = 1 << 15
 
 
 def _pipeline():
-    pipeline = Pipeline("tof", StreamSpec(bit_depth=BIT_DEPTH, channels=8),
-                        WIDTH, HEIGHT)
-    pipeline.add("quad", tofquad)
-    pipeline.add("range", tofrange)
-    pipeline.connect("in", "quad.in")
-    pipeline.connect("quad.out", "range.in")
-    pipeline.connect("range.out", "out")
-    return pipeline
+    return assemble(
+        "tof", {"quad": tofquad, "range": tofrange},
+        [("in", "quad.in"), ("quad.out", "range.in"), ("range.out", "out")],
+        stream={"bits": BIT_DEPTH, "max_width": WIDTH, "max_height": HEIGHT,
+                "channels": 8, "context": ["frame_phase"]})
 
 
 def _window(rng, pos, order=(0, 1, 2, 3)):

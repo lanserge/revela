@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 
 import pytest
+from revela import compose
 
 from revela import designs, fusesoc
 
@@ -28,7 +29,7 @@ def test_emit_writes_a_pack_identical_to_a_direct_build(tmp_path):
 
     Byte-identical Verilog is the claim that makes the pack safe: whoever
     consumes the core through FuseSoC gets exactly what a direct
-    ``Pipeline.generate()`` produces, so there is no packaging-time variant
+    ``compose.generate()`` produces, so there is no packaging-time variant
     to verify separately.
     """
     # verify=False THROUGHOUT this file's packaging tests: the twin proof
@@ -36,7 +37,7 @@ def test_emit_writes_a_pack_identical_to_a_direct_build(tmp_path):
     # design -- re-running Verilator over a full imx219 frame per
     # packaging assertion tests nothing further about packaging.
     written = fusesoc.emit(STEREO, tmp_path, verify=False)
-    direct = designs.load(STEREO).generate(control=True)
+    direct = compose.generate(designs.load(STEREO), control=True)
     assert written["verilog"].read_text() == direct.verilog
     assert written["toplevel"] == direct.top
 
@@ -132,7 +133,7 @@ def test_pack_carries_the_register_documentation(tmp_path):
 
     written = fusesoc.emit(STEREO, tmp_path, verify=False)
     assert written["docs"].exists()
-    expected = register_map_markdown(designs.load(STEREO).register_map())
+    expected = register_map_markdown(compose.register_map(designs.load(STEREO)))
     assert written["docs"].read_text() == expected
     assert written["docs"].name in written["core"].read_text(), (
         "the documentation was written but the manifest does not name it")

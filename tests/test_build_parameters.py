@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from revela import compose
 
 from conftest import build, chain, describe, raw_frame, requires_verilator, run_cocotb
 from revela.blocks import whitebalance
@@ -83,7 +84,7 @@ def test_refused_attributes_name_what_is_allowed():
 @requires_verilator
 def test_a_design_override_reaches_the_map_the_rtl_and_the_docs(rng):
     pipeline = build(_design_with_override(frac=12))
-    blocks = {b["path"]: b for b in pipeline.register_map()["blocks"]}
+    blocks = {b["path"]: b for b in compose.register_map(pipeline)["blocks"]}
     wb = blocks["whitebalance"]
     assert wb["register_overrides"] == {"gain": {"frac": 12}}
     formats = {r["name"]: r["q_format"] for r in wb["registers"]}
@@ -113,28 +114,27 @@ def test_a_design_override_reaches_the_map_the_rtl_and_the_docs(rng):
 def test_two_variants_of_one_block_are_two_types_not_one():
     """The map must never say two different Q formats are the same hardware."""
     # Two parallel whitebalance instances, distinct fracs, built by hand.
-    from revela.compose import Pipeline
     from revela.blocks import resolve
+    from revela.designs.composite import assemble
 
-    pipeline = Pipeline("revela_two", StreamSpec(bit_depth=BIT_DEPTH),
-                        WIDTH, HEIGHT, inputs=("a_in", "b_in"),
-                        outputs=("a_out", "b_out"))
-    pipeline.add("wb_a", resolve("whitebalance"),
-                 registers={"gain": {"frac": 12}})
-    pipeline.add("wb_b", resolve("whitebalance"))
-    for src, dst in (("a_in", "wb_a.in"), ("wb_a.out", "a_out"),
-                     ("b_in", "wb_b.in"), ("wb_b.out", "b_out")):
-        pipeline.connect(src, dst)
-    pipeline.validate()
+    pipeline = assemble(
+        "revela_two",
+        {"wb_a": resolve("whitebalance").configure({"gain": {"frac": 12}}),
+         "wb_b": resolve("whitebalance")},
+        [("a_in", "wb_a.in"), ("wb_a.out", "a_out"),
+         ("b_in", "wb_b.in"), ("wb_b.out", "b_out")],
+        inputs=("a_in", "b_in"), outputs=("a_out", "b_out"),
+        stream={"bits": BIT_DEPTH, "max_width": WIDTH, "max_height": HEIGHT})
+    compose.netlist(pipeline)
 
-    addrmap = pipeline.address_map()
+    addrmap = compose.address_map(pipeline)
     names = {inst.path: inst.block.name for inst in addrmap.instances}
     assert names["wb_a"] == "whitebalance__gain_frac12"
     assert names["wb_b"] == "whitebalance"
     assert names["wb_a"] != names["wb_b"], "variants merged into one type"
 
     formats = {}
-    for block in pipeline.register_map()["blocks"]:
+    for block in compose.register_map(pipeline)["blocks"]:
         for register in block["registers"]:
             formats[(block["path"], register["name"])] = register["q_format"]
     assert formats[("wb_a", "gain_0_0")] == "u4.12"

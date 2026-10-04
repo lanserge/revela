@@ -2,11 +2,66 @@
   "blocks": {
     "revela_isp": {
       "description": "This board's shim around the revela design pack: the header latch and the AXI4-Lite port carried to the boundary.",
+      "inputs": [
+        {
+          "name": "clk"
+        },
+        {
+          "name": "rst"
+        },
+        {
+          "name": "hdr_width",
+          "width": 16
+        },
+        {
+          "name": "hdr_height",
+          "width": 16
+        },
+        {
+          "name": "hdr_phase",
+          "width": 2
+        },
+        {
+          "name": "hdr_bits",
+          "width": 5
+        },
+        {
+          "name": "s_axi_aclk"
+        },
+        {
+          "name": "s_axi_aresetn"
+        },
+        {
+          "name": "s_axi",
+          "width": 15,
+          "bus": "axilite"
+        },
+        {
+          "name": "in",
+          "width": "SAMPLE_BITS",
+          "stream": [
+            "sof",
+            "eol",
+            "last"
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "width": "DATA_BITS",
+          "stream": [
+            "sof",
+            "eol",
+            "last"
+          ]
+        },
+        {
+          "name": "truncated"
+        }
+      ],
       "vivado": {
-        "module": "revela_isp",
-        "interfaces": [
-          "s_axi"
-        ]
+        "module": "revela_isp"
       },
       "sources": [
         "hdl/isp_shim.v"
@@ -28,11 +83,37 @@
     },
     "isp_axis": {
       "description": "The ISP's RGB stream dressed as AXI4-Stream video.",
+      "inputs": [
+        {
+          "name": "clk"
+        },
+        {
+          "name": "rst"
+        },
+        {
+          "name": "in",
+          "width": "DATA_BITS",
+          "stream": [
+            "sof",
+            "eol",
+            "last"
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "m_axis",
+          "width": 32,
+          "bus": "axis",
+          "signals": [
+            "tkeep",
+            "tuser",
+            "tlast"
+          ]
+        }
+      ],
       "vivado": {
-        "module": "isp_axis",
-        "interfaces": [
-          "m_axis"
-        ]
+        "module": "isp_axis"
       },
       "sources": [
         "hdl/isp_axis.v"
@@ -45,6 +126,55 @@
     },
     "tee_shim": {
       "description": "One ISP stream, two switchable consumers, never stalling.",
+      "inputs": [
+        {
+          "name": "clk"
+        },
+        {
+          "name": "rst"
+        },
+        {
+          "name": "in",
+          "width": "DATA_BITS",
+          "stream": [
+            "sof",
+            "eol",
+            "last"
+          ]
+        },
+        {
+          "name": "en_a"
+        },
+        {
+          "name": "en_b"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "a",
+          "width": "DATA_BITS",
+          "stream": [
+            "sof",
+            "eol",
+            "last"
+          ]
+        },
+        {
+          "name": "b",
+          "width": "DATA_BITS",
+          "stream": [
+            "sof",
+            "eol",
+            "last"
+          ]
+        },
+        {
+          "name": "torn_a"
+        },
+        {
+          "name": "torn_b"
+        }
+      ],
       "vivado": {
         "module": "tee_shim"
       },
@@ -61,33 +191,6 @@
           "description": "The ISP's traced output word, from its published contract."
         }
       }
-    },
-    "scanout": {
-      "description": "The display raster, generated from the mode table, with its placement register file on the bus clock.",
-      "vivado": {
-        "module": "scanout_top",
-        "interfaces": [
-          "s_axis",
-          "vid_io",
-          "s_axi"
-        ]
-      },
-      "generated": [
-        "scanout.v"
-      ]
-    },
-    "out_cdc": {
-      "description": "The island-to-raster crossing: np2hw's gray-pointer FIFO, where the genlock's lead lives.",
-      "vivado": {
-        "module": "out_cdc",
-        "interfaces": [
-          "s_axis",
-          "m_axis"
-        ]
-      },
-      "generated": [
-        "scanout.v"
-      ]
     }
   }
 }

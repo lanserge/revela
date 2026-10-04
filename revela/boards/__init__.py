@@ -16,10 +16,10 @@ Three layers, each a library of JSON blocks:
                 from them, e.g. pynq_z2.pynq_demo
   (receiver)    bayerlink_fpga's modules, the receiver's Verilog
 
-A design is JSON through and through; vivado.py renders it as the block
-design Vivado builds, checking every wire between our own modules against
-their RTL (rtl.py) first. bdtrace reads such a script back without Vivado,
-and checkhwh audits the design as built.
+A design is JSON through and through, and its wires are checked when it
+is loaded, against the ports each leaf states (revela.designs.wiring);
+vivado.py renders it as the block design Vivado builds. bdtrace reads such
+a script back without Vivado, and checkhwh audits the design as built.
 """
 from __future__ import annotations
 

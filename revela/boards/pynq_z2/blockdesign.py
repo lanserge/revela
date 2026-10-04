@@ -32,7 +32,7 @@ from pathlib import Path
 
 from revela.boards.pynq_z2 import HERE, board, choices, default
 from revela.boards import vivado
-from revela.designs.composite import block_name, load
+from revela.designs.composite import block_name, load, write_generated
 
 DESIGN = "revela.boards.pynq_z2.pynq_demo"
 
@@ -132,6 +132,9 @@ def main(argv=None) -> int:
         if line.startswith("set "):
             _, name, value = line.split(None, 2)
             paths[name] = value.strip("{}")
+    # The generated leaves' Verilog, made by their generators from this
+    # design's settings, beside the rest of the build's.
+    write_generated(design, out / "hdl")
     b = board()
     tcl = vivado.emit(design, out=out, part=b["part"],
                       board_part=b["board_part"],

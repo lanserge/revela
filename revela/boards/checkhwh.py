@@ -13,7 +13,7 @@ minutes by READING THE GENERATED DESIGN -- after it had cost a hang.
 This runs the reading before the loading. The `.hwh` is the design as
 built, not as intended, so this catches what the automation and the
 polarity propagation actually did, which the intent-side check -- the
-emitter's, in `vivado.py` with `rtl.py`, before Vivado starts -- cannot.
+design's, when it is loaded (`revela.designs.wiring`) -- cannot.
 
 The invariant, learned one power cycle at a time:
 

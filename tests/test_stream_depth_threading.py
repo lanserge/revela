@@ -16,29 +16,32 @@ import pytest
 from np2hw import saturate
 
 from revela.blocks import StreamPort, ispblock, registry
-from revela.compose import Pipeline
-from revela.stream import StreamSpec
+from revela import compose
+from revela.designs.composite import assemble
 
 WIDTH, HEIGHT = 32, 16
 
 
-def _chain(pipeline, names_and_blocks):
-    """Wire a straight chain from the pipeline input to its output."""
-    source = "in"
-    for name, block in names_and_blocks:
-        pipeline.add(name, block)
-        pipeline.connect(source, f"{name}.{block.ports.inputs[0]}")
-        source = f"{name}.{block.ports.outputs[0]}"
-    pipeline.connect(source, "out")
+def _chain(name, bit_depth, names_and_blocks):
+    """A straight chain from the design's input to its output."""
+    edges, source = [], "in"
+    for path, block in names_and_blocks:
+        edges.append((source, f"{path}.{block.ports.inputs[0]}"))
+        source = f"{path}.{block.ports.outputs[0]}"
+    edges.append((source, "out"))
+    return assemble(name, dict(names_and_blocks), edges,
+                    stream={"bits": bit_depth, "max_width": WIDTH,
+                            "max_height": HEIGHT})
 
 
-def _depths(pipeline):
+def _depths(design):
     """The (channels, bit_depth) each stage is told, in datapath order."""
     seen, built = {}, {}
-    for stage in pipeline.datapath:
-        channels, depth = pipeline._incoming_stream(stage, built)
+    spec = compose.shape(design).spec
+    for stage in compose.datapath(design):
+        channels, depth = compose._incoming_stream(design, stage, built)
         result = stage.block.generate(
-            pipeline.spec.with_stream(channels, depth), WIDTH, HEIGHT,
+            spec.with_stream(channels, depth), WIDTH, HEIGHT,
             module_name=f"probe_{stage.module_prefix}")
         built[stage.path] = result
         seen[stage.path] = (channels, depth)
@@ -57,10 +60,7 @@ def test_a_saturating_chain_is_told_the_pipeline_depth_at_every_stage():
     across the change, and this says why.
     """
     reg = registry()
-    spec = StreamSpec(bit_depth=10, channels=1)
-    p = Pipeline("saturating", spec, WIDTH, HEIGHT,
-                 inputs=("in",), outputs=("out",))
-    _chain(p, [("bl", reg["blacklevel"]),
+    p = _chain("saturating", 10, [("bl", reg["blacklevel"]),
                ("wb", reg["whitebalance"]),
                ("hg", reg["ha_green"]),
                ("hr", reg["ha_rb"]),
@@ -73,9 +73,7 @@ def test_a_saturating_chain_is_told_the_pipeline_depth_at_every_stage():
 def test_channels_still_thread_from_the_trace():
     """The channel count keeps arriving from the driver, not a declaration."""
     reg = registry()
-    p = Pipeline("channels", StreamSpec(bit_depth=10, channels=1),
-                 WIDTH, HEIGHT, inputs=("in",), outputs=("out",))
-    _chain(p, [("hg", reg["ha_green"]), ("hr", reg["ha_rb"]),
+    p = _chain("channels", 10, [("hg", reg["ha_green"]), ("hr", reg["ha_rb"]),
                ("cc", reg["ccm"])])
     told, _ = _depths(p)
     assert {path: ch for path, (ch, _d) in told.items()} == {
@@ -108,9 +106,7 @@ def narrow(pixel, p, ctx, bit_depth: int):
 
 def test_a_widening_block_hands_on_the_wider_depth():
     """bit_depth + 1 out of one stage is bit_depth + 1 into the next."""
-    p = Pipeline("widening", StreamSpec(bit_depth=10, channels=1),
-                 WIDTH, HEIGHT, inputs=("in",), outputs=("out",))
-    _chain(p, [("a", widen), ("b", widen), ("c", widen)])
+    p = _chain("widening", 10, [("a", widen), ("b", widen), ("c", widen)])
     told, _ = _depths(p)
     assert [depth for _ch, depth in
             (told[k] for k in ("a", "b", "c"))] == [10, 11, 12]
@@ -118,9 +114,7 @@ def test_a_widening_block_hands_on_the_wider_depth():
 
 def test_a_narrowing_block_hands_on_the_narrower_depth():
     """The 'eight bits after gamma' the stream docstring describes."""
-    p = Pipeline("narrowing", StreamSpec(bit_depth=12, channels=1),
-                 WIDTH, HEIGHT, inputs=("in",), outputs=("out",))
-    _chain(p, [("a", widen), ("b", narrow), ("c", widen)])
+    p = _chain("narrowing", 12, [("a", widen), ("b", narrow), ("c", widen)])
     told, _ = _depths(p)
     assert [depth for _ch, depth in
             (told[k] for k in ("a", "b", "c"))] == [12, 13, 8]
@@ -128,21 +122,17 @@ def test_a_narrowing_block_hands_on_the_narrower_depth():
 
 def test_the_pipeline_output_port_carries_the_traced_width():
     """The exit boundary is the last block's word, not the declared spec."""
-    p = Pipeline("widening_out", StreamSpec(bit_depth=10, channels=1),
-                 WIDTH, HEIGHT, inputs=("in",), outputs=("out",))
-    _chain(p, [("a", widen), ("b", widen)])
+    p = _chain("widening_out", 10, [("a", widen), ("b", widen)])
     _told, built = _depths(p)
-    assert p._output_stream(built, "out").data_bits == 12
+    assert compose._output_stream(p, built, "out").data_bits == 12
     # and the entry stays the one declared fact
-    assert p.spec.data_bits == 10
+    assert compose.shape(p).spec.data_bits == 10
 
 
 def test_a_widening_chain_composes():
     """np2hw refuses mismatched widths, so this only passes if they agree."""
-    p = Pipeline("widening_whole", StreamSpec(bit_depth=10, channels=1),
-                 WIDTH, HEIGHT, inputs=("in",), outputs=("out",))
-    _chain(p, [("a", widen), ("b", widen)])
-    generated = p.generate(control=False)
+    p = _chain("widening_whole", 10, [("a", widen), ("b", widen)])
+    generated = compose.generate(p, control=False)
     assert generated.modules
 
 
@@ -153,15 +143,14 @@ def test_the_composer_refuses_when_a_consumer_disagrees(monkeypatch):
     threading and np2hw's own check must still catch it, so a future
     change here fails loudly rather than emitting a wrong bus.
     """
-    p = Pipeline("mismatch", StreamSpec(bit_depth=10, channels=1),
-                 WIDTH, HEIGHT, inputs=("in",), outputs=("out",))
-    _chain(p, [("a", widen), ("b", widen)])
+    p = _chain("mismatch", 10, [("a", widen), ("b", widen)])
     # pretend depth never threaded: every block told the pipeline's depth
-    monkeypatch.setattr(Pipeline, "_incoming_stream",
-                        lambda self, stage, built:
-                        (self.spec.channels, self.spec.bit_depth))
+    spec = compose.shape(p).spec
+    monkeypatch.setattr(compose, "_incoming_stream",
+                        lambda design, stage, built:
+                        (spec.channels, spec.bit_depth))
     with pytest.raises(Exception) as caught:
-        p.generate(control=False)
+        compose.generate(p, control=False)
     assert "bit" in str(caught.value).lower()
 
 
@@ -185,12 +174,13 @@ def test_geometry_is_threaded_from_the_driver_not_broadcast():
         bit_depth=10, width=64, height=32))
 
     built, seen = {}, []
-    for stage in pipeline.datapath:
-        width, height = pipeline._incoming_geometry(stage, built)
-        channels, depth = pipeline._incoming_stream(stage, built)
+    for stage in compose.datapath(pipeline):
+        width, height = compose._incoming_geometry(pipeline, stage, built)
+        channels, depth = compose._incoming_stream(pipeline, stage, built)
         with redirect_stdout(io.StringIO()):
             result = stage.block.generate(
-                pipeline.spec.with_stream(channels, depth), width, height,
+                compose.shape(pipeline).spec.with_stream(channels, depth),
+                width, height,
                 module_name=f"t_{stage.path}")
         built[stage.path] = result
         output = result.core["interface"].get("output") or {}

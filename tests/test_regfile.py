@@ -18,6 +18,7 @@ import re
 
 import numpy as np
 import pytest
+from revela import compose
 
 from conftest import build, chain, describe, raw_frame, requires_verilator, run_cocotb
 from revela.blocks import blacklevel
@@ -45,7 +46,7 @@ def pipeline():
 
 @pytest.fixture
 def generated(pipeline):
-    return pipeline.generate()
+    return compose.generate(pipeline)
 
 
 def _flat(path: str) -> str:
@@ -81,7 +82,7 @@ def test_every_register_decodes_at_the_address_the_map_publishes(pipeline, gener
     """The claim the whole control plane rests on, stated so it can fail."""
     decoded = _decoded_writes(generated.verilog)
     expected = {}
-    for block in pipeline.register_map()["blocks"]:
+    for block in compose.register_map(pipeline)["blocks"]:
         for register in block["registers"]:
             expected[f"{_flat(block['path'])}_{register['name']}"] = \
                 register["address"] // 4
@@ -96,7 +97,7 @@ def test_identity_words_are_read_only_constants(pipeline, generated):
     constants = _decoded_constants(generated.verilog)
     decoded = _decoded_writes(generated.verilog)
 
-    for block in pipeline.register_map()["blocks"]:
+    for block in compose.register_map(pipeline)["blocks"]:
         identity = block["id_version"]
         word = identity["address"] // 4
         assert constants.get(word) == identity["value"], (
@@ -109,7 +110,7 @@ def test_identity_words_are_read_only_constants(pipeline, generated):
 
 def test_each_block_lands_on_its_own_aligned_region(pipeline):
     """What makes address decode a bit-slice compare rather than a comparator."""
-    bases = [block["base"] for block in pipeline.register_map()["blocks"]]
+    bases = [block["base"] for block in compose.register_map(pipeline)["blocks"]]
     assert len(bases) == len(set(bases))
     for base in bases:
         assert base % BLOCK_ALIGN == 0, f"0x{base:04x} is not {BLOCK_ALIGN}-aligned"
@@ -118,10 +119,10 @@ def test_each_block_lands_on_its_own_aligned_region(pipeline):
 def test_the_unmapped_probe_address_really_is_unmapped(pipeline):
     """Keeps the simulation test honest if the allocation ever grows into it."""
     used = {register["address"]
-            for block in pipeline.register_map()["blocks"]
+            for block in compose.register_map(pipeline)["blocks"]
             for register in block["registers"]}
     used |= {block["id_version"]["address"]
-             for block in pipeline.register_map()["blocks"]}
+             for block in compose.register_map(pipeline)["blocks"]}
     assert UNMAPPED_ADDRESS not in used
 
 
@@ -138,7 +139,7 @@ def test_the_control_top_wraps_the_datapath_top(pipeline, generated):
 
 def test_the_datapath_can_still_be_generated_without_a_register_file(pipeline):
     """A bit-exact testbench drives coefficients directly; it wants the datapath."""
-    plain = pipeline.generate(control=False)
+    plain = compose.generate(pipeline, control=False)
     assert plain.top == pipeline.name
     assert "s_axil_awaddr" not in plain.verilog
     assert "control" not in plain.meta
@@ -151,7 +152,7 @@ def test_context_reaches_the_datapath_from_pipe_not_from_a_copy(pipeline, genera
     resolution change is one write. A per-block copy would show up here as a
     context port driven by a register belonging to the consuming block.
     """
-    bind = pipeline.control_bind({})
+    bind = compose.control_bind(pipeline, {})
     assert bind["ctx_width"] == "param_pipe_width"
     assert bind["ctx_bayer_phase"] == "param_pipe_bayer_phase"
     for port, driver in bind.items():
@@ -172,13 +173,13 @@ def test_the_map_describes_the_commit_contract_the_rtl_implements(pipeline, gene
     by checking the map's claims against the emitted RTL rather than
     against anyone's memory.
     """
-    control = pipeline.register_map()["control"]
+    control = compose.register_map(pipeline)["control"]
     assert control["commit"] == "armed"
 
     # The register the map points at must exist at the address it says.
     block_path, reg_name = control["commit_register"].split(".")
     regs = {f"{b['path']}.{r['name']}": r
-            for b in pipeline.register_map()["blocks"] for r in b["registers"]}
+            for b in compose.register_map(pipeline)["blocks"] for r in b["registers"]}
     assert control["commit_register"] in regs
 
     # And the RTL must actually implement the two halves of the claim:
@@ -219,13 +220,13 @@ def test_a_declared_but_unbuilt_block_says_so_in_both_artefacts():
     pipeline = build(describe("revela_isp", chain("blacklevel", "stats"),
                                       bit_depth=BIT_DEPTH, width=WIDTH,
                                       height=HEIGHT))
-    blocks = {block["path"]: block for block in pipeline.register_map()["blocks"]}
+    blocks = {block["path"]: block for block in compose.register_map(pipeline)["blocks"]}
     assert blocks["blacklevel"]["implemented"] is True
     assert blocks["pipe"]["implemented"] is True, "pipe has no datapath to build"
     assert blocks["stats"]["implemented"] is False
     assert blocks["stats"]["not_implemented_reason"]
 
-    verilog = pipeline.generate().verilog
+    verilog = compose.generate(pipeline).verilog
     assert "stats is declared but not built yet" in verilog
     # And it is still decoded, at the address the map publishes.
     decoded = _decoded_writes(verilog)
@@ -274,7 +275,7 @@ def test_an_unbound_parameter_port_is_refused(pipeline):
                       "interface": {"clock": "clk", "reset": "rst",
                                     "param_prefix": "", "streams": [],
                                     "params": [("param_x", 8, False)]}},
-                     pipeline.registers(), bind={}, frame_sync=False)
+                     compose.registers(pipeline), bind={}, frame_sync=False)
 
 
 # --------------------------------------------------------------------------- #
@@ -292,7 +293,7 @@ def test_registers_written_over_axi_reach_the_datapath(tmp_path, rng, generated,
     frame = raw_frame(rng, WIDTH, HEIGHT, BIT_DEPTH)
     case = {
         "width": WIDTH, "height": HEIGHT, "bit_depth": BIT_DEPTH,
-        "map": pipeline.register_map(),
+        "map": compose.register_map(pipeline),
         "unmapped_address": UNMAPPED_ADDRESS,
         "offsets": OFFSETS,
         "bayer_phase": BAYER_PHASE,
@@ -349,7 +350,7 @@ def test_the_map_states_every_register_presentation():
         "present", chain("blacklevel", "whitebalance"),
         bit_depth=BIT_DEPTH, width=WIDTH, height=HEIGHT))
     blocks = {b["path"]: {r["name"]: r for r in b["registers"]}
-              for b in built.register_map()["blocks"]}
+              for b in compose.register_map(built)["blocks"]}
 
     gain = blocks["whitebalance"]["gain_0_0"]
     assert (gain["widget"], gain["min"], gain["max"]) == ("fixed", 0, 65535)

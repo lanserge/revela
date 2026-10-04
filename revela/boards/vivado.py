@@ -29,9 +29,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from revela.boards.rtl import (BUNDLE, STREAM_BUS, module_ports,
-                                     module_sources, stream_groups,
-                                     undeclared_streams)
+from revela.designs.interfaces import wiring
 
 
 def tcl(value) -> str:
@@ -86,35 +84,13 @@ def emit(design, *, out: Path, part: str, board_part: str,
                 sources_seen.add(f)
                 sources.append(f)
 
-    # Our modules' ports, at the widths this design builds them, and the
-    # streams each DECLARES -- read from the RTL, never restated. A block
-    # design answers a width mismatch with a warning and a silent
-    # connection of the low bits, so every wire between our own modules
-    # is checked here, before Vivado starts.
-    rtl = module_sources(sorted({f.parent for f in sources}))
-    problems = []
-    ports, streams = {}, {}
+    # How each leaf is wired, from the ports it states -- its streams by
+    # bundle, its other interfaces by name. Whether those wires agree is
+    # not this file's question: the design was checked when it was loaded
+    # (revela.designs.wiring), for every toolchain alike.
+    streams, named = {}, {}
     for path, inst in leaves.items():
-        v = vivado(inst)
-        if "module" not in v:
-            continue
-        module = v["module"]
-        if module not in rtl:
-            problems.append(f"{path}: module {module} is in none of the "
-                            "design's sources")
-            continue
-        ports[path] = module_ports(rtl[module], module, dict(inst.build))
-        missing = undeclared_streams(rtl[module], module, ports[path])
-        if missing:
-            problems.append(
-                f"{path} ({module}): port group(s) {sorted(missing)} carry a "
-                f"valid/ready handshake and declare no interface; add the "
-                f"X_INTERFACE_INFO attributes naming {STREAM_BUS}")
-        groups, partial = stream_groups(rtl[module], module, ports[path])
-        for prefix, signals in partial.items():
-            problems.append(f"{path} ({module}): {prefix!r} has {signals} -- "
-                            f"a stream is all of {list(BUNDLE)} or none")
-        streams[path] = groups
+        streams[path], named[path] = wiring(inst.leaf)
 
     L = []
     w = L.append
@@ -169,13 +145,13 @@ def emit(design, *, out: Path, part: str, board_part: str,
 
     # Pins and connections.
     def split(endpoint):
-        if endpoint.startswith("@"):
-            return None, endpoint[1:]
+        if endpoint.startswith("pin:"):
+            return None, endpoint[len("pin:"):]
         path, _, port = endpoint.rpartition(".")
         return path, port
 
     def interfaces(path):
-        return set(vivado(leaves[path]).get("interfaces", []))
+        return named[path]
 
     nets: list[list[str]] = []
     member: dict[str, int] = {}
@@ -214,7 +190,8 @@ def emit(design, *, out: Path, part: str, board_part: str,
                           if path is not None)
 
     def untapped(path, prefix):
-        return not any((path, f"{prefix}_{s}") in tapped for s in BUNDLE)
+        return not any((path, f"{prefix}_{s}") in tapped
+                       for s in streams[path][prefix]["signals"])
 
     intf_nets, external = [], {}
     for source, sink in design.edges:
@@ -231,48 +208,21 @@ def emit(design, *, out: Path, part: str, board_part: str,
         a, b = f"{cell[sp]}/{sport}", f"{cell[dp]}/{dport}"
         if sport in streams.get(sp, {}) and dport in streams.get(dp, {}):
             ga, gb = streams[sp][sport], streams[dp][dport]
-            if ga["role"] != "source" or gb["role"] != "sink":
-                problems.append(f"{source} ({ga['role']}) -> {sink} "
-                                f"({gb['role']}): a stream runs from a "
-                                "source to a sink")
-            if ga["width"] != gb["width"]:
-                problems.append(f"{source} ({ga['width']} bits) -> {sink} "
-                                f"({gb['width']} bits): WIDTH MISMATCH")
             if untapped(sp, sport) and untapped(dp, dport):
                 # both ends declare the interface: one connection, by the
                 # name the block design gives it
-                intf_nets.append((f"{cell[sp]}/{ga['interface']}",
-                                  f"{cell[dp]}/{gb['interface']}"))
+                intf_nets.append((f"{cell[sp]}/{ga['bundle']}",
+                                  f"{cell[dp]}/{gb['bundle']}"))
             else:
-                for s in BUNDLE:
-                    join(f"{a}_{s}", f"{b}_{s}")
+                # joined wire by wire: the signals the sink takes, which
+                # the source carries (a core regenerates what it lacks)
+                for s in gb["signals"]:
+                    if s in ga["signals"]:
+                        join(f"{a}_{s}", f"{b}_{s}")
         elif sport in interfaces(sp) or dport in interfaces(dp):
             intf_nets.append((a, b))
         else:
             join(a, b)
-
-    # Every net joining pins of our modules: one width, and pins that exist.
-    by_cell = {name: path for path, name in cell.items()}
-    for net in nets:
-        widths = {}
-        for pin in net:
-            if pin.startswith("port:"):
-                continue
-            name, _, port = pin.partition("/")
-            path = by_cell[name]
-            if path not in ports:
-                continue                 # vendor IP: its ports are its own
-            if port not in ports[path]:
-                problems.append(f"{path}: no port {port!r} "
-                                f"({leaves[path].ref})")
-                continue
-            widths[pin] = ports[path][port][1]
-        if len(set(widths.values())) > 1:
-            problems.append("WIDTH MISMATCH on one net: " + ", ".join(
-                f"{p} ({wd} bits)" for p, wd in widths.items()))
-    if problems:
-        raise EmitError(f"{design.ref}: {len(problems)} problem(s):\n  "
-                        + "\n  ".join(problems))
 
     w("")
     for name, decl in design.pins.items():

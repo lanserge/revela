@@ -1,0 +1,125 @@
+# Copyright 2026 Serge Rabyking
+# SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
+"""A leaf is held to its ports: a hand-written one to what it declares, a
+generated one to what its generator publishes.
+
+A leaf written by hand -- a board's adapter, a reset synchroniser -- states
+its ports in its library entry, and a design is wired by that statement,
+never by reading the Verilog. So the statement has to be the module: each
+such leaf the board design reaches is elaborated by Verilator, at
+parameter values chosen here rather than its own defaults, and every port
+it has must be declared, with the direction and the width its expression
+gives.
+"""
+import shutil
+
+import pytest
+
+from revela.designs import composite
+from revela.designs.interfaces import expand
+
+pytestmark = pytest.mark.skipif(shutil.which("verilator") is None,
+                                reason="needs verilator")
+
+DESIGN = "revela.boards.pynq_z2.pynq_demo:pynq_demo"
+
+# Values no module defaults to, so a width that ignores its parameter shows.
+VALUES = {"SAMPLE_BITS": 13, "DATA_BITS": 27, "WIDTH": 640, "DW": 24}
+
+
+def _companions(name: str, values: dict) -> list[str]:
+    """The generated modules a hand-written leaf instantiates, made here as
+    the build makes them, at the widths these values imply."""
+    if name == "tee_shim":
+        from np2hw import cdc_fifo, skid, tee
+        w = values["DATA_BITS"] + 3
+        return [tee(w, module_name="isp_tee")["verilog"],
+                skid(w, module_name="isp_skid")["verilog"],
+                cdc_fifo(w, addr_bits=4, module_name="grab_fifo")["verilog"]]
+    if name == "revela_isp":
+        from revela.boards.pynq_z2 import isp_ref
+        from revela import compose
+        return [compose.generate(composite.load(isp_ref()),
+                                 control=True).verilog]
+    return []
+
+
+def _hand_written():
+    leaves = {}
+    for path, found in composite.tree(DESIGN).items():
+        obj = found.obj
+        if found.kind == "primitive" and obj.get("sources"):
+            leaves[found.ref] = found
+    return sorted(leaves.items())
+
+
+def _declared(obj: dict, values: dict) -> dict:
+    want = {}
+    for side in ("inputs", "outputs"):
+        for port in obj.get(side, []):
+            raw = port.get("width", 1)
+            width = (raw if isinstance(raw, int) else composite.evaluate(
+                composite.parse(raw, port["name"]), lambda n: values[n]))
+            want.update(expand(port, side, width))
+    return want
+
+
+LEAVES = _hand_written()
+
+
+def test_the_board_reaches_hand_written_leaves():
+    assert len(LEAVES) >= 9, [ref for ref, _ in LEAVES]
+
+
+@pytest.mark.parametrize("ref,found", LEAVES, ids=[r for r, _ in LEAVES])
+def test_a_hand_written_leaf_has_exactly_the_ports_it_declares(ref, found):
+    from np2hw.ports import elaborated_ports
+    obj = found.obj
+    assert "inputs" in obj or "outputs" in obj, f"{ref} declares no ports"
+    params = {k: v for k, v in VALUES.items()
+              if k in obj.get("parameters", {})}
+    module = obj["vivado"]["module"]
+    sources = [found.folder / f for f in obj["sources"]]
+    got = elaborated_ports(sources + _companions(composite.block_name(ref),
+                                                 params),
+                           module, params)
+    want = _declared(obj, params)
+    assert want == got, {
+        "undeclared": sorted(set(got) - set(want)),
+        "not in the module": sorted(set(want) - set(got)),
+        "differ": {k: (want[k], got[k]) for k in set(want) & set(got)
+                   if want[k] != got[k]}}
+
+
+# --------------------------------------------------------------------------- #
+# A generated leaf publishes its ports, and the list is its module's
+# --------------------------------------------------------------------------- #
+
+FACTS = {"out_khz": 74250, "sample_bits": 12, "isp_width": 1920,
+         "isp_out_bits": 24, "layout_id": 0}
+
+
+def _generated_leaves():
+    design = composite.load(DESIGN, build=FACTS)
+    return sorted((path, inst) for path, inst in design.instances.items()
+                  if isinstance(inst.leaf, dict) and "made_by" in inst.leaf)
+
+
+GENERATED = _generated_leaves()
+
+
+def test_the_board_has_generated_leaves():
+    assert {p for p, _ in GENERATED} >= {"blrx", "ddc", "scanout", "out_cdc"}
+
+
+@pytest.mark.parametrize("path,inst", GENERATED,
+                         ids=[p for p, _ in GENERATED])
+def test_a_generated_leaf_publishes_exactly_its_ports(path, inst):
+    from np2hw.ports import elaborated_ports, resolve
+    obj = inst.leaf
+    texts = [obj["files"][f] for f in obj["generated"]]
+    got = elaborated_ports(texts, obj["vivado"]["module"])
+    want = {p["name"]: (p["direction"],
+                        resolve(p["width"], obj["module_parameters"]))
+            for p in obj["ports"]}
+    assert want == got

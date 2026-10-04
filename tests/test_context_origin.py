@@ -16,11 +16,11 @@ import pytest
 
 from revela.blocks import ContextBit, StreamPort, ispblock
 from revela.blocks import pipe as pipe_block
-from revela.compose import Pipeline
-from revela.stream import StreamSpec
+from revela import compose
+from revela.designs.composite import assemble
 
 ROOT = Path(__file__).resolve().parent.parent
-SPEC = StreamSpec(bit_depth=12)
+STREAM = {"bits": 12, "max_width": 16, "max_height": 8}
 
 
 @ispblock(
@@ -38,11 +38,9 @@ def phased(pixel, p, ctx, bit_depth):
 
 
 def _phased(context_from_stream):
-    pipeline = Pipeline("t", SPEC, 16, 8, context_from_stream=context_from_stream)
-    pipeline.add("phased", phased)
-    pipeline.connect("in", "phased.in")
-    pipeline.connect("phased.out", "out")
-    return pipeline
+    return assemble("t", {"phased": phased},
+                    [("in", "phased.in"), ("phased.out", "out")],
+                    stream=dict(STREAM, context=list(context_from_stream)))
 
 
 def test_the_schema_admits_exactly_the_contexts_a_stream_may_carry():
@@ -66,27 +64,30 @@ def test_a_stream_only_context_takes_no_register_anywhere():
 
 def test_consuming_it_without_the_stream_is_refused():
     with pytest.raises(ValueError, match="must arrive with the stream"):
-        _phased(())
+        compose.stages(_phased(()))
 
 
 def test_a_register_only_context_cannot_arrive_with_the_stream():
+    design = assemble("t", {}, [("in", "out")],
+                      stream=dict(STREAM, context=["window_x0"]))
     with pytest.raises(ValueError, match="software's choice"):
-        Pipeline("t", SPEC, 16, 8, context_from_stream=("window_x0",))
+        compose.shape(design)
 
 
 def test_where_the_stream_delivers_it_the_pipeline_has_it():
     """Listed in ``stream.context``, the pipeline HAS the signal: a port, no
     register, and ``commit`` exactly where it was before the signal existed."""
     pipeline = _phased(("frame_phase",))
-    assert "frame_phase" in {c.name for c in pipeline.contexts()}
-    generated = pipeline.generate(control=True)
+    assert "frame_phase" in {c.name for c in compose.contexts(pipeline)}
+    generated = compose.generate(pipeline, control=True)
     assert "ctx_frame_phase" in dict(generated.modules)[generated.top]
-    pipe = next(b for b in pipeline.register_map()["blocks"] if b["path"] == "pipe")
+    pipe = next(b for b in compose.register_map(pipeline)["blocks"]
+                if b["path"] == "pipe")
     offsets = {r["name"]: r["offset"] for r in pipe["registers"]}
     assert "frame_phase" not in offsets
     assert offsets["commit"] == 0x24
 
 
 def test_elsewhere_the_pipeline_does_not_have_it():
-    pipeline = Pipeline("t", SPEC, 16, 8)
-    assert "frame_phase" not in {c.name for c in pipeline.contexts()}
+    design = assemble("t", {}, [("in", "out")], stream=STREAM)
+    assert "frame_phase" not in {c.name for c in compose.contexts(design)}

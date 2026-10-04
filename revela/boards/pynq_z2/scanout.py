@@ -13,17 +13,19 @@ around the core is where those registers live: an AXI4-Lite file on the
 BUS clock, handing its values to the raster -- which runs on its own
 MMCM, a clock of its own domain -- behind an arm/acknowledge handshake.
 
-The arguments here no longer bake the placement. They set what an
-unwritten bitstream shows, which is the same picture the baked build
-showed, so nothing moves until software asks it to.
+Its settings no longer bake the placement. They set what an unwritten
+bitstream shows, which is the same picture the baked build showed, so
+nothing moves until software asks it to.
 
-    python3 -m revela.boards.pynq_z2.scanout --out <build dir> \
-        --mode 1080p30 --genlock
+Two leaves a design names and sets -- `scanout` (the raster behind its
+registers) and, beside a genlocked one, `out_cdc` (the crossing it reads
+through) -- each publishing every port; the design's build generates
+them. scanout.v holds the raster, its register file and the wrapper;
+out_cdc.v the crossing.
 
 Checked by sim/tb_scanout_regs.v, beside this file.
 """
-import argparse
-import sys
+import functools
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -34,26 +36,20 @@ HERE = Path(__file__).resolve().parent
 FB_WORD_BITS = 32
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--out", required=True, type=Path,
-                        help="the build directory; writes its hdl/scanout.v")
-    parser.add_argument("--mode", default="1080p60",
-                        help="a name from np2hw's raster table")
-    parser.add_argument("--genlock", action="store_true",
-                        help="slave the raster to the stream by steering "
-                             "its MMCM's fine phase shift -- the raster's "
-                             "geometry never moves (a TV drops sync on "
-                             "any vertical-total motion; bench-paid). "
-                             "Also emits out_cdc, the dual-clock crossing "
-                             "the genlocked raster reads through")
-    args = parser.parse_args()
+def _build(mode: str, genlock: bool, fill: int) -> dict:
+    """Everything this file generates for one raster, built once and
+    shared by the two leaves that publish it."""
+    return _cached(mode, bool(genlock), int(fill))
 
+
+@functools.lru_cache(maxsize=None)
+def _cached(mode: str, genlock: bool, fill: int) -> dict:
     from np2hw import axil_regfile
-    from np2hw.stream import cdc_fifo
+    from np2hw.ports import Pin, header, published
+    from np2hw.stream import cdc_fifo, clock_attribute, reset_attribute
     from np2hw.video_out import mode_timing, scanout
 
-    timing = mode_timing(args.mode)
+    timing = mode_timing(mode)
     # Where the picture sits is a RUN-TIME fact on registers, so the only
     # placement this script decides is the one an unwritten bitstream
     # shows: the mode's whole active area, centred. There is no flag for
@@ -68,8 +64,6 @@ def main() -> int:
     # is neither -- it is a product choice, so it comes from the build.
     from revela.boards.pynq_z2 import default
     tx = {k: default("hdmi_out", k) for k in ("sink", "cable_data_bits")}
-    from revela.boards.pynq_z2 import choices as design_choices
-    choices = design_choices()
     # ONE name for the cable's width, used by the core AND by the
     # wrapper emitted below. The wrapper wrote 24 out as [23:0] in five
     # places, so the board owned the number for np2hw's core and this
@@ -77,9 +71,9 @@ def main() -> int:
     # board with a wider transmitter would have got a matching core
     # inside a 24-bit shell.
     cable = int(tx["cable_data_bits"])
-    core = scanout(mode=args.mode, module_name="scanout",
+    core = scanout(mode=mode, module_name="scanout",
                    sink=tx["sink"], data_bits=cable,
-                   fill=int(choices["fill"], 0), genlock=args.genlock)
+                   fill=fill, genlock=genlock)
     # Which level of vsync means "in the sync pulse" is a fact of the
     # mode, not a convention to remember: the raster gets it from the
     # mode table and so does the gate that reads it.
@@ -119,71 +113,67 @@ def main() -> int:
     a("//")
     a("// Reset values are this build's geometry, so an unconfigured")
     a("// bitstream shows exactly what the baked one did.")
-    a("module scanout_top (")
-    a("    // The raster's clock: the pixels in and the video out both ride")
-    a("    // it, and so does its reset.")
-    a('    (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 clk CLK", '
-      'X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axis:vid_io, '
-      'ASSOCIATED_RESET rst" *)')
-    a("    input  wire        clk,")
-    a('    (* X_INTERFACE_INFO = "xilinx.com:signal:reset:1.0 rst RST", '
-      'X_INTERFACE_PARAMETER = "POLARITY ACTIVE_HIGH" *)')
-    a("    input  wire        rst,")
-    a("    input  wire        locked,")
-    a("    // The register file's own clock and reset: the board's, which")
-    a("    // answer to the board and not to the cable.")
-    a('    (* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axi, '
-      'ASSOCIATED_RESET s_axi_aresetn" *)')
-    a('    (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 s_axi_aclk CLK" *)')
-    a("    input  wire        s_axi_aclk,")
-    a('    (* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)')
-    a('    (* X_INTERFACE_INFO = "xilinx.com:signal:reset:1.0 s_axi_aresetn RST" *)')
-    a("    input  wire        s_axi_aresetn,")
-    for nm, w, d in (("awaddr", 8, "input"), ("awvalid", 0, "input"),
-                     ("awready", 0, "output"), ("wdata", 32, "input"),
-                     ("wstrb", 4, "input"), ("wvalid", 0, "input"),
-                     ("wready", 0, "output"), ("bresp", 2, "output"),
-                     ("bvalid", 0, "output"), ("bready", 0, "input"),
-                     ("araddr", 8, "input"), ("arvalid", 0, "input"),
-                     ("arready", 0, "output"), ("rdata", 32, "output"),
-                     ("rresp", 2, "output"), ("rvalid", 0, "output"),
-                     ("rready", 0, "input")):
-        a(f'    (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 '
-          f's_axi {nm.upper()}" *)')
-        kind = "input  wire" if d == "input" else "output wire"
-        a(f"    {kind} {f'[{w-1}:0] ' if w else '       '}s_axi_{nm},")
-    if args.genlock:
-        a("    // 1: the raster follows the stream (the direct path);")
-        a("    // 0: free-run the mode (the store path reads a frame")
-        a("    // buffer at its own pace -- following THAT rate would")
-        a("    // be the raster chasing its own backpressure). The")
-        a("    // board wires this to the same bit that picks the path.")
-        a("    input  wire        param_follow,")
-        a("    // the MMCM's fine phase shifter: how the following")
-        a("    // actually happens. PSCLK is this module's clk.")
-        a("    output wire        ps_en,")
-        a("    output wire        ps_incdec,")
-        a("    input  wire        ps_done,")
-    a('    (* X_INTERFACE_INFO = "xilinx.com:interface:axis:1.0 s_axis TDATA" *)')
-    a(f"    input  wire [{cable - 1}:0] s_axis_tdata,")
-    a('    (* X_INTERFACE_INFO = "xilinx.com:interface:axis:1.0 s_axis TVALID" *)')
-    a("    input  wire        s_axis_tvalid,")
-    a('    (* X_INTERFACE_INFO = "xilinx.com:interface:axis:1.0 s_axis TREADY" *)')
-    a("    output wire        s_axis_tready,")
-    a('    (* X_INTERFACE_INFO = "xilinx.com:interface:axis:1.0 s_axis TUSER" *)')
-    a("    input  wire        s_axis_tuser,")
-    a('    (* X_INTERFACE_INFO = "xilinx.com:interface:axis:1.0 s_axis TLAST" *)')
-    a("    input  wire        s_axis_tlast,")
-    a('    (* X_INTERFACE_INFO = "xilinx.com:interface:vid_io:1.0 vid_io ACTIVE_VIDEO" *)')
-    a("    output wire        vid_active_video,")
-    a('    (* X_INTERFACE_INFO = "xilinx.com:interface:vid_io:1.0 vid_io DATA" *)')
-    a(f"    output wire [{cable - 1}:0] vid_data,")
-    a('    (* X_INTERFACE_INFO = "xilinx.com:interface:vid_io:1.0 vid_io HSYNC" *)')
-    a("    output wire        vid_hsync,")
-    a('    (* X_INTERFACE_INFO = "xilinx.com:interface:vid_io:1.0 vid_io VSYNC" *)')
-    a("    output wire        vid_vsync,")
-    a("    output wire [14:0] status")
-    a(");")
+    axil = "xilinx.com:interface:aximm:1.0"
+    pins = [
+        Pin("clk", "input", attribute=clock_attribute(
+            "clk", ["s_axis", "vid_io"], "rst"), before=(
+            "The raster's clock: the pixels in and the video out both ride",
+            "it, and so does its reset.")),
+        Pin("rst", "input", attribute=reset_attribute("rst")),
+        Pin("locked", "input"),
+        Pin("s_axi_aclk", "input", before=(
+            "The register file's own clock and reset: the board's, which",
+            "answer to the board and not to the cable."), attribute=(
+            '(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axi, '
+            'ASSOCIATED_RESET s_axi_aresetn" *)',
+            '(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 '
+            's_axi_aclk CLK" *)')),
+        Pin("s_axi_aresetn", "input", attribute=(
+            '(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)',
+            '(* X_INTERFACE_INFO = "xilinx.com:signal:reset:1.0 '
+            's_axi_aresetn RST" *)')),
+    ]
+    for nm, w, d in (("awaddr", 8, "input"), ("awvalid", 1, "input"),
+                     ("awready", 1, "output"), ("wdata", 32, "input"),
+                     ("wstrb", 4, "input"), ("wvalid", 1, "input"),
+                     ("wready", 1, "output"), ("bresp", 2, "output"),
+                     ("bvalid", 1, "output"), ("bready", 1, "input"),
+                     ("araddr", 8, "input"), ("arvalid", 1, "input"),
+                     ("arready", 1, "output"), ("rdata", 32, "output"),
+                     ("rresp", 2, "output"), ("rvalid", 1, "output"),
+                     ("rready", 1, "input")):
+        pins.append(Pin(f"s_axi_{nm}", d, w,
+                        bus=(axil, "s_axi", nm.upper())))
+    if genlock:
+        pins += [
+            Pin("param_follow", "input", before=(
+                "1: the raster follows the stream (the direct path);",
+                "0: free-run the mode (the store path reads a frame",
+                "buffer at its own pace -- following THAT rate would",
+                "be the raster chasing its own backpressure). The",
+                "board wires this to the same bit that picks the path.")),
+            Pin("ps_en", "output", before=(
+                "the MMCM's fine phase shifter: how the following",
+                "actually happens. PSCLK is this module's clk.")),
+            Pin("ps_incdec", "output"),
+            Pin("ps_done", "input"),
+        ]
+    axis = "xilinx.com:interface:axis:1.0"
+    vid = "xilinx.com:interface:vid_io:1.0"
+    pins += [
+        Pin("s_axis_tdata", "input", cable, bus=(axis, "s_axis", "TDATA")),
+        Pin("s_axis_tvalid", "input", bus=(axis, "s_axis", "TVALID")),
+        Pin("s_axis_tready", "output", bus=(axis, "s_axis", "TREADY")),
+        Pin("s_axis_tuser", "input", bus=(axis, "s_axis", "TUSER")),
+        Pin("s_axis_tlast", "input", bus=(axis, "s_axis", "TLAST")),
+        Pin("vid_active_video", "output",
+            bus=(vid, "vid_io", "ACTIVE_VIDEO")),
+        Pin("vid_data", "output", cable, bus=(vid, "vid_io", "DATA")),
+        Pin("vid_hsync", "output", bus=(vid, "vid_io", "HSYNC")),
+        Pin("vid_vsync", "output", bus=(vid, "vid_io", "VSYNC")),
+        Pin("status", "output", 15),
+    ]
+    L += header("scanout_top", pins)
     a("    wire [15:0] full_status;")
     a("    wire [15:0] act_x0, act_y0;")
     a("")
@@ -251,7 +241,7 @@ def main() -> int:
     a("        .param_win_x0(win_x0), .param_win_y0(win_y0),")
     a("        .param_win_w(win_w), .param_win_h(win_h),")
     a("        .param_center(center),")
-    if args.genlock:
+    if genlock:
         a("        .param_follow(param_follow),")
         a("        .ps_en(ps_en), .ps_incdec(ps_incdec),")
         a("        .ps_done(ps_done),")
@@ -264,82 +254,96 @@ def main() -> int:
     a("    assign status = full_status[14:0];")
     a("endmodule")
 
-    if args.genlock:
+    if genlock:
         # The elastic the genlocked raster reads through: the ISP island
         # and the raster no longer share a clock, and the raster's lead
         # (G_LEAD lines of a 1920 window) is STORAGE this FIFO carries.
         # 8192 slots = four lines and headroom.
         fifo = cdc_fifo(cable + 2, addr_bits=13,
                         module_name="out_cdc_core")
-        a("")
-        a("// out_cdc: the island-to-raster crossing. AXIS on both faces,")
-        a("// np2hw's gray-pointer FIFO inside; tuser and tlast ride in")
-        a("// the payload word, one layout decision made here.")
-        a("module out_cdc (")
-        a('    (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 wclk CLK",')
-        a('       X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axis, ASSOCIATED_RESET wrst" *)')
-        a("    input  wire        wclk,")
-        a('    (* X_INTERFACE_INFO = "xilinx.com:signal:reset:1.0 wrst RST",')
-        a('       X_INTERFACE_PARAMETER = "POLARITY ACTIVE_HIGH" *)')
-        a("    input  wire        wrst,")
-        a('    (* X_INTERFACE_INFO = "xilinx.com:interface:axis:1.0 s_axis TDATA" *)')
-        # 32, and NOT the cable's width: this port takes the
-        # framebuffer's word from the VDMA, which is xRGB with a
-        # pad byte. The low `cable` bits of it are what reaches
-        # the transmitter, which is why the slice below is
-        # explicit rather than a whole-word connection.
-        a(f"    input  wire [{FB_WORD_BITS - 1}:0] s_axis_tdata,")
-        a('    (* X_INTERFACE_INFO = "xilinx.com:interface:axis:1.0 s_axis TVALID" *)')
-        a("    input  wire        s_axis_tvalid,")
-        a('    (* X_INTERFACE_INFO = "xilinx.com:interface:axis:1.0 s_axis TREADY" *)')
-        a("    output wire        s_axis_tready,")
-        a('    (* X_INTERFACE_INFO = "xilinx.com:interface:axis:1.0 s_axis TUSER" *)')
-        a("    input  wire        s_axis_tuser,")
-        a('    (* X_INTERFACE_INFO = "xilinx.com:interface:axis:1.0 s_axis TLAST" *)')
-        a("    input  wire        s_axis_tlast,")
-        a('    (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 rclk CLK",')
-        a('       X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF m_axis, ASSOCIATED_RESET rrst" *)')
-        a("    input  wire        rclk,")
-        a('    (* X_INTERFACE_INFO = "xilinx.com:signal:reset:1.0 rrst RST",')
-        a('       X_INTERFACE_PARAMETER = "POLARITY ACTIVE_HIGH" *)')
-        a("    input  wire        rrst,")
-        a('    (* X_INTERFACE_INFO = "xilinx.com:interface:axis:1.0 m_axis TDATA" *)')
-        a(f"    output wire [{cable - 1}:0] m_axis_tdata,")
-        a('    (* X_INTERFACE_INFO = "xilinx.com:interface:axis:1.0 m_axis TVALID" *)')
-        a("    output wire        m_axis_tvalid,")
-        a('    (* X_INTERFACE_INFO = "xilinx.com:interface:axis:1.0 m_axis TREADY" *)')
-        a("    input  wire        m_axis_tready,")
-        a('    (* X_INTERFACE_INFO = "xilinx.com:interface:axis:1.0 m_axis TUSER" *)')
-        a("    output wire        m_axis_tuser,")
-        a('    (* X_INTERFACE_INFO = "xilinx.com:interface:axis:1.0 m_axis TLAST" *)')
-        a("    output wire        m_axis_tlast")
-        a(");")
-        a(f"    wire [{cable + 1}:0] head;")
-        a("    out_cdc_core fifo (")
-        a("        .wclk(wclk), .wrst(wrst),")
-        a(f"        .in_data({{s_axis_tuser, s_axis_tlast, "
+        C = []
+        c = C.append
+        c("// out_cdc: the island-to-raster crossing. AXIS on both faces,")
+        c("// np2hw's gray-pointer FIFO inside; tuser and tlast ride in")
+        c("// the payload word, one layout decision made here.")
+        cdc_pins = [
+            Pin("wclk", "input",
+                attribute=clock_attribute("wclk", "s_axis", "wrst")),
+            Pin("wrst", "input", attribute=reset_attribute("wrst")),
+            # 32, and NOT the cable's width: this port takes the
+            # framebuffer's word, xRGB with a pad byte. The low `cable`
+            # bits of it are what reaches the transmitter, which is why
+            # the slice below is explicit rather than a whole-word
+            # connection.
+            Pin("s_axis_tdata", "input", FB_WORD_BITS,
+                bus=(axis, "s_axis", "TDATA")),
+            Pin("s_axis_tvalid", "input", bus=(axis, "s_axis", "TVALID")),
+            Pin("s_axis_tready", "output", bus=(axis, "s_axis", "TREADY")),
+            Pin("s_axis_tuser", "input", bus=(axis, "s_axis", "TUSER")),
+            Pin("s_axis_tlast", "input", bus=(axis, "s_axis", "TLAST")),
+            Pin("rclk", "input",
+                attribute=clock_attribute("rclk", "m_axis", "rrst")),
+            Pin("rrst", "input", attribute=reset_attribute("rrst")),
+            Pin("m_axis_tdata", "output", cable,
+                bus=(axis, "m_axis", "TDATA")),
+            Pin("m_axis_tvalid", "output", bus=(axis, "m_axis", "TVALID")),
+            Pin("m_axis_tready", "input", bus=(axis, "m_axis", "TREADY")),
+            Pin("m_axis_tuser", "output", bus=(axis, "m_axis", "TUSER")),
+            Pin("m_axis_tlast", "output", bus=(axis, "m_axis", "TLAST")),
+        ]
+        C += header("out_cdc", cdc_pins)
+        c(f"    wire [{cable + 1}:0] head;")
+        c("    out_cdc_core fifo (")
+        c("        .wclk(wclk), .wrst(wrst),")
+        c(f"        .in_data({{s_axis_tuser, s_axis_tlast, "
           f"s_axis_tdata[{cable - 1}:0]}}),")
-        a("        .in_valid(s_axis_tvalid), .in_ready(s_axis_tready),")
-        a("        .rclk(rclk), .rrst(rrst),")
-        a("        .out_data(head), .out_valid(m_axis_tvalid),")
-        a("        .out_ready(m_axis_tready));")
-        a(f"    assign m_axis_tdata = head[{cable - 1}:0];")
-        a(f"    assign m_axis_tlast = head[{cable}];")
-        a(f"    assign m_axis_tuser = head[{cable + 1}];")
-        a("endmodule")
-        L.insert(0, fifo["verilog"])
+        c("        .in_valid(s_axis_tvalid), .in_ready(s_axis_tready),")
+        c("        .rclk(rclk), .rrst(rrst),")
+        c("        .out_data(head), .out_valid(m_axis_tvalid),")
+        c("        .out_ready(m_axis_tready));")
+        c(f"    assign m_axis_tdata = head[{cable - 1}:0];")
+        c(f"    assign m_axis_tlast = head[{cable}];")
+        c(f"    assign m_axis_tuser = head[{cable + 1}];")
+        c("endmodule")
+        out_cdc_text = fifo["verilog"] + "\n" + "\n".join(C) + "\n"
+    else:
+        cdc_pins, out_cdc_text = None, None
 
-    out = args.out / "hdl"
-    out.mkdir(parents=True, exist_ok=True)
-    (out / "scanout.v").write_text(
-        core["verilog"] + regs["verilog"] + "\n".join(L) + "\n")
-    print(f"generated {out / 'scanout.v'} -- {timing['name']}, "
-          f"{timing['pixel_mhz']:g} MHz, window {win_w}x{win_h} "
-          + ("centred" if centre else f"at {x0},{y0}")
-          + (", genlocked by clock steering (8192-deep crossing)"
-             if args.genlock else ""))
-    return 0
+    return {
+        "timing": timing, "window": (win_w, win_h), "centre": centre,
+        "scanout": core["verilog"] + regs["verilog"] + "\n".join(L) + "\n",
+        "scanout_ports": published(pins),
+        "out_cdc": out_cdc_text,
+        "out_cdc_ports": published(cdc_pins) if cdc_pins else None,
+    }
 
 
-if __name__ == "__main__":
-    sys.exit(main())
+def scanout(mode: str, genlock: int, fill: str) -> dict:
+    """The display raster: np2hw's scanout behind its placement registers.
+
+    A leaf a design names (`revela.boards.pynq_z2.scanout:scanout`) with
+    the output mode, whether the raster genlocks to the stream, and what
+    it paints outside the picture (``"0x101010"``). The cable it drives
+    into is the hdmi_out jack's. Every port is published.
+    """
+    built = _build(mode, genlock, int(str(fill), 0))
+    return {"verilog": built["scanout"], "module": "scanout_top",
+            "file": "scanout.v",
+            "interface": {"ports": built["scanout_ports"]}}
+
+
+scanout.leaf = True
+
+
+def out_cdc(mode: str, fill: str) -> dict:
+    """The island-to-raster crossing the genlocked raster reads through.
+
+    A leaf a design names (`revela.boards.pynq_z2.scanout:out_cdc`) beside
+    a genlocked `scanout`, set alike. Every port is published.
+    """
+    built = _build(mode, True, int(str(fill), 0))
+    return {"verilog": built["out_cdc"], "module": "out_cdc",
+            "interface": {"ports": built["out_cdc_ports"]}}
+
+
+out_cdc.leaf = True

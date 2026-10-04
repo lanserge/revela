@@ -64,6 +64,7 @@ import importlib
 import importlib.util
 import inspect
 import json
+import re
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -215,12 +216,20 @@ _COMPARE = {ast.Lt: lambda a, b: a < b, ast.LtE: lambda a, b: a <= b,
 _CALLS = {"min": min, "max": max, "abs": abs}
 
 
+# `@package.module:block` in an expression is a reference to a block. It is
+# not Python -- nor is the colon -- so each one becomes a string constant
+# before the expression is parsed, and the walker sees an ordinary string.
+_REFERENCE = re.compile(r"@([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+"
+                        r"(?::[A-Za-z_][A-Za-z0-9_]*)?)")
+
+
 def parse(text: str, where: str) -> ast.expr:
     """Parse an expression and check every node is one the walker knows. A
     string that is not an expression is refused here, at load, with its
     path -- not later, where it would look like something else."""
     try:
-        tree = ast.parse(text, mode="eval").body
+        tree = ast.parse(_REFERENCE.sub(lambda m: repr(m.group(1)), text),
+                         mode="eval").body
     except SyntaxError as error:
         raise CompositionError(f"{where}: {text!r} is not an expression: "
                                f"{error.msg}") from None
@@ -358,6 +367,12 @@ class Design:
     # max_height, context), from every input port it passes through on its
     # way in: stated once where it enters, inherited by what wraps it.
 
+    @property
+    def name(self) -> str:
+        """The design's name: its block's, which names its generated top,
+        its register map and its pack."""
+        return block_name(self.ref)
+
 
 @dataclass
 class _Node:
@@ -396,18 +411,24 @@ def tree(ref: str) -> dict:
     return {path: node.found for path, node in loader.nodes.items()}
 
 
-def load(ref: str, build: dict | None = None) -> Design:
+def load(ref: str, build: dict | None = None, *,
+         generate: bool = True) -> Design:
     """Load the block ``ref`` and everything beneath it.
 
     ``build`` sets the top block's own parameters, as an enclosing composite
-    would; a declared default applies where it does not.
+    would; a declared default applies where it does not. ``generate=False``
+    leaves leaf generators uncalled -- for reading a design's parameters
+    before the build has the facts its generators need; such a leaf is
+    then wired unchecked, as vendor IP is.
     """
-    loader = _Loader()
+    loader = _Loader(generate=generate)
     return loader.run(ref, build or {})
 
 
 class _Loader:
-    def __init__(self):
+    def __init__(self, generate: bool = True):
+        self.generate = generate
+        self.build_cache: dict[str, object] = {}
         self.nodes: dict[str, _Node] = {}
         self.settings: dict[tuple[str, str], _Setting] = {}
 
@@ -433,23 +454,70 @@ class _Loader:
             child_path = _join(path, name)
             node.children[name] = child_path
             where = f"{found.ref}: node {name}"
-            try:
-                child_found = find(child["block"])
-            except CompositionError as error:
-                raise CompositionError(f"{where}: {error}") from None
-            if child_found.kind == "profile":
-                raise CompositionError(f"{where}: {child['block']} is a "
-                                       "profile, not a block")
-            if child_found.kind == "generator" and getattr(
-                    child_found.obj, "composite", False):
-                child_found = _generated(child_found, child, where)
-            self.expand(child_path, child_found, path, child,
-                        [*stack, found.ref])
+            # Its settings first: what fills a node beneath it may be one of
+            # them, and must be known before that node is expanded.
             for kind in ("build", "values"):
                 for key, raw in child.get(kind, {}).items():
                     self.add_setting(_Setting(
                         kind, _join(child_path, key), raw, path, depth,
                         f"{where}: {kind} {key}"))
+            child_found = self.filling(path, found, child, where)
+            if child_found.kind == "generator" and getattr(
+                    child_found.obj, "composite", False):
+                child_found = _generated(child_found, child, where)
+            self.expand(child_path, child_found, path, child,
+                        [*stack, found.ref])
+
+    def filling(self, path: str, found: Found, entry: dict,
+                where: str) -> Found:
+        """The block that fills a node of the composite at `path`: the
+        reference its `block` names, or -- where `block` is a bare name --
+        the block one of the composite's own build parameters holds, set
+        from outside like any other. A parameter's value is an expression;
+        `@package.module:block` in it is a reference."""
+        name = entry["block"]
+        if "." in name:
+            return self.found_block(name, where)
+        declared = found.obj.get("parameters", {})
+        if name not in declared:
+            raise CompositionError(
+                f"{where}: block {name!r} is neither a reference nor a "
+                f"parameter of {found.ref} (parameters {sorted(declared)})")
+        target = _join(path, name)
+        try:
+            ref = self.build_value(target, where, ())
+        except CompositionError as error:
+            raise CompositionError(
+                f"{where}: block {name}: {error} -- a block chosen by a "
+                "parameter is chosen from parameters, not from what is "
+                "inside a node") from None
+        if not isinstance(ref, str):
+            raise CompositionError(f"{where}: block {name} = {ref!r}, which "
+                                   "names no block; write @package.module")
+        chosen = self.found_block(ref, where)
+        default = declared[name].get("default")
+        if isinstance(default, str):
+            first = self.found_block(evaluate(parse(default, where),
+                                              lambda n: None), where)
+            mine, theirs = _declared_ports(first), _declared_ports(chosen)
+            if mine is not None and theirs is not None \
+                    and not _same_ports(mine, theirs):
+                raise CompositionError(
+                    f"{where}: {chosen.ref} cannot fill {target}: its ports "
+                    f"are {_describe_ports(theirs)}, and {first.ref}'s, "
+                    "which the composite is wired to, are "
+                    f"{_describe_ports(mine)}")
+        return chosen
+
+    def found_block(self, ref: str, where: str) -> Found:
+        try:
+            found = find(ref)
+        except CompositionError as error:
+            raise CompositionError(f"{where}: {error}") from None
+        if found.kind == "profile":
+            raise CompositionError(f"{where}: {ref} is a profile, not a "
+                                   "block")
+        return found
 
     def add_setting(self, setting: _Setting):
         key = (setting.kind, setting.target)
@@ -633,11 +701,10 @@ class _Loader:
         if top.kind != "composite":
             raise CompositionError(f"{ref} is a {top.kind}, not a composite; "
                                    "a design is a composite of blocks")
-        self.expand("", top, None, {}, [])
         for key, raw in top_build.items():
             self.add_setting(_Setting("build", key, raw, "", -1,
                                       f"load({ref!r}): build {key}"))
-        self.build_cache: dict[str, object] = {}
+        self.expand("", top, None, {}, [])
 
         # Every build setting names something that exists, and is BUILD.
         for (kind, target), setting in self.settings.items():
@@ -678,6 +745,15 @@ class _Loader:
                     self.build_value(_join(path, name),
                                      f"{node.found.ref}: parameter {name}", ())
 
+        # A generator that makes a leaf -- a receiver, a raster -- is called
+        # now, with its build settings evaluated, and what it publishes
+        # stands in for a declaration: its ports, its module, its Verilog.
+        for path, node in self.nodes.items():
+            if (self.generate and node.kind == "generator"
+                    and path not in self.inactive
+                    and getattr(node.found.obj, "leaf", False)):
+                node.found = self.generated_leaf(path, node)
+
         instances, aliases = {}, {}
         for path, node in self.nodes.items():
             if node.kind == "composite" or path in self.inactive:
@@ -699,13 +775,45 @@ class _Loader:
             constraints=self.constraints(),
         )
         design.streams = self.streams(self.forward)
+        if self.generate:
+            # every wire against the ports of the leaves it joins, once,
+            # for every toolchain (wiring.py)
+            from revela.designs.wiring import check
+            check(design)
         return design
 
+    def build_settings(self, path: str, node: _Node) -> dict:
+        """The build settings made on one node, evaluated, by their names
+        relative to it."""
+        return {k[1][len(path) + 1:]: self.build_value(k[1], s.where, ())
+                for k, s in self.settings.items()
+                if k[0] == "build" and k[1].startswith(path + ".")
+                and self.split(k[1], s.where)[0] is node}
+
+    def generated_leaf(self, path: str, node: _Node) -> Found:
+        """Call a leaf generator with its node's build settings; its result
+        becomes the leaf's declaration (`interfaces.from_result`)."""
+        from revela.designs.interfaces import from_result
+        args = self.build_settings(path, node)
+        where = f"{path} ({node.found.ref})"
+        try:
+            result = node.found.obj(**args)
+        except (KeyError, ValueError, TypeError) as error:
+            raise CompositionError(f"{where}: {error}") from None
+        try:
+            declaration = from_result(result, node.found.obj)
+        except ValueError as error:
+            raise CompositionError(f"{where}: {error}") from None
+        declaration["made_by"] = {"generator": node.found.ref, "build": args}
+        return Found(node.found.ref, "primitive", declaration,
+                     node.found.folder)
+
     def instance(self, path: str, node: _Node, aliases: dict) -> Instance:
-        build = {k[1][len(path) + 1:]: self.build_value(k[1], s.where, ())
-                 for k, s in self.settings.items()
-                 if k[0] == "build" and k[1].startswith(path + ".")
-                 and self.split(k[1], s.where)[0] is node}
+        build = self.build_settings(path, node)
+        if isinstance(node.found.obj, dict) and "made_by" in node.found.obj:
+            # its settings were the generator's arguments, spent making
+            # the module; none of them is a parameter of the module itself
+            build = {}
         leaf = node.found.obj
         overrides: dict = {}
         if node.kind == "block":
@@ -780,11 +888,10 @@ class _Loader:
         if node.kind == "block":
             return set(node.found.obj.ports.inputs), \
                 set(node.found.obj.ports.outputs)
-        if node.kind in ("composite", "primitive"):
+        if node.kind == "primitive":
+            return _leaf_ports(node.found.obj)
+        if node.kind == "composite":
             obj = node.found.obj
-            if node.kind == "primitive" and not ("inputs" in obj
-                                                 or "outputs" in obj):
-                return None
             return ({p["name"] for p in obj.get("inputs", [])},
                     {p["name"] for p in obj.get("outputs", [])})
         return None
@@ -875,7 +982,7 @@ class _Loader:
 
         def text(pin):
             if is_pin(pin):
-                return f"@{pin[1]}"
+                return f"pin:{pin[1]}"
             return pin[1] if pin[0] == "" else f"{pin[0]}.{pin[1]}"
 
         edges = []
@@ -955,6 +1062,101 @@ class _Loader:
                     f"{'output' if role == 'source' else 'input'} {port!r} "
                     f"(it has {sorted(side)})")
         return (target.path, port)
+
+
+def write_generated(design: Design, folder) -> list:
+    """Write every file the design's generated leaves made into `folder`,
+    and return their paths. Two leaves making one file must make it
+    alike -- one module from one set of arguments, shared -- and are
+    refused otherwise, since a build would keep whichever came last."""
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    made, by = {}, {}
+    for path, inst in design.instances.items():
+        obj = inst.leaf if isinstance(inst.leaf, dict) else {}
+        for name, content in obj.get("files", {}).items():
+            if name in made and made[name] != content:
+                raise CompositionError(
+                    f"{path} and {by[name]} both generate {name}, "
+                    "differently; give one of them its own module")
+            made[name], by[name] = content, path
+    written = []
+    for name, content in made.items():
+        target = folder / name
+        if isinstance(content, bytes):
+            target.write_bytes(content)
+        else:
+            target.write_text(content)
+        written.append(target)
+    return written
+
+
+def _declared_ports(found: Found):
+    """A block's port names and kinds, where it states them before it is
+    built: ``{"inputs": {...}, "outputs": {...}}``, or None for a generator
+    or vendor IP, whose ports exist only once it is made."""
+    if found.kind == "block":
+        return {"inputs": {n: "stream" for n in found.obj.ports.inputs},
+                "outputs": {n: "stream" for n in found.obj.ports.outputs}}
+    if found.kind not in ("composite", "primitive"):
+        return None
+    obj = found.obj
+    if found.kind == "primitive" and not ("inputs" in obj or "outputs" in obj):
+        return None
+
+    def kind(port):
+        if found.kind == "composite":
+            return None                  # whatever reaches it
+        return "stream" if "stream" in port else port.get("bus", "wire")
+    return {side: {p["name"]: kind(p) for p in obj.get(side, [])}
+            for side in ("inputs", "outputs")}
+
+
+def _same_ports(a: dict, b: dict) -> bool:
+    """The same names on each side, and the same kind wherever both say."""
+    for side in ("inputs", "outputs"):
+        if set(a[side]) != set(b[side]):
+            return False
+        for name, kind in a[side].items():
+            other = b[side][name]
+            if kind is not None and other is not None and kind != other:
+                return False
+    return True
+
+
+def _describe_ports(ports: dict) -> str:
+    return "; ".join(f"{side} {sorted(names)}" for side, names in
+                     ports.items())
+
+
+def _leaf_ports(obj: dict):
+    """(inputs, outputs) a leaf may be wired by, from its declaration, or
+    None where it declares none (vendor IP: its ports are its own).
+
+    A stream or a bus is wired by its name, on its own side. Each of its
+    signals, and every plain port, is a pin of a net and may be named on
+    either side: a status word TAPS a valid, a select may follow an
+    enable. Whether a net then has exactly one driver is the net's
+    question, not the endpoint's."""
+    if "ports" in obj:
+        # a generated leaf: its generator's own port list
+        from revela.designs.interfaces import buses
+        pins = {p["name"] for p in obj["ports"]}
+        sides = {"inputs": set(), "outputs": set()}
+        for name, bus in buses(obj["ports"]).items():
+            sides[bus["side"]].add(name)
+        return sides["inputs"] | pins, sides["outputs"] | pins
+    if not ("inputs" in obj or "outputs" in obj):
+        return None
+    from revela.designs.interfaces import expand
+    pins, sides = set(), {"inputs": set(), "outputs": set()}
+    for side in sides:
+        for port in obj.get(side, []):
+            signals = expand(port, side, 8)
+            pins.update(signals)
+            if "stream" in port or "bus" in port:
+                sides[side].add(port["name"])
+    return sides["inputs"] | pins, sides["outputs"] | pins
 
 
 def _generated(found: Found, entry: dict, where: str) -> Found:
@@ -1074,77 +1276,23 @@ def _check_register(block, register: str, value, where: str) -> None:
     check(value)
 
 
-# -- into today's build ----------------------------------------------------- #
+def assemble(name: str, blocks: dict, edges, *, inputs=("in",),
+             outputs=("out",), stream: dict) -> Design:
+    """A design built in code: ``blocks`` ``{path: Block}`` wired by
+    ``edges`` ``[(source, sink), ...]``, every input entered by ``stream``
+    (``bits``, ``max_width``, ``max_height``, and optionally ``channels``
+    and ``context``).
 
-def to_pipeline(design: Design, name: str | None = None):
-    """Build a :class:`revela.compose.Pipeline` from a loaded design.
+    For what a library file cannot name -- a chain cut out of a loaded
+    design to run as a twin, a block a test declares on the spot. It is the
+    same Design the loader makes, built by the same steps afterwards; a
+    design anyone else will build is a composite in JSON."""
+    return Design(
+        ref=name, description="", parameters={},
+        inputs=tuple(inputs), outputs=tuple(outputs),
+        instances={path: Instance(path=path, ref=path, kind="block",
+                                  leaf=block, folder=Path("."))
+                   for path, block in blocks.items()},
+        composites={"": name}, edges=[tuple(e) for e in edges], aliases={},
+        streams={port: dict(stream) for port in inputs})
 
-    Every leaf must be an @ispblock: this is the ISP, the part generated and
-    proved from its models. The stream facts come from the design's inputs,
-    where the stream enters. Today's Pipeline builds every block around ONE
-    geometry and traces depth from ONE input depth, so every input must
-    state the same facts; carrying geometry block by block, through a block
-    that changes it, belongs to the compiler that traces shapes.
-    """
-    from revela.compose import Pipeline
-    from revela.stream import StreamSpec
-
-    name = name or block_name(design.ref)
-    others = [f"{i.path} ({i.kind})" for i in design.instances.values()
-              if i.kind != "block"]
-    if others:
-        raise CompositionError(
-            f"{design.ref}: {', '.join(others)} -- a pipeline is made of "
-            "@ispblocks; everything else is built around it")
-    if design.aliases:
-        raise CompositionError(
-            f"{design.ref}: {sorted(design.aliases)} follow other registers; "
-            "two blocks sharing one register is not built yet")
-    if not design.inputs:
-        raise CompositionError(f"{design.ref}: no inputs, so no stream")
-
-    facts = None
-    for port in design.inputs:
-        stream = design.streams.get(port, {})
-        missing = [f for f in ("bits", "max_width", "max_height")
-                   if f not in stream]
-        if missing:
-            raise CompositionError(
-                f"{design.ref}: the stream entering {port} states no "
-                f"{', '.join(missing)}; say it on the input port where the "
-                "stream enters")
-        here = {f: stream[f] for f in ("bits", "max_width", "max_height")}
-        here["context"] = tuple(stream.get("context", ()))
-        if facts is not None and here != facts[1]:
-            raise CompositionError(
-                f"{design.ref}: the streams entering {facts[0]} and {port} "
-                f"differ ({facts[1]} vs {here}); one pipeline is built "
-                "around one stream shape today")
-        facts = (port, here)
-    stream = facts[1]
-
-    pipeline = Pipeline(
-        name=name,
-        spec=StreamSpec(bit_depth=int(stream["bits"])),
-        width=int(stream["max_width"]),
-        height=int(stream["max_height"]),
-        inputs=design.inputs,
-        outputs=design.outputs,
-        context_from_stream=stream["context"],
-    )
-    shared = _shared_subsystems(design)
-    added = set()
-    for instance in design.instances.values():
-        owner = instance.path.rpartition(".")[0]
-        if owner in shared:
-            if owner not in added:
-                added.add(owner)
-                pipeline.add_subsystem(owner, shared[owner])
-            continue
-        pipeline.add(instance.path, instance.leaf)
-    for source, sink in design.edges:
-        pipeline.connect(source, sink)
-    pipeline.composites = [{"path": path, "block": ref}
-                           for path, ref in design.composites.items()]
-    pipeline.validate()
-    return pipeline

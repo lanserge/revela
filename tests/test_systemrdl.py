@@ -12,6 +12,7 @@ proves a consumer's tooling agrees about what it means.
 from __future__ import annotations
 
 import pytest
+from revela import compose
 
 from conftest import build, chain, describe
 
@@ -38,7 +39,7 @@ def stereo():
 @pytest.fixture(scope="module")
 def elaborated(stereo, tmp_path_factory):
     path = tmp_path_factory.mktemp("rdl") / "map.rdl"
-    stereo.write_systemrdl(path)
+    compose.write_systemrdl(stereo, path)
     compiler = RDLCompiler()
     compiler.compile_file(str(path))
     return compiler.elaborate()
@@ -61,7 +62,7 @@ def test_every_register_elaborates_at_the_address_the_map_publishes(
     from_rdl = _rdl_registers(elaborated)
 
     expected = {}
-    for block in stereo.register_map()["blocks"]:
+    for block in compose.register_map(stereo)["blocks"]:
         flat = block["path"].replace(".", "_")
         expected[f"{flat}.id_version"] = block["id_version"]["address"]
         for register in block["registers"]:
@@ -79,7 +80,7 @@ def test_the_two_eyes_share_one_component_definition(stereo):
     reader could not tell the eyes are the same hardware. The netlist emits one
     module for the shared block; the .rdl must make the same statement.
     """
-    text = stereo.write_systemrdl(
+    text = compose.write_systemrdl(stereo, 
         __import__("tempfile").mkdtemp() + "/map.rdl").read_text()
     assert text.count("regfile blacklevel_rf {") == 1
     assert text.count("blacklevel_rf left_blacklevel") == 1
@@ -119,8 +120,8 @@ def test_the_flat_list_is_a_projection_of_the_map():
     pipeline = build(describe(
         "revela_isp", chain("blacklevel"),
         bit_depth=BIT_DEPTH, width=WIDTH, height=HEIGHT))
-    flat = pipeline.registers()
-    again = pipeline.address_map().flatten()
+    flat = compose.registers(pipeline)
+    again = compose.address_map(pipeline).flatten()
     assert flat == again
     assert [r.name for r in flat][:3] == [
         "pipe_id_version", "pipe_width", "pipe_height"]

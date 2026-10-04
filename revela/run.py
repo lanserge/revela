@@ -34,7 +34,6 @@ to run on every tuning iteration.
 from __future__ import annotations
 
 import hashlib
-import re
 import struct
 import subprocess
 import tempfile
@@ -43,6 +42,8 @@ from pathlib import Path
 
 import numpy as np
 from np2hw.netlist import Endpoint
+
+from revela import compose
 
 # Where compiled Verilator twins live, keyed by content hash: same design,
 # same geometry, same values -> the build is already there. A tuning loop
@@ -59,7 +60,7 @@ def pixel_chain(pipeline, start: str | None = None, stop: str | None = None):
     """The consecutive pixel-carrying stages between two ports.
 
     Args:
-        pipeline: a composed :class:`revela.compose.Pipeline`.
+        pipeline: a loaded design (:func:`revela.designs.load`).
         start: ``instance.port`` naming an INPUT port to inject at, or None
             for the pipeline's own input.
         stop: ``instance.port`` naming an OUTPUT port to extract at, or None
@@ -84,7 +85,7 @@ def pixel_chain(pipeline, start: str | None = None, stop: str | None = None):
         first = _sole_consumer(pipeline, Endpoint(None, start))
     else:
         instance, port = _split_port(start)
-        stage = pipeline.stage(instance)
+        stage = compose.stage(pipeline, instance)
         if port not in stage.block.ports.inputs:
             raise ValueError(
                 f"--from {start!r}: {instance!r} has no input port {port!r}; "
@@ -94,7 +95,7 @@ def pixel_chain(pipeline, start: str | None = None, stop: str | None = None):
     stop_instance = stop_port = None
     if stop is not None:
         stop_instance, stop_port = _split_port(stop)
-        stage = pipeline.stage(stop_instance)
+        stage = compose.stage(pipeline, stop_instance)
         if stop_port not in stage.block.ports.outputs:
             raise ValueError(
                 f"--to {stop!r}: {stop_instance!r} has no output port "
@@ -116,11 +117,11 @@ def pixel_chain(pipeline, start: str | None = None, stop: str | None = None):
             raise ValueError(
                 f"{stage.path!r} has outputs {list(outputs)}; a forking chain "
                 "has no single downstream -- name the leg with --to")
-        consumers = pipeline.consumers(Endpoint(stage.path, outputs[0]))
+        consumers = compose.netlist(pipeline).consumers(Endpoint(stage.path, outputs[0]))
         if stop is None and any(c.node is None for c in consumers):
             return chain
         onward = [c for c in consumers
-                  if c.node is not None and not pipeline._is_tap(c)]
+                  if c.node is not None and not compose.netlist(pipeline).is_tap(c)]
         if not onward:
             raise ValueError(
                 f"nothing downstream of {stage.path}.{outputs[0]} carries "
@@ -130,17 +131,17 @@ def pixel_chain(pipeline, start: str | None = None, stop: str | None = None):
             raise ValueError(
                 f"{stage.path}.{outputs[0]} forks to "
                 f"{[str(c) for c in onward]}; name the leg with --to")
-        chain.append(pipeline.stage(onward[0].node))
+        chain.append(compose.stage(pipeline, onward[0].node))
 
 
 def _sole_consumer(pipeline, source: Endpoint):
-    consumers = [c for c in pipeline.consumers(source)
-                 if c.node is not None and not pipeline._is_tap(c)]
+    consumers = [c for c in compose.netlist(pipeline).consumers(source)
+                 if c.node is not None and not compose.netlist(pipeline).is_tap(c)]
     if len(consumers) != 1:
         raise ValueError(
             f"{source} feeds {[str(c) for c in consumers]}; "
             "name the injection point with --from")
-    return pipeline.stage(consumers[0].node)
+    return compose.stage(pipeline, consumers[0].node)
 
 
 def _split_port(text: str) -> tuple[str, str]:
@@ -174,18 +175,18 @@ def resolve_values(pipeline, profile: str | None = None,
     from revela.designs import profile as profiles
 
     values = {stage.path: dict(stage.paramset.defaults())
-              for stage in pipeline.stages}
+              for stage in compose.stages(pipeline)}
     origin = {path: {name: FROM_DEFAULT for name in registers}
               for path, registers in values.items()}
     if profile is not None:
         anchored = profiles.flatten(profiles.resolve(profile),
-                                    pipeline.register_map())
+                                    compose.register_map(pipeline))
         for key, value in anchored.items():
             path, _, name = key.rpartition(".")
-            _assign(pipeline.stage(path), values, origin, name, value,
+            _assign(compose.stage(pipeline, path), values, origin, name, value,
                     FROM_PROFILE)
     for path, registers in (sets or {}).items():
-        stage = pipeline.stage(path)
+        stage = compose.stage(pipeline, path)
         for name, value in registers.items():
             _assign(stage, values, origin, name, value, FROM_CLI)
     return values, origin
@@ -259,7 +260,7 @@ def synthetic_values(pipeline, seed: int = 20260821):
     """
     rng = np.random.default_rng(seed)
     values = {}
-    for stage in pipeline.stages:
+    for stage in compose.stages(pipeline):
         registers = dict(stage.paramset.defaults())
         if stage.path != "pipe":
             for name, default in registers.items():
@@ -427,10 +428,9 @@ def run_rtl(chain, frame: np.ndarray, values, context: dict,
     frame would not be the hardware the test claims to exercise), generated,
     compiled once per structure, and fed the same words the model consumed.
     """
-    from revela.compose import Pipeline
-    from revela.stream import StreamSpec
-
+    from revela import compose
     from revela.blocks import pipe as pipe_block
+    from revela.designs.composite import assemble
 
     height, width = frame.shape[:2]
     in_channels = 1 if frame.ndim == 2 else int(frame.shape[-1])
@@ -438,25 +438,29 @@ def run_rtl(chain, frame: np.ndarray, values, context: dict,
     # so the twin takes from its "stream" -- the values the caller passes --
     # every stream-only context its chain consumes.
     consumed = {name for stage in chain for name in stage.block.params.consumes}
-    from_stream = tuple(c.name for c in pipe_block.CONTEXT
-                        if c.origin == "stream" and c.name in consumed)
-    twin = Pipeline("chain",
-                    StreamSpec(bit_depth=bit_depth, channels=in_channels),
-                    width, height,
-                    inputs=("chain_in",), outputs=("chain_out",),
-                    context_from_stream=from_stream)
+    from_stream = [c.name for c in pipe_block.CONTEXT
+                   if c.origin == "stream" and c.name in consumed]
+    # The chain as a design of its own: the same block instances, wired in
+    # a line between one input and one output, entered by the frame's
+    # stream. It is built by the same steps as any design.
+    edges, source = [], "chain_in"
     for stage in chain:
-        twin.add(stage.path, stage.block)
-    source = "chain_in"
-    for stage in chain:
-        twin.connect(source, f"{stage.path}.{stage.block.ports.inputs[0]}")
+        edges.append((source, f"{stage.path}.{stage.block.ports.inputs[0]}"))
         source = f"{stage.path}.{stage.block.ports.outputs[0]}"
-    twin.connect(source, "chain_out")
-    generated = twin.generate(control=False)
+    edges.append((source, "chain_out"))
+    twin = assemble(
+        "chain", {stage.path: stage.block for stage in chain}, edges,
+        inputs=("chain_in",), outputs=("chain_out",),
+        stream={"bits": bit_depth, "max_width": width, "max_height": height,
+                "channels": in_channels, "context": from_stream})
+    generated = compose.generate(twin, control=False)
     verilog = "\n".join(text for _, text in generated.modules)
 
-    top_text = dict(generated.modules)[generated.top]
-    scraped = _scrape_ports(top_text)
+    # The top's ports as np2hw published them -- the ctx_*/param_* inputs
+    # the twin drives, and the output word -- never read back from the text.
+    ports = {p["name"]: p for p in generated.meta["ports"]}
+    scraped = [name for name, p in ports.items() if p["direction"] == "input"
+               and (name.startswith("ctx_") or name.startswith("param_"))]
     port_values = _port_values(twin, scraped, values, context,
                                width, height, bit_depth)
 
@@ -472,13 +476,10 @@ def run_rtl(chain, frame: np.ndarray, values, context: dict,
     out_lane = out.get("channel_bits", out_bits // max(1, out_channels))
     # The port is the other statement of that width; if the two disagree,
     # one of them is wrong and neither is worth guessing between.
-    out_match = re.search(
-        r"output\s+(?:wire|reg)?\s*(?:\[(\d+):0\])?\s*chain_out_data",
-        top_text)
-    scraped_bits = int(out_match.group(1) or 0) + 1
-    if scraped_bits != out_bits:
+    port_bits = ports["chain_out_data"]["width"]
+    if port_bits != out_bits:
         raise ValueError(
-            f"the chain's output port is {scraped_bits} bits but its traced "
+            f"the chain's output port is {port_bits} bits but its traced "
             f"boundary says {out_bits}; the generator and its own report "
             "disagree about the same word")
     binary = _twin_binary(verilog, generated.top, scraped,
@@ -524,17 +525,6 @@ def _unpack(words: np.ndarray, height: int, width: int, channels: int,
     return np.stack(planes, axis=-1).reshape(height, width, channels)
 
 
-def _scrape_ports(top_text: str) -> list[str]:
-    """The ctx_*/param_* input ports of the generated top, from its header."""
-    header = re.search(r"module \w+\s*(?:#\(.*?\))?\s*\((.*?)\);",
-                       top_text, re.S).group(1)
-    return [port for direction, port in
-            re.findall(r"(input|output)\s+(?:wire|reg)?\s*(?:signed)?\s*"
-                       r"(?:\[[^\]]+\])?\s*(\w+)", header)
-            if direction == "input"
-            and (port.startswith("ctx_") or port.startswith("param_"))]
-
-
 def _port_values(twin, scraped: list[str], values, context, width, height,
                  bit_depth) -> dict[str, int]:
     """A value for every ctx_*/param_* port of the generated top.
@@ -559,7 +549,7 @@ def _port_values(twin, scraped: list[str], values, context, width, height,
     ctx = {c.name: known[c.name] if c.name in known
            else context.get(c.name, c.default)
            for c in pipe_block.CONTEXT}
-    for stage in twin.stages:
+    for stage in compose.stages(twin):
         if stage.path == "pipe":
             continue
         for name, value in values[stage.path].items():

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from revela import compose
 
 from revela.blocks import blacklevel, stats
 from revela.host import Device, MemoryTransport, Register
@@ -25,13 +26,13 @@ from revela.stream import StreamSpec
 
 @pytest.fixture
 def register_map() -> dict:
-    return build(describe(
+    return compose.register_map(build(describe(
         "revela_stereo",
         chain("blacklevel", "stats", prefix="left",
               source="left_in", sink="left_out"),
         chain("blacklevel", "stats", prefix="right",
               source="right_in", sink="right_out"),
-        inputs=("left_in", "right_in"), outputs=("left_out", "right_out"))).register_map()
+        inputs=("left_in", "right_in"), outputs=("left_out", "right_out"))))
 
 
 @pytest.fixture

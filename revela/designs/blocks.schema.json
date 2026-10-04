@@ -199,7 +199,15 @@
             "additionalProperties": false,
             "properties": {
               "block": {
-                "$ref": "#/$defs/reference"
+                "description": "What fills the node: a reference (package.module[:block]), or the name of one of this composite's own build parameters, whose value -- an expression, set from outside like any build setting -- is a reference (@package.module[:block]).",
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/reference"
+                  },
+                  {
+                    "$ref": "#/$defs/param_name"
+                  }
+                ]
               },
               "description": {
                 "type": "string"
@@ -301,10 +309,10 @@
           "$ref": "#/$defs/composite/properties/parameters"
         },
         "inputs": {
-          "$ref": "#/$defs/ports"
+          "$ref": "#/$defs/leaf_ports"
         },
         "outputs": {
-          "$ref": "#/$defs/ports"
+          "$ref": "#/$defs/leaf_ports"
         },
         "vivado": {
           "$ref": "#/$defs/vivado"
@@ -460,6 +468,65 @@
           "max",
           "abs"
         ]
+      }
+    },
+    "leaf_ports": {
+      "description": "A leaf's ports, as the block itself has them: every port of its module, so a design can be checked against it and the module against its declaration. An entry is a plain port, a STREAM (np2hw's handshake: <name>_valid, _ready, _data and the flags it carries) or a BUS (an AXI4-Lite or AXI4-Stream bundle, <name>_<signal>). Under inputs: a port the block reads, a stream it sinks, a bus it serves; under outputs the reverse.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+          },
+          "width": {
+            "$ref": "#/$defs/value",
+            "description": "Bits: a plain port's, a stream's data, a bus's address (AXI4-Lite) or data (AXI4-Stream). An expression over the block's parameters. 1 when absent."
+          },
+          "stream": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "sof",
+                "eol",
+                "last"
+              ]
+            },
+            "description": "This port is a stream carrying these flags."
+          },
+          "bus": {
+            "enum": [
+              "axilite",
+              "axis"
+            ],
+            "description": "This port is a bus of that kind."
+          },
+          "signals": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "tkeep",
+                "tuser",
+                "tlast"
+              ]
+            },
+            "description": "An AXI4-Stream bus's optional signals."
+          },
+          "inout": {
+            "type": "boolean",
+            "description": "A bidirectional pin (listed under outputs)."
+          },
+          "description": {
+            "type": "string"
+          }
+        }
       }
     }
   },

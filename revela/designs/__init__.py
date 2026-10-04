@@ -9,9 +9,9 @@ and it is a composite like any other block, so designs are built of designs:
 see :mod:`revela.designs.composite`, which loads them, and
 :mod:`revela.designs.profile`, which holds a sensor's values for one.
 
-    from revela import designs
-    pipeline = designs.load("revela.pipelines.stereo:revela_stereo")
-    open("build/isp.v", "w").write(pipeline.generate().verilog)
+    from revela import compose, designs
+    design = designs.load("revela.pipelines.stereo:revela_stereo")
+    open("build/isp.v", "w").write(compose.generate(design).verilog)
 
 A netlist rather than a list, because a real ISP is not a chain. Statistics TAP
 the datapath and produce no pixels; a preview path FORKS off the main one; luma
@@ -51,12 +51,19 @@ def is_reference(text) -> bool:
 
 
 def load(ref: str):
-    """Build a :class:`revela.compose.Pipeline` from the composite ``ref``
-    (``package.module:block``)."""
+    """Load the composite ``ref`` (``package.module:block``) as a design to
+    generate: model blocks, a stream entering it, and a graph np2hw's laws
+    accept -- each checked here, so a design that cannot be built is refused
+    when it is named. The steps that build it are functions of the design
+    (:mod:`revela.compose`)."""
+    from revela import compose
     from revela.designs import composite
     if not is_reference(ref):
         raise ValueError(
             f"{ref!r} is not a design reference: a design is a composite, "
             "named package.module:block (a library folder goes on the import "
             "path with --library)")
-    return composite.to_pipeline(composite.load(str(ref)))
+    design = composite.load(str(ref))
+    compose.shape(design)
+    compose.netlist(design)
+    return design
