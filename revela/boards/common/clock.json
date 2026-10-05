@@ -1,0 +1,35 @@
+{
+  "blocks": {
+    "clock": {
+      "description": "A clock made from another: a PLL or MMCM with the recipe its implementation's settings state, and optionally a fine phase shift stepped at run time.",
+      "parameters": {
+        "implementation": {"default": "'clk_wiz'", "description": "Which implementation fills this block."},
+        "fine_phase_shift": {"default": 0, "description": "1: the output's phase can be stepped finely at run time, through ps*."}
+      },
+      "inputs": [
+        {"name": "clk_in"},
+        {"name": "psclk", "when": "fine_phase_shift", "description": "The clock the phase-shift handshake runs in."},
+        {"name": "psen", "when": "fine_phase_shift", "description": "One step, in the direction psincdec gives."},
+        {"name": "psincdec", "when": "fine_phase_shift"}
+      ],
+      "outputs": [
+        {"name": "clk_out"},
+        {"name": "locked"},
+        {"name": "psdone", "when": "fine_phase_shift", "description": "The step requested has been made."}
+      ],
+      "implementations": {
+        "clk_wiz": {
+          "description": "AMD's clocking wizard. The frequencies and any MMCM recipe are the board's, set as its settings where the node is placed.",
+          "vivado": {"ip": "xilinx.com:ip:clk_wiz"},
+          "config": {
+            "PRIM_SOURCE": "'No_buffer'",
+            "USE_LOCKED": "'true'",
+            "USE_RESET": "'false'",
+            "USE_DYN_PHASE_SHIFT": "'true' if fine_phase_shift else 'false'"
+          },
+          "ports": {"clk_in": "clk_in1", "clk_out": "clk_out1"}
+        }
+      }
+    }
+  }
+}

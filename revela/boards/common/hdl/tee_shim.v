@@ -77,13 +77,13 @@ module tee_shim #(
     // ISP sees a flop whatever is wired past this point.
     wire [DATA_BITS+2:0] sk_data;
     wire        sk_valid, sk_ready;
-    isp_skid #(.W(DATA_BITS + 3)) u_skid (
+    np2hw_skid #(.W(DATA_BITS + 3)) u_skid (
         .clk(clk), .rst(rst),
         .s_data(packed_in), .s_valid(in_valid), .s_ready(in_ready),
         .m_data(sk_data), .m_valid(sk_valid), .m_ready(sk_ready));
 
     wire        bt_valid, bt_ready;
-    isp_tee #(.W(DATA_BITS + 3)) u_tee (
+    np2hw_tee #(.W(DATA_BITS + 3)) u_tee (
         .clk(clk), .rst(rst),
         .in_valid(sk_valid), .in_ready(sk_ready),
         .in_data(sk_data), .in_sof(sk_data[DATA_BITS + 2]),
@@ -102,7 +102,8 @@ module tee_shim #(
     // dip tears the branch (bench-paid: DMAIntErr on every frame,
     // a sentinel buffer never written).
     wire [DATA_BITS+2:0] bq_data;
-    grab_fifo #(.W(DATA_BITS + 3)) u_bfifo (
+    // 4096 slots: two lines of the widest picture, and headroom.
+    np2hw_cdc_fifo #(.W(DATA_BITS + 3), .A(12)) u_bfifo (
         .wclk(clk), .wrst(rst),
         .in_data(b_packed), .in_valid(bt_valid), .in_ready(bt_ready),
         .rclk(clk), .rrst(rst),

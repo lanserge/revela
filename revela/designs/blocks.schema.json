@@ -333,6 +333,14 @@
             "type": "string"
           },
           "description": "HDL files of a module leaf that a build step generates into <build dir>/hdl."
+        },
+        "implementations": {
+          "type": "object",
+          "minProperties": 1,
+          "description": "Ways to realise this block, by name; its `implementation` parameter chooses one. The block's own ports, parameters and description are what a design is wired to; each implementation maps them onto its own.",
+          "additionalProperties": {
+            "$ref": "#/$defs/implementation"
+          }
         }
       }
     },
@@ -434,7 +442,7 @@
     },
     "constraints": {
       "type": "array",
-      "description": "Constraints files this block owns, beside its library file; an entry may carry a `when`.",
+      "description": "Constraints files this block owns, beside its library file or shipped in a package (package:file); an entry may carry a `when`, and `scoped_to`: the module whose instances the file constrains, by that module's own names.",
       "items": {
         "oneOf": [
           {
@@ -451,6 +459,9 @@
                 "type": "string"
               },
               "when": {
+                "type": "string"
+              },
+              "scoped_to": {
                 "type": "string"
               }
             }
@@ -503,9 +514,14 @@
           "bus": {
             "enum": [
               "axilite",
-              "axis"
+              "axis",
+              "tmds",
+              "video",
+              "axi3",
+              "axi4",
+              "pins"
             ],
-            "description": "This port is a bus of that kind."
+            "description": "This port is a bus of that kind: AXI4-Lite, AXI4-Stream, AXI3 or AXI4 (memory-mapped), TMDS (a display link's clock and three data pairs), video (parallel video: active_video, data, hsync, vsync, driven by the source), or pins (a vendor's bundle of package pins, listed under members)."
           },
           "signals": {
             "type": "array",
@@ -525,7 +541,114 @@
           },
           "description": {
             "type": "string"
+          },
+          "when": {
+            "$ref": "#/$defs/value",
+            "description": "A port of a block described apart from its implementations that exists only when this expression over the block's parameters holds: a clock's phase-shift port, say."
+          },
+          "addr_width": {
+            "type": "integer",
+            "description": "An AXI3 or AXI4 bus's address bits; 32 when absent."
+          },
+          "id_width": {
+            "type": "integer",
+            "description": "An AXI3 or AXI4 bus's ID bits."
+          },
+          "channels": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "write",
+                "read"
+              ]
+            },
+            "description": "An AXI3 or AXI4 bus's directions, both when absent: a DMA that only writes has no read channels."
+          },
+          "omit": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string"
+            },
+            "description": "Signals of the bus's kind this port does not have: an AXI4-Lite port without wstrb, an AXI4 port without IDs."
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "name"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "width": {
+                  "type": "integer"
+                },
+                "inout": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "description": "A pins bundle's members, by their own names."
           }
+        }
+      }
+    },
+    "implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "vivado": {
+          "$ref": "#/$defs/vivado"
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "HDL files of a module leaf, beside its library file."
+        },
+        "constraints": {
+          "$ref": "#/$defs/constraints"
+        },
+        "ports": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "The block's port name -> this implementation's, where they differ."
+        },
+        "facts": {
+          "type": "object",
+          "description": "What follows from this implementation, read as <node>.<fact>: a front end's lane order, say."
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/value"
+          },
+          "description": "The implementation's own settings, as expressions over the block's parameters."
+        },
+        "tie": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "description": "This implementation's inputs that no port of the block reaches, and the value each is held at. An output the block has no port for is left open."
+        },
+        "pin_names": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "A bus port of the block -> how this implementation names its signals: a pattern with {signal} (axi_awaddr) or {SIGNAL} (AWADDR), where it is not <port>_<signal>."
         }
       }
     }

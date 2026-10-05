@@ -2,6 +2,12 @@
   "blocks": {
     "revela_isp_core": {
       "description": "The board's display pipeline: the Bayer ISP -- pedestal off, illuminant balanced, Hamilton-Adams demosaic, colour matrix -- then a display curve and the mark. Geometry and CFA phase ride the bayerlink header, so they arrive as stream context, never registers.",
+      "parameters": {
+        "clock_mhz": {
+          "default": 155,
+          "description": "The clock the datapath is CUT for, above the clock it runs at: generation margin makes the cut placement deterministic. Whatever builds this ISP sets it."
+        }
+      },
       "inputs": [
         {
           "name": "isp_in",

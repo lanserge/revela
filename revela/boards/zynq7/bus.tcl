@@ -13,7 +13,7 @@
 #                  deliberately blind to the link
 #   link_reset     the link's reset output, which must reset nothing a host
 #                  can reach but the pins in link_reset_keeps
-#   link_reset_keeps  pins allowed on the link's reset (/isp_cdc/m_axis_aresetn)
+#   link_reset_keeps  pins allowed on the link's reset, by path
 #   control_interconnect  the interconnect the automation builds for the
 #                  control bus (ps7_axi_periph), whose ports are repaired
 #   (any key)      a step with `only KEY` runs where the spec's KEY is

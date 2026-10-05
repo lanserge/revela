@@ -42,8 +42,10 @@ def choices() -> dict:
     """The demo's own choices -- its parameters that the build does not
     supply -- as the design states them."""
     from revela.designs.composite import load
-    placeholder = {"out_khz": 0, "sample_bits": 0, "isp_width": 0,
-                   "isp_out_bits": 0}
+    # what the ISP's facts would say, which only building it can answer
+    placeholder = {"sample_bits": 0, "isp_out_bits": 0,
+                   "fabric.sample_bits": 0, "fabric.isp_width": 0,
+                   "fabric.isp_out_bits": 0}
     params = load("revela.boards.pynq_z2.pynq_demo", build=placeholder,
                   generate=False).parameters
     return {k: v for k, v in params.items()

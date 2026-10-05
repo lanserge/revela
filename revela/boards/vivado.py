@@ -29,6 +29,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from revela.designs.composite import source_file
 from revela.designs.interfaces import wiring
 
 
@@ -50,12 +51,11 @@ class EmitError(ValueError):
     pass
 
 
-def emit(design, *, out: Path, part: str, board_part: str,
-         board_files: Path, ip_repos: list[Path]) -> str:
-    out = Path(out)
-    leaves = design.instances
+def cell_names(design) -> dict:
+    """Each leaf's cell in the block design: its node's own name, which a
+    block design holds once."""
     cell = {}
-    for path in leaves:
+    for path in design.instances:
         name = path.rpartition(".")[2]
         if name in cell.values():
             other = next(p for p, n in cell.items() if n == name)
@@ -63,6 +63,14 @@ def emit(design, *, out: Path, part: str, board_part: str,
                             f"cell {name!r}; a block design has one cell by "
                             "a name")
         cell[path] = name
+    return cell
+
+
+def emit(design, *, out: Path, part: str, board_part: str,
+         board_files: Path, ip_repos: list[Path]) -> str:
+    out = Path(out)
+    leaves = design.instances
+    cell = cell_names(design)
 
     def vivado(inst) -> dict:
         obj = inst.leaf if isinstance(inst.leaf, dict) else {}
@@ -76,7 +84,7 @@ def emit(design, *, out: Path, part: str, board_part: str,
     sources, sources_seen = [], set()
     for inst in leaves.values():
         obj = inst.leaf if isinstance(inst.leaf, dict) else {}
-        files = [inst.folder / f for f in obj.get("sources", [])]
+        files = [source_file(inst.folder, f) for f in obj.get("sources", [])]
         files += [out / "hdl" / f for f in obj.get("generated", [])]
         for f in files:
             f = f.resolve()
@@ -91,6 +99,9 @@ def emit(design, *, out: Path, part: str, board_part: str,
     streams, named = {}, {}
     for path, inst in leaves.items():
         streams[path], named[path] = wiring(inst.leaf)
+        renamed = (inst.leaf.get("port_map", {})
+                   if isinstance(inst.leaf, dict) else {})
+        named[path] = {renamed.get(n, n) for n in named[path]}
 
     L = []
     w = L.append
@@ -105,8 +116,15 @@ def emit(design, *, out: Path, part: str, board_part: str,
       + " ".join(tcl(str(p)) for p in ip_repos) + "] [current_project]")
     w("update_ip_catalog")
     w("add_files " + " ".join(tcl(str(f)) for f in sources))
-    for f in design.constraints:
-        w(f"add_files -fileset constrs_1 {tcl(str(f))}")
+    for c in design.constraints:
+        w(f"add_files -fileset constrs_1 {tcl(str(c['file']))}")
+        if c["scoped_to"]:
+            # one file for every instance of a module, by the module's own
+            # names, read once the clocks it asks about exist
+            w(f"set_property SCOPED_TO_REF {c['scoped_to']} "
+              f"[get_files {tcl(str(c['file']))}]")
+            w(f"set_property PROCESSING_ORDER LATE "
+              f"[get_files {tcl(str(c['file']))}]")
     w("create_bd_design rx")
     w("")
 
@@ -137,7 +155,11 @@ def emit(design, *, out: Path, part: str, board_part: str,
         else:
             raise EmitError(f"{path}: vivado implementation names no ip, "
                             "module or tcl")
-        props = {**inst.build, **inst.config}
+        # A generated leaf states the values its module's parameters take
+        # in this use -- np2hw's fixed modules are files, sized here.
+        own = inst.leaf.get("module_parameters", {}) \
+            if "module" in v and isinstance(inst.leaf, dict) else {}
+        props = {**own, **inst.build, **inst.config}
         if props:
             w("set_property -dict [list " + " ".join(
                 f"CONFIG.{k} {tcl(val)}" for k, val in props.items())
@@ -148,7 +170,11 @@ def emit(design, *, out: Path, part: str, board_part: str,
         if endpoint.startswith("pin:"):
             return None, endpoint[len("pin:"):]
         path, _, port = endpoint.rpartition(".")
-        return path, port
+        # a block filled by an implementation is wired by the block's port
+        # names, and its cell has the implementation's
+        leaf = leaves[path].leaf if path in leaves else {}
+        renamed = leaf.get("port_map", {}) if isinstance(leaf, dict) else {}
+        return path, renamed.get(port, port)
 
     def interfaces(path):
         return named[path]
@@ -251,8 +277,25 @@ def emit(design, *, out: Path, part: str, board_part: str,
     for inst, v in late:
         procedure(inst, v)
 
-    w("")
     w("validate_bd_design")
+    # The described vendor blocks' pins as the tool built them -- after
+    # validation, which propagates widths from what is connected -- for the
+    # check that holds each description to its implementation
+    # (revela.boards.vendor_check). Read by that test, never by the build.
+    from revela.boards.vendor_check import vendor
+    described = [cell[p] for p, inst in leaves.items() if vendor(inst.leaf)]
+    w("")
+    w(f"file mkdir {tcl(str(out / 'generated'))}")
+    w(f"set dump [open {tcl(str(out / 'generated' / 'vendor_ports.txt'))} w]")
+    w("foreach c [list " + " ".join(described) + "] {")
+    w('    puts $dump "CELL $c"')
+    w("    foreach p [get_bd_pins -of [get_bd_cells $c]] {")
+    w('        puts $dump "PIN [get_property NAME $p] [get_property DIR $p] '
+      '[get_property LEFT $p] [get_property RIGHT $p] [get_property TYPE $p]"')
+    w("    }")
+    w("}")
+    w("close $dump")
+    w("")
     w("save_bd_design")
     w("make_wrapper -files [get_files rx.bd] -top -import")
     w("set_property top rx_wrapper [current_fileset]")

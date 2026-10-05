@@ -52,8 +52,9 @@ it, and two crossings.
 
 ## Case 1 — into the board: cable → ISP
 
-*Implemented as `link_reset`, the stream clock converter, and
-np2hw's gray-pointer FIFO; wired in `pynq_demo.json`.*
+*Implemented as `link_reset` and np2hw's `stream_cdc` (`isp_cdc`), its
+gray-pointer FIFO constrained by np2hw's own file, scoped to the FIFO;
+wired in `pynq_demo.json`.*
 
 **Why.** This crossing is not about rate at all. The clock
 recovered from the TMDS link is the *sender's* clock, and it

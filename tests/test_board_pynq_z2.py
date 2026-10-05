@@ -59,11 +59,25 @@ def built(tmp_path_factory):
 
 
 def test_the_demo_generates_and_checks_without_vivado(built):
-    for name in ("receiver.tcl", "paths.tcl", "bd.tcl"):
+    for name in ("paths.tcl", "bd.tcl"):
         assert (built / "generated" / name).is_file(), name
-    for name in ("bayerlink_rx.v", "ddc_slave.v", "revela_isp_core.v",
-                 "scanout.v", "isp_tee.v"):
+    for name in ("bayerlink_formats.v", "ddc_slave.v", "revela_isp_core.v",
+                 "scanout.v", "out_cdc.v"):
         assert (built / "hdl" / name).is_file(), name
+    # Fixed modules are read from the package that ships them, never
+    # copied, and each is a source once however many blocks instantiate it
+    bd = (built / "generated" / "bd.tcl").read_text()
+    for package, module in (("np2hw", "np2hw_skid"), ("np2hw", "np2hw_tee"),
+                            ("np2hw", "np2hw_cdc_fifo"),
+                            ("bayerlink_fpga", "bayerlink_in")):
+        assert bd.count(f"/{module}.v}}") == 1, module
+        assert f"/{package}/hdl/{module}.v}}" in bd, module
+        assert not (built / "hdl" / f"{module}.v").exists()
+    # A fixed module is sized on its cell, from the values its leaf works
+    # out: the receiver's lane order is the front end's, not the default.
+    rx = next(line for line in bd.splitlines()
+              if line.startswith("set_property") and "[get_bd_cells blrx]" in line)
+    assert "CONFIG.LANE0 1 CONFIG.LANE1 2 CONFIG.LANE2 0" in rx, rx
     # Nothing is written beside the sources: they ship in the package.
     assert not (pynq_z2.HERE / "generated").exists()
 
@@ -118,8 +132,6 @@ def test_the_block_design_is_the_design(built):
     assert set(s["ports"]) == {"TMDS", "hdmi_hpd", "ddc_scl_io",
                                "ddc_sda_io", "hdmi_tx"}
     assert s["cells"]["dvi_rx"]["config"]["CONFIG.kClkRange"] == "1"
-    # the capture path's reset inverter comes with the capture path
-    assert "rstn_pix" not in s["cells"]
     # the VDMA derives its stream width and its clocking from what it is
     # connected to, and refuses both as settings: neither is restated
     vdma = s["cells"]["vdma"]["config"]
@@ -132,16 +144,32 @@ def test_a_mis_wired_design_is_refused_before_vivado(built, tmp_path,
     """Mutation check: the demo with one 5-bit pin wired to a 1-bit one
     is refused as soon as it is loaded, naming the wire -- before any
     emitter, for any toolchain."""
-    from revela.boards.pynq_z2.blockdesign import facts
     from revela.designs.composite import CompositionError, load
     design = json.loads((pynq_z2.HERE / "pynq_demo.json").read_text())
     conns = design["blocks"]["pynq_demo"]["connections"]
-    i = conns.index(["link_rst.rst_pix", "isp_in_shim.rst"])
-    conns[i] = ["blrx.hdr_bits", "isp_in_shim.rst"]
+    i = conns.index(["control.broom", "fabric.broom"])
+    conns[i] = ["fabric.hdr_bits", "fabric.broom"]
     package = tmp_path / "mutant_demo"
     package.mkdir()
     (package / "__init__.py").write_text("")
     (package / "pynq_demo.json").write_text(json.dumps(design))
     monkeypatch.syspath_prepend(str(tmp_path))
     with pytest.raises(CompositionError, match=r"WIDTH MISMATCH.*hdr_bits"):
-        load("mutant_demo.pynq_demo", build=facts(built))
+        load("mutant_demo.pynq_demo")
+
+
+def test_the_capture_variant_crosses_with_np2hw():
+    """The capture path is the board's: a switch after the receiver, then
+    np2hw's stream crossing into the DMA's clock -- no vendor converter --
+    and the stream dressed as AXI4-Stream only once it is there. Loaded,
+    and so wired and checked, like the default variant."""
+    from revela.designs.composite import load
+    design = load("revela.boards.pynq_z2.pynq_demo", build={"capture": 1})
+    cells = {p.rpartition(".")[2]: i for p, i in design.instances.items()}
+    assert cells["cdc"].leaf["vivado"] == {"module": "np2hw_stream_cdc"}
+    assert "dma" in cells and "sw" in cells and "shim" in cells
+    assert not any(i.leaf.get("vivado", {}).get("ip", "").endswith(
+        "axis_clock_converter") for i in design.instances.values()
+        if isinstance(i.leaf, dict))
+    assert ("sw.a", "cdc.in") in design.edges
+    assert ("cdc.out", "shim.in") in design.edges

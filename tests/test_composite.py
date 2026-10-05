@@ -243,7 +243,6 @@ def test_a_register_value_from_build_parameters_is_a_constant(library):
     ("1 / 2", "true division"),
     ("1.5", "a constant is an integer"),
     ("__import__('os')", "Call is not allowed"),
-    ("a[0]", "Subscript is not allowed"),
     ("1 +", "is not an expression"),
 ])
 def test_the_walker_accepts_only_integer_arithmetic(text, message):
@@ -835,8 +834,13 @@ def test_an_undeclared_port_of_a_declaring_leaf_is_refused(library):
 LEAF_GEN = '''
 def slice(bits: int) -> dict:
     """A register slice, generated for its width."""
-    from np2hw.stream import skid
-    return skid(bits, module_name="slice")
+    from np2hw.ports import Pin, header, published
+    from np2hw.stream import stream_pins
+    pins = [Pin("clk", "input"), Pin("rst", "input"),
+            *stream_pins("s", "in", bits), *stream_pins("m", "out", bits)]
+    text = "\\n".join(header("slice", pins)) + "\\nendmodule\\n"
+    return {"verilog": text, "module": "slice",
+            "interface": {"ports": published(pins)}}
 
 
 slice.leaf = True
@@ -1040,3 +1044,244 @@ def test_a_setting_for_the_replaced_block_is_refused(library):
     with pytest.raises(CompositionError, match="has no register 'offset'"):
         _filled(library, {"build": {"second": f"@{WB}"},
                           "values": {"b.offset": 0}})
+
+
+# -- a composite of model blocks inside a design, built whole --------------- #
+
+SOURCE = {"parameters": {"W": {}}, "inputs": [{"name": "clk"}],
+          "outputs": [{"name": "out", "width": "W",
+                       "stream": ["sof", "eol", "last"]}],
+          "vivado": {"module": "src"}, "sources": ["src.v"]}
+SINK = {"parameters": {"W": {}},
+        "inputs": [{"name": "in", "width": "W",
+                    "stream": ["sof", "eol", "last"]}],
+        "vivado": {"module": "dst"}, "sources": ["dst.v"]}
+
+
+def _mixed(library, dst_width="out_bits", isp_build=None):
+    """src -> isp -> dst, the ISP a composite of model blocks whose input
+    states its stream; the top takes the depth in from the ISP's input and
+    the word out from its trace, and wires both into its neighbours."""
+    def files(name):
+        isp = chain(("bl", BL), ("wb", WB))
+        isp["parameters"] = {"w": {"default": 64}}
+        isp["inputs"][0].update(bits=12, max_width="w", max_height=32)
+        top = {"parameters": {"bits": {"default": "isp.in.bits"},
+                              "out_bits": {"default": "isp.out.data_bits"}},
+               "nodes": {"src": {"block": f"{name}.lib:source",
+                                 "build": {"W": "bits"}},
+                         "isp": {"block": f"{name}.lib:isp",
+                                 "build": isp_build or {}},
+                         "dst": {"block": f"{name}.lib:sink",
+                                 "build": {"W": dst_width}}},
+               "connections": [["src.out", "isp.in"], ["isp.out", "dst.in"]]}
+        return {"lib": {"source": SOURCE, "sink": SINK, "isp": isp,
+                        "top": top}}
+    return f"{library(files)}.lib:top"
+
+
+def test_a_composite_of_model_blocks_in_a_design_is_one_cell(library):
+    design = load(_mixed(library))
+    isp = design.instances["isp"]
+    assert isp.kind == "primitive" and "isp.bl" not in design.instances
+    names = {p["name"] for p in isp.leaf["ports"]}
+    assert {"in_valid", "in_data", "out_valid", "s_axil_awaddr"} <= names
+    assert ("src.out", "isp.in") in design.edges
+    assert ("isp.out", "dst.in") in design.edges
+    assert any(f.endswith("_regmap.json") for f in isp.leaf["files"])
+
+
+def test_a_parameter_may_be_assigned_a_nodes_facts(library):
+    """Declared where the stream enters, traced where it leaves."""
+    design = load(_mixed(library))
+    assert design.parameters["bits"] == 12
+    assert design.parameters["out_bits"] == 12          # blacklevel, wb: 12
+    assert design.instances["dst"].build == {"W": 12}
+
+
+def test_a_wire_disagreeing_with_the_traced_word_is_refused(library):
+    with pytest.raises(CompositionError, match="WIDTH MISMATCH"):
+        load(_mixed(library, dst_width=10))
+
+
+def test_a_parameter_that_needs_its_own_trace_is_a_cycle(library):
+    with pytest.raises(CompositionError, match="a cycle"):
+        load(_mixed(library, isp_build={"w": "out_bits"}))
+
+
+def test_a_design_of_model_blocks_alone_is_not_built_whole(library):
+    lib = library({"lib": {"isp": dict(
+        chain(("bl", BL)),
+        inputs=[{"name": "in", "bits": 12, "max_width": 64,
+                 "max_height": 32}])}})
+    design = load(f"{lib}.lib:isp")
+    assert design.instances["bl"].kind == "block"
+
+
+# -- a block described apart from its implementations ----------------------- #
+
+RX = {"parameters": {"implementation": {"default": "'a'"},
+                     "speed": {"default": 2}},
+      "inputs": [{"name": "clk"}],
+      "outputs": [{"name": "q", "width": 8}],
+      "implementations": {
+          "a": {"vivado": {"ip": "vendor.com:ip:a"},
+                "ports": {"clk": "CLK_A", "q": "Q_A"},
+                "facts": {"order": [2, 0, 1]},
+                "config": {"MODE": "'fast' if speed > 1 else 'slow'"}},
+          "b": {"vivado": {"module": "bmod"}, "sources": ["b.v"],
+                "facts": {"order": [0, 1, 2]}}}}
+SNK = {"parameters": {"W": {}}, "inputs": [{"name": "d", "width": "W"}],
+       "vivado": {"module": "snk"}, "sources": ["snk.v"]}
+
+
+def _with_rx(library, rx_entry=None):
+    lib = library(lambda name: {"lib": {
+        "rx": RX, "snk": SNK,
+        "top": {"parameters": {"first": {"default": "rx.order[0]"}},
+                "nodes": {"rx": {"block": f"{name}.lib:rx", **(rx_entry or {})},
+                          "snk": {"block": f"{name}.lib:snk",
+                                  "build": {"W": 8}}},
+                "connections": [["rx.q", "snk.d"]]}}})
+    return load(f"{lib}.lib:top")
+
+
+def test_a_block_is_filled_by_the_implementation_its_parameter_chooses(
+        library):
+    design = _with_rx(library)
+    rx = design.instances["rx"]
+    assert rx.leaf["vivado"] == {"ip": "vendor.com:ip:a"}
+    assert rx.leaf["port_map"] == {"clk": "CLK_A", "q": "Q_A"}
+    # the implementation's settings, evaluated over the block's parameters;
+    # the block's parameters themselves are not the vendor's
+    assert rx.config == {"MODE": "fast"}
+    assert rx.build == {}
+    # wired, and checked, by the block's own ports
+    assert ("rx.q", "snk.d") in design.edges
+
+
+def test_the_implementation_is_set_from_outside_and_its_facts_follow(
+        library):
+    design = _with_rx(library, {"build": {"implementation": "'b'"}})
+    rx = design.instances["rx"]
+    assert rx.leaf["vivado"] == {"module": "bmod"}
+    assert rx.leaf["sources"] == ["b.v"]
+    assert design.parameters["first"] == 0
+    assert _with_rx(library).parameters["first"] == 2
+
+
+def test_an_implementations_settings_follow_the_blocks_parameters(library):
+    design = _with_rx(library, {"build": {"speed": 1}})
+    assert design.instances["rx"].config == {"MODE": "slow"}
+
+
+def test_an_implementation_the_block_lacks_is_refused(library):
+    with pytest.raises(CompositionError, match=r"no implementation 'c' "
+                       r"\(implementations \['a', 'b'\]\)"):
+        _with_rx(library, {"build": {"implementation": "'c'"}})
+
+
+def test_a_block_is_wired_by_its_own_port_names(library):
+    with pytest.raises(CompositionError, match="Q_A"):
+        lib = library(lambda name: {"lib": {
+            "rx": RX, "snk": SNK,
+            "top": {"nodes": {"rx": {"block": f"{name}.lib:rx"},
+                              "snk": {"block": f"{name}.lib:snk",
+                                      "build": {"W": 8}}},
+                    "connections": [["rx.Q_A", "snk.d"]]}}})
+        load(f"{lib}.lib:top")
+
+
+def test_a_vendor_blocks_ports_are_checked_like_any_others(library):
+    lib = library(lambda name: {"lib": {
+        "rx": RX, "snk": SNK,
+        "top": {"nodes": {"rx": {"block": f"{name}.lib:rx"},
+                          "snk": {"block": f"{name}.lib:snk",
+                                  "build": {"W": 4}}},
+                "connections": [["rx.q", "snk.d"]]}}})
+    with pytest.raises(CompositionError, match="rx.q.*8.*snk.d.*4|"
+                                               "snk.d.*4.*rx.q.*8"):
+        load(f"{lib}.lib:top")
+
+
+def test_a_port_exists_only_when_the_blocks_parameters_say(library):
+    clock = {"parameters": {"implementation": {"default": "'x'"},
+                            "shift": {"default": 0}},
+             "inputs": [{"name": "clk_in"},
+                        {"name": "psen", "when": "shift"}],
+             "outputs": [{"name": "clk_out"}],
+             "implementations": {"x": {"vivado": {"ip": "v:x"}}}}
+
+    def top(shift):
+        return {"nodes": {"c": {"block": "{lib}.lib:clock",
+                                "build": {"shift": shift}}},
+                "connections": []}
+
+    for shift, has in ((0, False), (1, True)):
+        lib = library(lambda name, shift=shift: {"lib": {
+            "clock": clock,
+            "top": json.loads(json.dumps(top(shift)).replace("{lib}",
+                                                              name))}})
+        leaf = load(f"{lib}.lib:top").instances["c"].leaf
+        assert ("psen" in [p["name"] for p in leaf["inputs"]]) is has
+        assert not any("when" in p for p in leaf["inputs"])
+
+
+# -- a design's expression may call a function its library offers ---------- #
+
+FUNCTIONS = '''
+def double(n):
+    return 2 * n
+double.expression = True
+
+def hidden(n):
+    return n
+'''
+
+
+def _calling(library, call):
+    lib = library(lambda name: {"lib": {
+        "top": dict(chain(("a", BL)),
+                    parameters={"n": {"default": 21},
+                                "m": {"default": call.replace("{lib}",
+                                                              name)}})}},
+        python={"fns": FUNCTIONS})
+    return load(f"{lib}.lib:top")
+
+
+def test_an_expression_calls_a_function_its_library_offers(library):
+    assert _calling(library, "@{lib}.fns:double(n) + 1").parameters["m"] == 43
+
+
+def test_a_function_that_does_not_offer_itself_is_refused(library):
+    with pytest.raises(CompositionError,
+                       match=r"hidden does not say it may be called"):
+        _calling(library, "@{lib}.fns:hidden(n)")
+
+
+def test_the_raster_clock_is_read_from_the_mode_table():
+    from revela.designs.composite import evaluate, parse
+    assert evaluate(parse("@revela.boards.modes:pixel_khz(m)", "t"),
+                    lambda name: "1080p30") == 74250
+
+
+def test_a_composite_input_that_does_not_exist_needs_no_driver(library):
+    """A port with a `when` exists only where it is true: an input the
+    variant does not have is not refused for being undriven."""
+    def lib(flag):
+        return library(lambda name: {"lib": {
+            "inner": dict(chain(("a", BL)),
+                          parameters={"extra": {"default": 0}},
+                          inputs=[{"name": "in"},
+                                  {"name": "aux", "when": "extra"}],
+                          nodes={"a": {"block": BL},
+                                 "b": {"block": BL, "when": "extra"}},
+                          connections=[["in", "a.in"], ["a.out", "out"],
+                                       {"from": "aux", "to": "b.in",
+                                        "when": "extra"}]),
+            "top": dict(chain(("i", f"{name}.lib:inner")),
+                        nodes={"i": {"block": f"{name}.lib:inner",
+                                     "build": {"extra": flag}}})}})
+    assert "i.a" in load(f"{lib(0)}.lib:top").instances
+    with pytest.raises(CompositionError, match="aux.*driven by nothing"):
+        load(f"{lib(1)}.lib:top")

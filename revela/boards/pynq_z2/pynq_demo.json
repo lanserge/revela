@@ -5,7 +5,7 @@
    "parameters": {
     "pipeline": {
      "default": "@revela.boards.pynq_z2.isp:revela_isp_core",
-     "description": "The ISP this demo builds, by reference: a composite of revela's blocks, generated and proved before the board is built."
+     "description": "The ISP this demo builds, by reference: a composite of revela's blocks, generated and proved as part of this design."
     },
     "mode": {
      "default": "link_mode",
@@ -36,20 +36,20 @@
      "description": "What the raster paints outside the picture."
     },
     "out_khz": {
-     "description": "The output raster's pixel clock in kHz, from the mode table: supplied by the build."
+     "default": "@revela.boards.modes:pixel_khz(mode)",
+     "description": "The output raster's pixel clock in kHz, from np2hw's mode table."
     },
     "genlock": {
      "default": "1 if out_khz < 100000 else 0",
      "description": "A 74.25-class raster genlocks to the stream; a 148.5-class one free-runs."
     },
     "sample_bits": {
-     "description": "The width of one sample into the ISP, from its published contract: supplied by the build."
-    },
-    "isp_width": {
-     "description": "The width the ISP was built for, from its contract: supplied by the build."
+     "default": "fabric.sample_bits",
+     "description": "The depth of one sample into the ISP, as the design reads it from the ISP: for the capture path."
     },
     "isp_out_bits": {
-     "description": "The ISP's traced output word, from its contract: supplied by the build."
+     "default": "fabric.isp_out_bits",
+     "description": "The ISP's output word, as the design reads it from the ISP."
     },
     "layout_id": {
      "default": 0,
@@ -68,102 +68,52 @@
      "block": "revela.boards.zynq7.ps7",
      "description": "The processing system, on the board's preset. FCLK0 is every AXI clock here, at 142.857143 MHz: 142.86 rather than 100 so the island and the display merge into one clock and a fractional MMCM is retired. FCLK1 is the 200 MHz the HDMI front end calibrates its delays with.",
      "config": {
-      "PCW_USE_S_AXI_HP0": "1",
-      "PCW_USE_S_AXI_HP1": "0",
-      "PCW_EN_CLK1_PORT": "1",
       "PCW_FPGA0_PERIPHERAL_FREQMHZ": "142.857143",
-      "PCW_FPGA1_PERIPHERAL_FREQMHZ": "200",
-      "PCW_USE_FABRIC_INTERRUPT": "1",
-      "PCW_IRQ_F2P_INTR": "1"
+      "PCW_FPGA1_PERIPHERAL_FREQMHZ": "200"
+     },
+     "build": {
+      "hp0": 1,
+      "fclk1": 1,
+      "irq_count": 2
      }
     },
     "hdmi_in": {
      "block": "revela.boards.pynq_z2.hdmi_in"
     },
     "vdma": {
-     "block": "revela.boards.zynq7.ip:axi_vdma",
+     "block": "revela.boards.common.frame_dma",
      "config": {
-      "c_include_mm2s": "0",
-      "c_include_s2mm": "1",
-      "c_s2mm_linebuffer_depth": "2048",
-      "c_use_fsync": "0",
-      "c_num_fstores": "1",
-      "c_s2mm_genlock_mode": "0"
+      "c_s2mm_linebuffer_depth": "2048"
      }
     },
-    "blrx": {
-     "block": "bayerlink_fpga.receiver:bayerlink_rx",
+    "fabric": {
+     "block": "revela.designs.bayerlink_display",
+     "description": "The camera-on-a-display design, filled with this board's ISP and fed this board's clocks and resets.",
      "build": {
-      "frontend": "hdmi_in.frontend",
-      "fifo_depth": "rx_fifo",
+      "pipeline": "pipeline",
+      "mode": "mode",
+      "link_mode": "link_mode",
+      "isp_mhz": "isp_mhz",
+      "rx_fifo": "rx_fifo",
       "max_line_bytes": "max_line_bytes",
-      "bits": "sample_bits"
-     }
-    },
-    "isp_in_shim": {
-     "block": "bayerlink_fpga.modules:rx_axis",
-     "build": {
-      "SAMPLE_BITS": "sample_bits"
-     }
-    },
-    "isp_unpack": {
-     "block": "bayerlink_fpga.modules:axis_unpack",
-     "build": {
-      "SAMPLE_BITS": "sample_bits"
-     }
-    },
-    "isp": {
-     "block": "revela.boards.pynq_z2.modules:revela_isp",
-     "build": {
-      "WIDTH": "isp_width",
-      "SAMPLE_BITS": "sample_bits",
-      "DATA_BITS": "isp_out_bits"
-     }
-    },
-    "isp_tee": {
-     "block": "revela.boards.pynq_z2.modules:tee_shim",
-     "build": {
-      "DATA_BITS": "isp_out_bits"
-     }
-    },
-    "isp_out": {
-     "block": "revela.boards.pynq_z2.modules:isp_axis",
-     "build": {
-      "DATA_BITS": "isp_out_bits"
-     }
-    },
-    "isp_dir": {
-     "block": "revela.boards.pynq_z2.modules:isp_axis",
-     "build": {
-      "DATA_BITS": "isp_out_bits"
+      "fill": "fill",
+      "genlock": "genlock",
+      "lane_map": "hdmi_in.lane_map",
+      "vsync_active_high": "hdmi_in.vsync_active_high"
      }
     },
     "clk_out": {
-     "block": "revela.boards.zynq7.ip:clk_wiz",
+     "block": "revela.boards.common.clock",
      "config": {
       "PRIM_IN_FREQ": "200.000",
-      "PRIM_SOURCE": "No_buffer",
-      "CLKOUT1_REQUESTED_OUT_FREQ": "148.500",
-      "USE_LOCKED": "true",
-      "USE_RESET": "false"
+      "CLKOUT1_REQUESTED_OUT_FREQ": "148.500"
      },
      "when": "not genlock"
-    },
-    "isp_cdc": {
-     "block": "revela.boards.zynq7.ip:axis_clock_converter"
     },
     "hdmi_out": {
      "block": "revela.boards.pynq_z2.hdmi_out",
      "build": {
       "out_khz": "out_khz"
-     }
-    },
-    "scanout": {
-     "block": "revela.boards.pynq_z2.scanout:scanout",
-     "build": {
-      "mode": "mode",
-      "genlock": "genlock",
-      "fill": "fill"
      }
     },
     "irq_cat": {
@@ -239,18 +189,8 @@
       ]
      }
     },
-    "link_rst": {
-     "block": "bayerlink_fpga.modules:link_reset"
-    },
     "rst_isp": {
      "block": "revela.boards.zynq7.ip:proc_sys_reset"
-    },
-    "rstn_link": {
-     "block": "revela.boards.zynq7.ip:util_vector_logic",
-     "config": {
-      "C_SIZE": "1",
-      "C_OPERATION": "not"
-     }
     },
     "status": {
      "block": "revela.boards.zynq7.gpio:words",
@@ -423,20 +363,6 @@
     "rst_bus": {
      "block": "revela.boards.zynq7.ip:proc_sys_reset"
     },
-    "ddc": {
-     "block": "bayerlink_fpga.ddc:ddc_slave",
-     "build": {
-      "link_mode": "link_mode"
-     }
-    },
-    "rstn_pix": {
-     "block": "revela.boards.zynq7.ip:util_vector_logic",
-     "when": "capture",
-     "config": {
-      "C_SIZE": "1",
-      "C_OPERATION": "not"
-     }
-    },
     "lock_inv": {
      "block": "revela.boards.zynq7.ip:util_vector_logic",
      "config": {
@@ -453,14 +379,10 @@
      "when": "genlock"
     },
     "clk_out74": {
-     "block": "revela.boards.zynq7.ip:clk_wiz",
+     "block": "revela.boards.common.clock",
      "config": {
       "PRIM_IN_FREQ": "200.000",
-      "PRIM_SOURCE": "No_buffer",
       "CLKOUT1_REQUESTED_OUT_FREQ": "74.250",
-      "USE_DYN_PHASE_SHIFT": "true",
-      "USE_LOCKED": "true",
-      "USE_RESET": "false",
       "OVERRIDE_MMCM": "true",
       "MMCM_DIVCLK_DIVIDE": "10",
       "MMCM_CLKFBOUT_MULT_F": "37.125",
@@ -468,15 +390,10 @@
       "CLK_OUT1_USE_FINE_PS_GUI": "true",
       "MMCM_CLKOUT0_USE_FINE_PS": "true"
      },
-     "when": "genlock"
-    },
-    "out_cdc": {
-     "block": "revela.boards.pynq_z2.scanout:out_cdc",
+     "when": "genlock",
      "build": {
-      "mode": "mode",
-      "fill": "fill"
-     },
-     "when": "genlock"
+      "fine_phase_shift": 1
+     }
     },
     "sw": {
      "block": "bayerlink_fpga.modules:stream_switch",
@@ -493,17 +410,15 @@
      "when": "capture"
     },
     "cdc": {
-     "block": "revela.boards.zynq7.ip:axis_clock_converter",
-     "when": "capture"
+     "block": "revela.boards.common.stream_cdc",
+     "when": "capture",
+     "description": "The capture branch into FCLK0, where the DMA runs: np2hw's stream crossing, reset by the broom on both sides, as the capture path is.",
+     "build": {
+      "DATA_BITS": "sample_bits"
+     }
     },
     "dma": {
-     "block": "revela.boards.zynq7.ip:axi_dma",
-     "config": {
-      "c_include_mm2s": "0",
-      "c_include_sg": "0",
-      "c_s_axis_s2mm_tdata_width": "32",
-      "c_sg_length_width": "26"
-     },
+     "block": "revela.boards.common.stream_dma",
      "when": "capture"
     },
     "spy_cdc": {
@@ -523,9 +438,7 @@
      "config": {
       "bus_reset": "rst_bus/peripheral_aresetn",
       "link_reset": "rst_isp/peripheral_aresetn",
-      "link_reset_keeps": [
-       "/isp_cdc/m_axis_aresetn"
-      ],
+      "link_reset_keeps": [],
       "control_interconnect": "ps7_axi_periph",
       "steps": [
        {
@@ -546,7 +459,7 @@
         "config": "Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} Master {/ps7/M_AXI_GP0} intc_ip {New AXI Interconnect}"
        },
        {
-        "automate": "isp/s_axi",
+        "automate": "isp/s_axil",
         "repair": 1,
         "config": "Clk_master {/ps7/FCLK_CLK0} Clk_slave {%island%} Clk_xbar {/ps7/FCLK_CLK0} Master {/ps7/M_AXI_GP0} intc_ip {New AXI Interconnect}"
        },
@@ -556,10 +469,10 @@
         "config": "Clk_master {/ps7/FCLK_CLK0} Clk_slave {%island%} Clk_xbar {/ps7/FCLK_CLK0} Master {/ps7/M_AXI_GP0} intc_ip {Auto}"
        },
        {
-        "second_master": "isp/s_axi",
+        "second_master": "isp/s_axil",
         "master": "ddc/M_AXI",
         "name": "ic_ddc",
-        "segment": "isp/s_axi/reg0",
+        "segment": "isp/s_axil/reg0",
         "range": "32K"
        },
        {
@@ -606,140 +519,57 @@
      "ps7.FCLK_CLK1",
      "hdmi_in.refclk"
     ],
-    {
-     "from": "blrx.out",
-     "to": "isp_in_shim.in",
-     "when": "not capture"
-    },
-    [
-     "isp_unpack.out",
-     "isp.in"
-    ],
-    [
-     "isp.out",
-     "isp_tee.in"
-    ],
-    [
-     "isp_tee.b",
-     "isp_out.in"
-    ],
-    [
-     "isp_tee.a",
-     "isp_dir.in"
-    ],
     [
      "hdmi_in.pclk",
-     "blrx.clk"
+     "fabric.rx_pclk"
     ],
     [
      "hdmi_in.data",
-     "blrx.vid_data"
+     "fabric.rx_data"
     ],
     [
      "hdmi_in.de",
-     "blrx.vid_de"
+     "fabric.rx_de"
     ],
     [
      "hdmi_in.vsync",
-     "blrx.vid_vsync"
+     "fabric.rx_vsync"
     ],
     {
      "from": "ps7.FCLK_CLK1",
-     "to": "clk_out.clk_in1",
-     "when": "not genlock"
-    },
-    [
-     "hdmi_in.pclk",
-     "isp_in_shim.clk"
-    ],
-    [
-     "isp_in_shim.m_axis",
-     "isp_cdc.S_AXIS"
-    ],
-    [
-     "hdmi_in.pclk",
-     "isp_cdc.s_axis_aclk"
-    ],
-    {
-     "from": "clk_out.clk_out1",
-     "to": "isp_cdc.m_axis_aclk",
+     "to": "clk_out.clk_in",
      "when": "not genlock"
     },
     {
-     "from": "clk_out.clk_out1",
-     "to": "isp_unpack.clk",
+     "from": "clk_out.clk_out",
+     "to": "fabric.isp_clk",
      "when": "not genlock"
     },
     [
-     "isp_cdc.M_AXIS",
-     "isp_unpack.s_axis"
+     "fabric.grab",
+     "vdma.frames"
     ],
     {
-     "from": "clk_out.clk_out1",
-     "to": "isp.clk",
-     "when": "not genlock"
-    },
-    [
-     "blrx.hdr_width",
-     "isp.hdr_width"
-    ],
-    [
-     "blrx.hdr_height",
-     "isp.hdr_height"
-    ],
-    [
-     "blrx.hdr_phase",
-     "isp.hdr_phase"
-    ],
-    [
-     "blrx.hdr_bits",
-     "isp.hdr_bits"
-    ],
-    {
-     "from": "clk_out.clk_out1",
-     "to": "isp_tee.clk",
-     "when": "not genlock"
-    },
-    {
-     "from": "clk_out.clk_out1",
-     "to": "isp_out.clk",
-     "when": "not genlock"
-    },
-    [
-     "isp_out.m_axis",
-     "vdma.S_AXIS_S2MM"
-    ],
-    {
-     "from": "clk_out.clk_out1",
-     "to": "isp_dir.clk",
-     "when": "not genlock"
-    },
-    {
-     "from": "clk_out.clk_out1",
-     "to": "scanout.clk",
+     "from": "clk_out.clk_out",
+     "to": "fabric.raster_clk",
      "when": "not genlock"
     },
     {
      "from": "clk_out.locked",
-     "to": "scanout.locked",
+     "to": "fabric.raster_locked",
      "when": "not genlock"
     },
     [
-     "scanout.vid_io",
+     "fabric.raster",
      "hdmi_out.rgb"
     ],
     {
-     "from": "clk_out.clk_out1",
+     "from": "clk_out.clk_out",
      "to": "hdmi_out.pixel_clk",
      "when": "not genlock"
     },
-    {
-     "from": "isp_dir.m_axis",
-     "to": "scanout.s_axis",
-     "when": "not genlock"
-    },
     [
-     "vdma.s2mm_introut",
+     "vdma.irq",
      "irq_cat.In0"
     ],
     {
@@ -753,35 +583,31 @@
     ],
     [
      "control.grab",
-     "isp_tee.en_b"
+     "fabric.en_grab"
     ],
     [
      "control.direct",
-     "isp_tee.en_a"
+     "fabric.en_direct"
     ],
     [
      "ps7.FCLK_CLK0",
-     "link_rst.stable_clk"
-    ],
-    [
-     "hdmi_in.pclk",
-     "link_rst.pix_clk"
+     "fabric.stable_clk"
     ],
     [
      "hdmi_in.locked",
-     "link_rst.locked_a"
+     "fabric.rx_locked"
     ],
     [
      "control.broom",
-     "link_rst.soft_rst"
+     "fabric.broom"
     ],
     {
-     "from": "clk_out.clk_out1",
+     "from": "clk_out.clk_out",
      "to": "rst_isp.slowest_sync_clk",
      "when": "not genlock"
     },
     [
-     "link_rst.rst_pix",
+     "fabric.rst_pix",
      "rst_isp.ext_reset_in"
     ],
     {
@@ -791,47 +617,7 @@
     },
     [
      "rst_isp.peripheral_reset",
-     "isp.rst"
-    ],
-    [
-     "rst_isp.peripheral_reset",
-     "isp_out.rst"
-    ],
-    [
-     "rst_isp.peripheral_reset",
-     "isp_unpack.rst"
-    ],
-    [
-     "rst_isp.peripheral_reset",
-     "isp_tee.rst"
-    ],
-    [
-     "rst_isp.peripheral_reset",
-     "isp_dir.rst"
-    ],
-    [
-     "rst_isp.peripheral_aresetn",
-     "isp_cdc.m_axis_aresetn"
-    ],
-    [
-     "link_rst.rst_pix",
-     "rstn_link.Op1"
-    ],
-    [
-     "rstn_link.Res",
-     "isp_cdc.s_axis_aresetn"
-    ],
-    [
-     "link_rst.rst_pix",
-     "isp_in_shim.rst"
-    ],
-    [
-     "link_rst.rst_pix",
-     "blrx.rst"
-    ],
-    [
-     "control.broom",
-     "blrx.diag_clear"
+     "fabric.isp_rst"
     ],
     {
      "from": "spy_tie.dout",
@@ -844,27 +630,27 @@
      "when": "not genlock"
     },
     [
-     "scanout.status",
+     "fabric.raster_status",
      "status.scanout_status"
     ],
     [
-     "blrx.refused",
+     "fabric.refused",
      "status.refused"
     ],
     [
-     "blrx.refuse_code",
+     "fabric.refuse_code",
      "status.refuse_code"
     ],
     [
-     "blrx.hdr_bits",
+     "fabric.hdr_bits",
      "status.hdr_bits"
     ],
     [
-     "blrx.hdr_valid",
+     "fabric.hdr_valid",
      "status.hdr_valid"
     ],
     [
-     "blrx.hdr_phase",
+     "fabric.hdr_phase",
      "status.hdr_phase"
     ],
     [
@@ -872,23 +658,23 @@
      "status.island_reset"
     ],
     [
-     "isp.in_valid",
+     "fabric.entry_in_valid",
      "status.isp_in_valid"
     ],
     [
-     "isp.in_ready",
+     "fabric.entry_in_ready",
      "status.isp_in_ready"
     ],
     [
-     "isp.out_valid",
+     "fabric.isp_out_valid",
      "status.isp_out_valid"
     ],
     [
-     "isp_in_shim.in_valid",
+     "fabric.cdc_in_valid",
      "status.shim_in_valid"
     ],
     [
-     "isp_in_shim.in_ready",
+     "fabric.cdc_in_ready",
      "status.shim_in_ready"
     ],
     [
@@ -896,39 +682,39 @@
      "status.link_locked"
     ],
     [
-     "blrx.overflow",
+     "fabric.rx_overflow",
      "status.rx_overflow"
     ],
     [
-     "blrx.hdr_frame_seq",
+     "fabric.frame_seq",
      "stream.frame_seq"
     ],
     [
-     "blrx.hdr_source_id",
+     "fabric.source_id",
      "stream.source_id"
     ],
     [
-     "blrx.resync_count",
+     "fabric.resync_count",
      "stream.resync_count"
     ],
     [
-     "link_rst.link_up",
+     "fabric.link_up",
      "stream.link_up"
     ],
     [
-     "link_rst.loss_count",
+     "fabric.loss_count",
      "stream.loss_count"
     ],
     [
-     "isp_tee.torn_a",
+     "fabric.torn_a",
      "stream.torn_a"
     ],
     [
-     "isp_tee.torn_b",
+     "fabric.torn_b",
      "stream.torn_b"
     ],
     {
-     "from": "clk_out.clk_out1",
+     "from": "clk_out.clk_out",
      "to": "rst_bus.slowest_sync_clk",
      "when": "not genlock"
     },
@@ -942,58 +728,35 @@
      "when": "not genlock"
     },
     {
-     "from": "clk_out.clk_out1",
-     "to": "isp.s_axi_aclk",
+     "from": "clk_out.clk_out",
+     "to": "fabric.bus_clk",
      "when": "not genlock"
     },
     [
      "rst_bus.peripheral_aresetn",
-     "isp.s_axi_aresetn"
-    ],
-    {
-     "from": "clk_out.clk_out1",
-     "to": "scanout.s_axi_aclk",
-     "when": "not genlock"
-    },
-    [
-     "rst_bus.peripheral_aresetn",
-     "scanout.s_axi_aresetn"
+     "fabric.bus_resetn"
     ],
     [
      "hdmi_in.scl_i",
-     "ddc.scl_i"
+     "fabric.scl_i"
     ],
     [
      "hdmi_in.sda_i",
-     "ddc.sda_i"
+     "fabric.sda_i"
     ],
     [
-     "ddc.sda_pull",
+     "fabric.sda_pull",
      "hdmi_in.sda_pull"
     ],
-    {
-     "from": "clk_out.clk_out1",
-     "to": "ddc.clk",
-     "when": "not genlock"
-    },
     [
      "rst_bus.peripheral_reset",
-     "ddc.rst"
+     "fabric.bus_rst"
     ],
     {
-     "from": "clk_out.clk_out1",
-     "to": "vdma.s_axis_s2mm_aclk",
+     "from": "clk_out.clk_out",
+     "to": "vdma.frames_clk",
      "when": "not genlock"
     },
-    {
-     "from": "control.broom",
-     "to": "rstn_pix.Op1",
-     "when": "capture"
-    },
-    [
-     "control.broom",
-     "scanout.rst"
-    ],
     {
      "from": "clk_out.locked",
      "to": "lock_inv.Op1",
@@ -1005,107 +768,47 @@
     ],
     {
      "from": "ps7.FCLK_CLK1",
-     "to": "clk_out74.clk_in1",
+     "to": "clk_out74.clk_in",
      "when": "genlock"
     },
     {
-     "from": "clk_out74.clk_out1",
+     "from": "clk_out74.clk_out",
      "to": "clk_out74.psclk",
      "when": "genlock"
     },
     {
      "from": "ps7.FCLK_CLK0",
-     "to": "isp_cdc.m_axis_aclk",
+     "to": "fabric.isp_clk",
      "when": "genlock"
     },
     {
-     "from": "ps7.FCLK_CLK0",
-     "to": "isp_unpack.clk",
-     "when": "genlock"
-    },
-    {
-     "from": "ps7.FCLK_CLK0",
-     "to": "isp.clk",
-     "when": "genlock"
-    },
-    {
-     "from": "ps7.FCLK_CLK0",
-     "to": "isp_tee.clk",
-     "when": "genlock"
-    },
-    {
-     "from": "ps7.FCLK_CLK0",
-     "to": "isp_out.clk",
-     "when": "genlock"
-    },
-    {
-     "from": "ps7.FCLK_CLK0",
-     "to": "isp_dir.clk",
-     "when": "genlock"
-    },
-    {
-     "from": "clk_out74.clk_out1",
-     "to": "scanout.clk",
+     "from": "clk_out74.clk_out",
+     "to": "fabric.raster_clk",
      "when": "genlock"
     },
     {
      "from": "clk_out74.locked",
-     "to": "scanout.locked",
+     "to": "fabric.raster_locked",
      "when": "genlock"
     },
     {
-     "from": "clk_out74.clk_out1",
+     "from": "clk_out74.clk_out",
      "to": "hdmi_out.pixel_clk",
      "when": "genlock"
     },
     {
-     "from": "scanout.ps_en",
+     "from": "fabric.raster_ps_en",
      "to": "clk_out74.psen",
      "when": "genlock"
     },
     {
-     "from": "scanout.ps_incdec",
+     "from": "fabric.raster_ps_incdec",
      "to": "clk_out74.psincdec",
      "when": "genlock"
     },
     {
      "from": "clk_out74.psdone",
-     "to": "scanout.ps_done",
-     "when": "genlock"
-    },
-    {
-     "from": "ps7.FCLK_CLK0",
-     "to": "out_cdc.wclk",
-     "when": "genlock"
-    },
-    {
-     "from": "clk_out74.clk_out1",
-     "to": "out_cdc.rclk",
-     "when": "genlock"
-    },
-    {
-     "from": "isp_dir.m_axis",
-     "to": "out_cdc.s_axis",
-     "when": "genlock"
-    },
-    {
-     "from": "out_cdc.m_axis",
-     "to": "scanout.s_axis",
-     "when": "genlock"
-    },
-    {
-     "from": "isp_tee.en_a",
-     "to": "scanout.param_follow",
-     "when": "genlock"
-    },
-    {
-     "from": "control.broom",
-     "to": "out_cdc.wrst",
-     "when": "genlock"
-    },
-    {
-     "from": "control.broom",
-     "to": "out_cdc.rrst",
+     "to": "fabric.raster_ps_done",
      "when": "genlock"
     },
     {
@@ -1135,22 +838,12 @@
     },
     {
      "from": "ps7.FCLK_CLK0",
-     "to": "isp.s_axi_aclk",
+     "to": "fabric.bus_clk",
      "when": "genlock"
     },
     {
      "from": "ps7.FCLK_CLK0",
-     "to": "scanout.s_axi_aclk",
-     "when": "genlock"
-    },
-    {
-     "from": "ps7.FCLK_CLK0",
-     "to": "ddc.clk",
-     "when": "genlock"
-    },
-    {
-     "from": "ps7.FCLK_CLK0",
-     "to": "vdma.s_axis_s2mm_aclk",
+     "to": "vdma.frames_clk",
      "when": "genlock"
     },
     {
@@ -1159,33 +852,13 @@
      "when": "genlock"
     },
     {
-     "from": "blrx.out",
+     "from": "fabric.rx_out",
      "to": "sw.in",
      "when": "capture"
     },
     {
-     "from": "sw.a",
-     "to": "shim.in",
-     "when": "capture"
-    },
-    {
      "from": "sw.b",
-     "to": "isp_in_shim.in",
-     "when": "capture"
-    },
-    {
-     "from": "hdmi_in.pclk",
-     "to": "shim.clk",
-     "when": "capture"
-    },
-    {
-     "from": "shim.m_axis",
-     "to": "cdc.S_AXIS",
-     "when": "capture"
-    },
-    {
-     "from": "hdmi_in.pclk",
-     "to": "cdc.s_axis_aclk",
+     "to": "fabric.isp_in",
      "when": "capture"
     },
     {
@@ -1194,28 +867,18 @@
      "when": "capture"
     },
     {
-     "from": "cdc.M_AXIS",
-     "to": "spy_cdc.s_axis",
-     "when": "capture"
-    },
-    {
      "from": "spy_cdc.m_axis",
-     "to": "dma.S_AXIS_S2MM",
+     "to": "dma.stream",
      "when": "capture"
     },
     {
-     "from": "dma.s2mm_introut",
+     "from": "dma.irq",
      "to": "irq_cat.In1",
      "when": "capture"
     },
     {
      "from": "control.consumer",
      "to": "sw.sel",
-     "when": "capture"
-    },
-    {
-     "from": "link_rst.rst_pix",
-     "to": "shim.rst",
      "when": "capture"
     },
     {
@@ -1230,22 +893,57 @@
     },
     {
      "from": "ps7.FCLK_CLK0",
-     "to": "dma.m_axi_s2mm_aclk",
+     "to": "dma.mem_clk",
+     "when": "capture"
+    },
+    {
+     "from": "fabric.rx_out",
+     "to": "fabric.isp_in",
+     "when": "not capture"
+    },
+    {
+     "from": "sw.a",
+     "to": "cdc.in",
+     "when": "capture"
+    },
+    {
+     "from": "hdmi_in.pclk",
+     "to": "cdc.wclk",
+     "when": "capture"
+    },
+    {
+     "from": "control.broom",
+     "to": "cdc.wrst",
      "when": "capture"
     },
     {
      "from": "ps7.FCLK_CLK0",
-     "to": "cdc.m_axis_aclk",
+     "to": "cdc.rclk",
      "when": "capture"
     },
     {
-     "from": "rstn_pix.Res",
-     "to": "cdc.s_axis_aresetn",
+     "from": "control.broom",
+     "to": "cdc.rrst",
      "when": "capture"
     },
     {
-     "from": "rstn_pix.Res",
-     "to": "cdc.m_axis_aresetn",
+     "from": "cdc.out",
+     "to": "shim.in",
+     "when": "capture"
+    },
+    {
+     "from": "ps7.FCLK_CLK0",
+     "to": "shim.clk",
+     "when": "capture"
+    },
+    {
+     "from": "control.broom",
+     "to": "shim.rst",
+     "when": "capture"
+    },
+    {
+     "from": "shim.m_axis",
+     "to": "spy_cdc.s_axis",
      "when": "capture"
     }
    ]

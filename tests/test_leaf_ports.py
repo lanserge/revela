@@ -27,23 +27,6 @@ DESIGN = "revela.boards.pynq_z2.pynq_demo:pynq_demo"
 VALUES = {"SAMPLE_BITS": 13, "DATA_BITS": 27, "WIDTH": 640, "DW": 24}
 
 
-def _companions(name: str, values: dict) -> list[str]:
-    """The generated modules a hand-written leaf instantiates, made here as
-    the build makes them, at the widths these values imply."""
-    if name == "tee_shim":
-        from np2hw import cdc_fifo, skid, tee
-        w = values["DATA_BITS"] + 3
-        return [tee(w, module_name="isp_tee")["verilog"],
-                skid(w, module_name="isp_skid")["verilog"],
-                cdc_fifo(w, addr_bits=4, module_name="grab_fifo")["verilog"]]
-    if name == "revela_isp":
-        from revela.boards.pynq_z2 import isp_ref
-        from revela import compose
-        return [compose.generate(composite.load(isp_ref()),
-                                 control=True).verilog]
-    return []
-
-
 def _hand_written():
     leaves = {}
     for path, found in composite.tree(DESIGN).items():
@@ -79,10 +62,8 @@ def test_a_hand_written_leaf_has_exactly_the_ports_it_declares(ref, found):
     params = {k: v for k, v in VALUES.items()
               if k in obj.get("parameters", {})}
     module = obj["vivado"]["module"]
-    sources = [found.folder / f for f in obj["sources"]]
-    got = elaborated_ports(sources + _companions(composite.block_name(ref),
-                                                 params),
-                           module, params)
+    sources = [composite.source_file(found.folder, f) for f in obj["sources"]]
+    got = elaborated_ports(sources, module, params)
     want = _declared(obj, params)
     assert want == got, {
         "undeclared": sorted(set(got) - set(want)),
@@ -95,12 +76,8 @@ def test_a_hand_written_leaf_has_exactly_the_ports_it_declares(ref, found):
 # A generated leaf publishes its ports, and the list is its module's
 # --------------------------------------------------------------------------- #
 
-FACTS = {"out_khz": 74250, "sample_bits": 12, "isp_width": 1920,
-         "isp_out_bits": 24, "layout_id": 0}
-
-
 def _generated_leaves():
-    design = composite.load(DESIGN, build=FACTS)
+    design = composite.load(DESIGN)
     return sorted((path, inst) for path, inst in design.instances.items()
                   if isinstance(inst.leaf, dict) and "made_by" in inst.leaf)
 
@@ -109,7 +86,8 @@ GENERATED = _generated_leaves()
 
 
 def test_the_board_has_generated_leaves():
-    assert {p for p, _ in GENERATED} >= {"blrx", "ddc", "scanout", "out_cdc"}
+    assert {p.rpartition(".")[2] for p, _ in GENERATED} >= {
+        "blrx", "ddc", "scanout", "out_cdc"}
 
 
 @pytest.mark.parametrize("path,inst", GENERATED,
@@ -117,9 +95,48 @@ def test_the_board_has_generated_leaves():
 def test_a_generated_leaf_publishes_exactly_its_ports(path, inst):
     from np2hw.ports import elaborated_ports, resolve
     obj = inst.leaf
-    texts = [obj["files"][f] for f in obj["generated"]]
-    got = elaborated_ports(texts, obj["vivado"]["module"])
+    texts = [obj["files"][f] for f in obj["generated"]] + [
+        composite.source_file(inst.folder, f) for f in obj.get("sources", ())]
+    got = elaborated_ports(texts, obj["vivado"]["module"],
+                           obj["module_parameters"] or None)
     want = {p["name"]: (p["direction"],
                         resolve(p["width"], obj["module_parameters"]))
             for p in obj["ports"]}
     assert want == got
+
+
+# --------------------------------------------------------------------------- #
+# The memory-mapped bus tables, against pins a vendor's IP really has
+# --------------------------------------------------------------------------- #
+
+def test_an_axi3_master_has_the_zynq_general_purpose_ports_signals():
+    from revela.designs.interfaces import expand
+    got = expand({"name": "gp", "bus": "axi3", "id_width": 12}, "outputs", 32)
+    # what Vivado built for processing_system7's M_AXI_GP0, less its clock
+    assert len(got) == 38
+    assert got["gp_awlen"] == ("output", 4)
+    assert got["gp_awlock"] == ("output", 2)
+    assert got["gp_wid"] == ("output", 12)
+    assert got["gp_rdata"] == ("input", 32)
+    assert got["gp_wstrb"] == ("output", 4)
+
+
+def test_an_axi4_write_master_without_ids_is_a_vdmas():
+    from revela.designs.interfaces import expand
+    got = expand({"name": "m", "bus": "axi4", "channels": ["write"],
+                  "omit": ["awid", "awlock", "awqos", "bid"]}, "outputs", 64)
+    assert sorted(got) == sorted(f"m_{s}" for s in (
+        "awaddr", "awburst", "awcache", "awlen", "awprot", "awready",
+        "awsize", "awvalid", "bready", "bresp", "bvalid", "wdata", "wlast",
+        "wready", "wstrb", "wvalid"))
+    assert got["m_awlen"] == ("output", 8)
+    assert got["m_awready"] == ("input", 1)
+
+
+def test_a_pins_bundle_keeps_its_members_names():
+    from revela.designs.interfaces import expand
+    got = expand({"name": "FIXED_IO", "bus": "pins",
+                  "members": [{"name": "MIO", "width": 54, "inout": True},
+                              {"name": "PS_CLK", "inout": True}]},
+                 "outputs", 1)
+    assert got == {"MIO": ("inout", 54), "PS_CLK": ("inout", 1)}

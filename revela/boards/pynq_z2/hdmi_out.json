@@ -1,7 +1,7 @@
 {
  "blocks": {
   "hdmi_out": {
-   "description": "The HDMI-out jack: Digilent's rgb2dvi, driven by the design's raster, and its pins. What the raster transmits into: this board carries Digilent's rgb2dvi, and the cable is 8 bits a channel. A board with a different transmitter changes both.",
+   "description": "The HDMI-out jack: an HDMI transmitter (revela.boards.common.hdmi_tx, Digilent's rgb2dvi by default), driven by the design's raster, and its pins. What the raster transmits into: this board carries Digilent's rgb2dvi, and the cable is 8 bits a channel. A board with a different transmitter changes both.",
    "parameters": {
     "out_khz": {
      "description": "The raster's pixel clock, which picks rgb2dvi's serialiser range: set by the design."
@@ -42,29 +42,24 @@
    ],
    "nodes": {
     "hdmi_tx": {
-     "block": "revela.boards.zynq7.ip:rgb2dvi",
-     "config": {
-      "kGenerateSerialClk": "true",
-      "kClkPrimitive": "PLL",
-      "kRstActiveHigh": "true"
-     },
+     "block": "revela.boards.common.hdmi_tx",
      "build": {
-      "kClkRange": "1 if out_khz >= 120000 else 2"
+      "pixel_khz": "out_khz"
      }
     }
    },
    "connections": [
     [
      "rgb",
-     "hdmi_tx.RGB"
+     "hdmi_tx.rgb"
     ],
     [
      "pixel_clk",
-     "hdmi_tx.PixelClk"
+     "hdmi_tx.pclk"
     ],
     [
      "reset",
-     "hdmi_tx.aRst"
+     "hdmi_tx.rst"
     ],
     [
      "hdmi_tx.TMDS",

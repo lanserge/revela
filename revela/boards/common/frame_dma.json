@@ -1,0 +1,43 @@
+{
+  "blocks": {
+    "frame_dma": {
+      "description": "Frames from a stream into memory: an AXI4-Stream in, AXI4 writes out, registers on AXI4-Lite to say where and how many.",
+      "parameters": {
+        "implementation": {"default": "'axi_vdma'", "description": "Which implementation fills this block."}
+      },
+      "inputs": [
+        {"name": "ctrl", "bus": "axilite", "width": 9, "omit": ["wstrb"], "description": "The registers."},
+        {"name": "ctrl_clk"},
+        {"name": "frames", "bus": "axis", "width": 32, "signals": ["tkeep", "tuser", "tlast"], "description": "The stream: tuser marks a frame's first beat, tlast a line's last."},
+        {"name": "frames_clk"},
+        {"name": "mem_clk"},
+        {"name": "resetn", "description": "Active low."}
+      ],
+      "outputs": [
+        {"name": "mem", "bus": "axi4", "width": 64, "channels": ["write"], "omit": ["awid", "awlock", "awqos", "bid"], "description": "Writes into memory."},
+        {"name": "frame_ptr", "width": 6, "description": "The frame store being written."},
+        {"name": "irq", "description": "A frame written, or an error."}
+      ],
+      "implementations": {
+        "axi_vdma": {
+          "description": "AMD's AXI Video DMA, write side only. Its line buffer is the board's, set where the node is placed.",
+          "vivado": {"ip": "xilinx.com:ip:axi_vdma"},
+          "config": {
+            "c_include_mm2s": "0",
+            "c_include_s2mm": "1",
+            "c_use_fsync": "0",
+            "c_num_fstores": "1",
+            "c_s2mm_genlock_mode": "0"
+          },
+          "ports": {
+            "ctrl": "S_AXI_LITE", "ctrl_clk": "s_axi_lite_aclk",
+            "frames": "S_AXIS_S2MM", "frames_clk": "s_axis_s2mm_aclk",
+            "mem": "M_AXI_S2MM", "mem_clk": "m_axi_s2mm_aclk",
+            "resetn": "axi_resetn", "frame_ptr": "s2mm_frame_ptr_out", "irq": "s2mm_introut"
+          },
+          "pin_names": {"ctrl": "s_axi_lite_{signal}", "frames": "s_axis_s2mm_{signal}", "mem": "m_axi_s2mm_{signal}"}
+        }
+      }
+    }
+  }
+}

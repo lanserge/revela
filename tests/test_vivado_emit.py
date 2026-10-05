@@ -71,12 +71,15 @@ def test_cells_settings_pins_and_nets(library, tmp_path):
 def test_interfaces_and_external_interface_pins(library, tmp_path):
     lib = library({"top": {
         "pins": [{"name": "TMDS", "interface": True}],
-        "nodes": {"rx": {"block": f"{IP}:dvi2rgb"},
-                  "cdc": {"block": f"{IP}:axis_clock_converter"},
-                  "cdc2": {"block": f"{IP}:axis_clock_converter"}},
-        "connections": [["rx.TMDS", "TMDS"], ["cdc.M_AXIS", "cdc2.S_AXIS"]]}})
+        "nodes": {"rx": {"block": "revela.boards.common.hdmi_tx",
+                         "build": {"pixel_khz": 74250}},
+                  "pack": {"block": "revela.boards.common.modules:isp_axis",
+                           "build": {"DATA_BITS": 24}},
+                  "dma": {"block": "revela.boards.common.stream_dma"}},
+        "connections": [["rx.TMDS", "TMDS"], ["pack.m_axis", "dma.stream"]]}})
     tcl, s = render(load(f"{lib}.lib:top"), tmp_path)
-    assert s["intf_nets"] == [["cdc/M_AXIS", "cdc2/S_AXIS"]]
+    # one interface net, by the implementation's name for the block's port
+    assert s["intf_nets"] == [["dma/S_AXIS_S2MM", "pack/m_axis"]]
     assert s["ports"] == {"TMDS": "external rx/TMDS"}
 
 
@@ -84,7 +87,8 @@ def test_a_procedure_runs_in_place_and_a_late_one_after_the_nets(library, tmp_pa
     (tmp_path / "p.tcl").write_text("")
     lib = library({"top": {
         "nodes": {"ps7": {"block": "revela.boards.zynq7.ps7",
-                          "config": {"PCW_USE_S_AXI_HP0": "1"}},
+                          "build": {"hp0": 1},
+                          "config": {"PCW_FPGA0_PERIPHERAL_FREQMHZ": "100"}},
                   "k": {"block": f"{IP}:xlconstant"},
                   "bus": {"block": "revela.boards.zynq7.bus:axi_bus",
                           "config": {"bus_reset": "r/o", "link_reset": "l/o",
@@ -99,7 +103,12 @@ def test_a_procedure_runs_in_place_and_a_late_one_after_the_nets(library, tmp_pa
     net = next(i for i, l in enumerate(lines) if l.startswith("connect_bd_net"))
     bus = next(i for i, l in enumerate(lines) if l.startswith("zynq7_axi_bus bus"))
     assert ps < net < bus
-    assert s["cells"]["ps7"]["config"] == {"CONFIG.PCW_USE_S_AXI_HP0": "1"}
+    # the block's settings, from its parameters, and the node's own
+    assert s["cells"]["ps7"]["config"] == {
+        "CONFIG.PCW_USE_S_AXI_HP0": "1", "CONFIG.PCW_USE_S_AXI_HP1": "0",
+        "CONFIG.PCW_EN_CLK1_PORT": "0", "CONFIG.PCW_USE_FABRIC_INTERRUPT": "0",
+        "CONFIG.PCW_IRQ_F2P_INTR": "0",
+        "CONFIG.PCW_FPGA0_PERIPHERAL_FREQMHZ": "100"}
     assert s["automation"][0][:2] == ["-rule", "xilinx.com:bd_rule:processing_system7"]
     assert s["addresses"] == [[]]
 
@@ -148,3 +157,21 @@ def test_a_stream_is_one_interface_net_unless_a_pin_of_it_is_tapped(
     assert s["intf_nets"] == []
     assert ["d/in_valid", "s/out_valid", "t/In0"] in s["nets"]
     assert ["d/in_data", "s/out_data"] in s["nets"]
+
+
+def test_a_block_is_emitted_by_its_implementations_names(library, tmp_path):
+    lib = library(lambda name: {
+        "rx": {"parameters": {"implementation": {"default": "'a'"}},
+               "outputs": [{"name": "q"}],
+               "implementations": {"a": {
+                   "vivado": {"ip": "vendor.com:ip:a"},
+                   "ports": {"q": "Q_A"},
+                   "config": {"MODE": "'fast'"}}}},
+        "top": {"pins": [{"name": "led", "dir": "O"}],
+                "nodes": {"rx": {"block": f"{name}.lib:rx"}},
+                "connections": [["rx.q", "led"]]}})
+    tcl, _ = render(load(f"{lib}.lib:top"), tmp_path)
+    assert "create_bd_cell -type ip -vlnv vendor.com:ip:a rx" in tcl
+    assert "CONFIG.MODE {fast}" in tcl
+    assert "[get_bd_pins rx/Q_A]" in tcl
+    assert "rx/q]" not in tcl

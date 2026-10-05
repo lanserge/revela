@@ -1,0 +1,199 @@
+{
+ "blocks": {
+  "isp_entry": {
+   "description": "The ISP's entry: each frame's header facts latched as its SOF enters, and every line cropped to the width the ISP was built for.",
+   "vivado": {
+    "module": "isp_entry"
+   },
+   "inputs": [
+    {
+     "name": "clk"
+    },
+    {
+     "name": "rst"
+    },
+    {
+     "name": "hdr_width",
+     "width": 16
+    },
+    {
+     "name": "hdr_height",
+     "width": 16
+    },
+    {
+     "name": "hdr_phase",
+     "width": 2
+    },
+    {
+     "name": "hdr_bits",
+     "width": 5
+    },
+    {
+     "name": "in",
+     "width": "SAMPLE_BITS",
+     "stream": [
+      "sof",
+      "eol",
+      "last"
+     ]
+    }
+   ],
+   "outputs": [
+    {
+     "name": "out",
+     "width": "SAMPLE_BITS",
+     "stream": [
+      "sof",
+      "eol",
+      "last"
+     ]
+    },
+    {
+     "name": "ctx_width",
+     "width": 16
+    },
+    {
+     "name": "ctx_height",
+     "width": 16
+    },
+    {
+     "name": "ctx_bayer_phase",
+     "width": 2
+    },
+    {
+     "name": "ctx_bit_depth",
+     "width": 5
+    },
+    {
+     "name": "truncated"
+    }
+   ],
+   "sources": [
+    "hdl/isp_entry.v"
+   ],
+   "parameters": {
+    "SAMPLE_BITS": {
+     "description": "The width of one sample: the depth the receiver aligns every source to."
+    },
+    "WIDTH": {
+     "description": "The widest line the ISP was built for; a wider line is cropped to it."
+    }
+   }
+  },
+  "isp_axis": {
+   "description": "The ISP's RGB stream dressed as AXI4-Stream video.",
+   "inputs": [
+    {
+     "name": "clk"
+    },
+    {
+     "name": "rst"
+    },
+    {
+     "name": "in",
+     "width": "DATA_BITS",
+     "stream": [
+      "sof",
+      "eol",
+      "last"
+     ]
+    }
+   ],
+   "outputs": [
+    {
+     "name": "m_axis",
+     "width": 32,
+     "bus": "axis",
+     "signals": [
+      "tkeep",
+      "tuser",
+      "tlast"
+     ]
+    }
+   ],
+   "vivado": {
+    "module": "isp_axis"
+   },
+   "sources": [
+    "hdl/isp_axis.v"
+   ],
+   "parameters": {
+    "DATA_BITS": {
+     "description": "The ISP's traced output word, from its published contract."
+    }
+   }
+  },
+  "tee_shim": {
+   "description": "One ISP stream, two switchable consumers, never stalling.",
+   "inputs": [
+    {
+     "name": "clk"
+    },
+    {
+     "name": "rst"
+    },
+    {
+     "name": "in",
+     "width": "DATA_BITS",
+     "stream": [
+      "sof",
+      "eol",
+      "last"
+     ]
+    },
+    {
+     "name": "en_a"
+    },
+    {
+     "name": "en_b"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "a",
+     "width": "DATA_BITS",
+     "stream": [
+      "sof",
+      "eol",
+      "last"
+     ]
+    },
+    {
+     "name": "b",
+     "width": "DATA_BITS",
+     "stream": [
+      "sof",
+      "eol",
+      "last"
+     ]
+    },
+    {
+     "name": "torn_a"
+    },
+    {
+     "name": "torn_b"
+    }
+   ],
+   "vivado": {
+    "module": "tee_shim"
+   },
+   "sources": [
+    "hdl/tee_shim.v",
+    "np2hw.hdl:np2hw_skid.v",
+    "np2hw.hdl:np2hw_tee.v",
+    "np2hw.hdl:np2hw_cdc_fifo.v"
+   ],
+   "parameters": {
+    "DATA_BITS": {
+     "description": "The ISP's traced output word, from its published contract."
+    }
+   },
+   "constraints": [
+    {
+     "file": "np2hw.hdl:np2hw_cdc_fifo.xdc",
+     "scoped_to": "np2hw_cdc_fifo"
+    }
+   ]
+  }
+ }
+}

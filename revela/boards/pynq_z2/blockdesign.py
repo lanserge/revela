@@ -4,16 +4,11 @@
 
     python3 -m revela.boards.pynq_z2.blockdesign --out <build dir>
 
-The design is revela.boards.pynq_z2.pynq_demo. What it cannot know before
-the build, the build supplies -- each from the file that owns it, never
-restated:
-
-  out_khz         the output raster's pixel clock, from np2hw's mode table
-  sample_bits     the ISP's input width   \\
-  isp_width       the width it was built   } from the ISP's published
-  isp_out_bits    its traced output word  /  contract (<isp>_build.json)
-
-and the board says what is possible: whether it can host the capture path,
+The design is revela.boards.pynq_z2.pynq_demo. Loading it builds the ISP
+inside it, and the ISP's widths reach everything around it as the design's
+own parameters, assigned from the ISP's facts; the raster's pixel clock is
+one of its parameters too, read from np2hw's mode table by an expression.
+The board says what is possible: whether it can host the capture path,
 and how fast each HDMI jack runs. A choice the board cannot honour is
 refused here, by name, rather than by a cascade of Tcl errors in Vivado.
 
@@ -37,43 +32,20 @@ from revela.designs.composite import block_name, load, write_generated
 DESIGN = "revela.boards.pynq_z2.pynq_demo"
 
 
-def facts(out: Path) -> dict:
-    """The build's own facts, from their owners."""
-    from np2hw.video_out import mode_timing
-    c = choices()
-    timing = mode_timing(c["mode"])
-    contract_path = out / "hdl" / f"{block_name(c['pipeline'])}_build.json"
-    if not contract_path.exists():
-        raise SystemExit(f"blockdesign: {contract_path.name} is missing -- "
-                         "generate the ISP first: its boundary is traced, "
-                         "not declared")
-    contract = json.loads(contract_path.read_text())
-    boundary = contract["boundary"]
-    isp_in = next(iter(boundary["inputs"].values()))
-    isp_out = next(iter(boundary["outputs"].values()))
-    if int(isp_in.get("channels", 1)) != 1:
-        raise SystemExit("blockdesign: the ISP's input is not one sample "
-                         "wide, and everything carrying it there is")
-    return {"out_khz": int(round(float(timing["pixel_mhz"]) * 1000)),
-            "sample_bits": int(isp_in["data_bits"]),
-            "isp_width": int(contract["geometry"]["width"]),
-            "isp_out_bits": int(isp_out["data_bits"])}
-
-
-def check_board(c: dict, f: dict) -> None:
-    """A choice met against a board fact."""
-    from np2hw.video_out import mode_timing
+def check_board(c: dict) -> None:
+    """The design's choices met against the board's facts."""
+    from revela.boards.modes import pixel_khz
     b = board()
     if c["capture"] and not b.get("capture", False):
         raise SystemExit("blockdesign: this board cannot host the capture "
                          f"path ({b.get('capture_note', 'see board.json')})")
     tx = default("hdmi_out", "max_pixel_khz") / 1000
-    if f["out_khz"] / 1000 > tx:
+    if c["out_khz"] / 1000 > tx:
         raise SystemExit(f"blockdesign: mode {c['mode']} needs "
-                         f"{f['out_khz'] / 1000:g} MHz but hdmi_out is built "
+                         f"{c['out_khz'] / 1000:g} MHz but hdmi_out is built "
                          f"for {tx:g}")
     rx = default("hdmi_in", "max_link_khz") / 1000
-    link = float(mode_timing(c["link_mode"])["pixel_mhz"])
+    link = pixel_khz(c["link_mode"]) / 1000
     if link > rx:
         raise SystemExit(f"blockdesign: link_mode {c['link_mode']} advertises "
                          f"{link:g} MHz but hdmi_in is constrained to {rx:g}; "
@@ -116,13 +88,12 @@ def main(argv=None) -> int:
     parser.add_argument("--out", required=True, type=Path)
     args = parser.parse_args(argv)
     out = args.out.resolve()
-    f = facts(out)
-    check_board(choices(), f)
+    check_board(choices())
     # The layout's checksum is built into the fabric, where software reads
     # it back; the layout does not depend on it, so a first load finds it.
     from revela.boards.zynq7.gpio import digest
-    layout_id = digest(gpio_layout(load(DESIGN, build=f)))
-    design = load(DESIGN, build={**f, "layout_id": layout_id})
+    layout_id = digest(gpio_layout(load(DESIGN)))
+    design = load(DESIGN, build={"layout_id": layout_id})
     layout = gpio_layout(design)
     if digest(layout) != layout_id:
         raise SystemExit("blockdesign: the GPIO layout moved when its own "
@@ -143,13 +114,19 @@ def main(argv=None) -> int:
                                 out / "generated" / "busdef"])
     target = out / "generated" / "bd.tcl"
     target.write_text(tcl)
+    # what each described vendor block should be once the tool has built
+    # it, for revela.boards.vendor_check after the block design runs
+    from revela.boards.vendor_check import expected
+    (out / "generated" / "vendor_expected.json").write_text(json.dumps(
+        expected(design, vivado.cell_names(design)), indent=1) + "\n")
     (out / "generated" / "gpio_layout.json").write_text(
         json.dumps(layout, indent=1) + "\n")
     from np2hw.ipxact import write_definitions
     write_definitions(out / "generated" / "busdef")
+    p = design.parameters
     print(f"generated {target} -- {len(design.instances)} cells, "
-          f"{f['sample_bits']}-bit into the ISP, {f['isp_out_bits']}-bit "
-          f"out, {f['out_khz'] / 1000:g} MHz raster"
+          f"{p['sample_bits']}-bit into the ISP, {p['isp_out_bits']}-bit "
+          f"out, {p['out_khz'] / 1000:g} MHz raster"
           + (", genlocked" if design.parameters["genlock"] else "")
           + (", capture" if design.parameters["capture"] else "")
           + f"; GPIO layout 0x{layout_id:08X}")

@@ -35,6 +35,10 @@ class WiringError(CompositionError):
 
 _KINDS = {"np2hw_stream": "stream", ":axis:": "axis", ":aximm:": "aximm",
           ":vid_io:": "vid_io"}
+# a declared bus's kind, in the same words as a published one's
+_DECLARED = {"axilite": "aximm", "axis": "axis", "tmds": "tmds",
+             "video": "vid_io", "axi3": "aximm", "axi4": "aximm",
+             "pins": "pins"}
 
 
 def _kind(vlnv: str) -> str:
@@ -74,12 +78,16 @@ def facts(inst) -> dict | None:
             if isinstance(raw, int):
                 width = raw
             else:
-                def lookup(name, port=port):
-                    if name not in inst.build:
+                # a block filled by an implementation reads the block's
+                # parameters, spent on the implementation, not its build
+                params = {**obj.get("block_parameters", {}), **inst.build}
+
+                def lookup(name, port=port, params=params):
+                    if name not in params:
                         raise WiringError(
                             f"{inst.path}: port {port['name']}'s width reads "
                             f"{name}, which this instance never sets")
-                    return inst.build[name]
+                    return params[name]
                 width = evaluate(parse(raw, f"{inst.path}.{port['name']}"),
                                  lookup)
             signals.update(expand(port, side, width))
@@ -89,7 +97,7 @@ def facts(inst) -> dict | None:
             elif "bus" in port:
                 axis = port["bus"] == "axis"
                 bundles[port["name"]] = {
-                    "kind": "axis" if axis else "aximm", "side": side,
+                    "kind": _DECLARED[port["bus"]], "side": side,
                     "width": width if axis else None}
     return {"signals": signals, "bundles": bundles}
 

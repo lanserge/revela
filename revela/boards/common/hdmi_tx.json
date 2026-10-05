@@ -1,0 +1,36 @@
+{
+  "blocks": {
+    "hdmi_tx": {
+      "description": "An HDMI/DVI transmitter: parallel video in, a TMDS link out. Every implementation offers these ports; how it is configured on a board, and which pins it lands on, is that board's.",
+      "parameters": {
+        "implementation": {"default": "'rgb2dvi'", "description": "Which implementation fills this block."},
+        "pixel_khz": {"description": "The pixel clock it transmits at."}
+      },
+      "inputs": [
+        {"name": "rgb", "bus": "video", "width": 24, "description": "The raster's video, 8 bits a channel."},
+        {"name": "pclk", "description": "The pixel clock."},
+        {"name": "rst", "description": "Asynchronous, active high."}
+      ],
+      "outputs": [
+        {"name": "TMDS", "bus": "tmds", "description": "The link, to the jack's pins."}
+      ],
+      "implementations": {
+        "rgb2dvi": {
+          "description": "Digilent's rgb2dvi on a 7-series part: TMDS encoded and serialised in the fabric, its serial clock made by its own PLL. Needs Digilent's vivado-library in the IP catalogue.",
+          "vivado": {"ip": "digilentinc.com:ip:rgb2dvi"},
+          "config": {
+            "kGenerateSerialClk": "'true'",
+            "kClkPrimitive": "'PLL'",
+            "kRstActiveHigh": "'true'",
+            "kClkRange": "1 if pixel_khz >= 120000 else 2"
+          },
+          "ports": {
+            "rgb": "RGB", "rgb_active_video": "vid_pVDE", "rgb_data": "vid_pData",
+            "rgb_hsync": "vid_pHSync", "rgb_vsync": "vid_pVSync",
+            "pclk": "PixelClk", "rst": "aRst"
+          }
+        }
+      }
+    }
+  }
+}

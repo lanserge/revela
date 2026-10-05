@@ -9,7 +9,7 @@ turns one entry into the signals it stands for, at given parameter values,
 which is what a design is wired by and what the module is held to.
 
 The stream's signals are np2hw's, read from the generator that emits them;
-the buses are the two standard ones a board meets at vendor IP.
+the buses are the standard ones a board meets at vendor IP.
 """
 from __future__ import annotations
 
@@ -28,6 +28,48 @@ AXILITE = (
 AXIS_REQUIRED = (("tvalid", True, 1), ("tready", False, 1),
                  ("tdata", True, "w"))
 AXIS_OPTIONAL = {"tkeep": lambda w: max(1, w // 8), "tuser": 1, "tlast": 1}
+# a display link: its clock pair and three data pairs, driven by the
+# transmitter
+TMDS = (("Clk_p", True, 1), ("Clk_n", True, 1), ("Data_p", True, 3),
+        ("Data_n", True, 3))
+# parallel video, driven by its source: the declared width is the data's
+VIDEO = (("active_video", True, 1), ("data", True, "w"), ("hsync", True, 1),
+         ("vsync", True, 1))
+
+
+def axi(port: dict, data: int) -> tuple:
+    """An AXI3 or AXI4 memory-mapped bus's signals, as (signal, driven by
+    the master, width): the channels it has, less what it omits. AXI3 has
+    a write ID, a 4-bit length and a 2-bit lock; AXI4 an 8-bit length and
+    a 1-bit lock."""
+    three = port["bus"] == "axi3"
+    addr = port.get("addr_width", 32)
+    ids = port.get("id_width", 1)
+    length, lock = (4, 2) if three else (8, 1)
+
+    def address(ch):
+        return ((f"{ch}addr", True, addr), (f"{ch}burst", True, 2),
+                (f"{ch}cache", True, 4), (f"{ch}id", True, ids),
+                (f"{ch}len", True, length), (f"{ch}lock", True, lock),
+                (f"{ch}prot", True, 3), (f"{ch}qos", True, 4),
+                (f"{ch}ready", False, 1), (f"{ch}size", True, 3),
+                (f"{ch}valid", True, 1))
+    table = []
+    channels = port.get("channels", ("write", "read"))
+    if "write" in channels:
+        table += address("aw")
+        table += [("wdata", True, data), *((("wid", True, ids),) if three
+                                           else ()),
+                  ("wlast", True, 1), ("wready", False, 1),
+                  ("wstrb", True, max(1, data // 8)), ("wvalid", True, 1),
+                  ("bid", False, ids), ("bready", True, 1),
+                  ("bresp", False, 2), ("bvalid", False, 1)]
+    if "read" in channels:
+        table += address("ar")
+        table += [("rdata", False, data), ("rid", False, ids),
+                  ("rlast", False, 1), ("rready", True, 1),
+                  ("rresp", False, 2), ("rvalid", False, 1)]
+    return tuple(table)
 
 
 def expand(port: dict, side: str, width: int) -> dict[str, tuple[str, int]]:
@@ -50,14 +92,27 @@ def expand(port: dict, side: str, width: int) -> dict[str, tuple[str, int]]:
             out[f"{name}_{suffix}"] = ("output" if driven_here else "input",
                                        width if w is None else w)
         return out
+    if port.get("bus") == "pins":
+        return {m["name"]: ("inout" if m.get("inout") else
+                            "input" if sink else "output", m.get("width", 1))
+                for m in port["members"]}
     if "bus" in port:
         if port["bus"] == "axilite":
             table = AXILITE
+        elif port["bus"] == "tmds":
+            table = TMDS
+        elif port["bus"] == "video":
+            table = VIDEO
+        elif port["bus"] in ("axi3", "axi4"):
+            table = axi(port, width)
         else:
             table = AXIS_REQUIRED + tuple(
                 (s, True, AXIS_OPTIONAL[s]) for s in port.get("signals", ()))
+        omitted = set(port.get("omit", ()))
         out = {}
         for signal, from_master, w in table:
+            if signal in omitted:
+                continue
             if w == "w":
                 w = width
             elif callable(w):
@@ -111,8 +166,9 @@ def from_result(result: dict, generator) -> dict:
 
     The generator returns what an np2hw generator returns -- ``verilog``,
     ``module`` and an ``interface`` publishing every port -- and may add
-    ``file`` (the Verilog's file name, ``<module>.v`` by default) and
-    ``files`` (anything else it writes beside it, by name). Nothing here
+    ``file`` (the Verilog's file name, ``<module>.v`` by default),
+    ``files`` (anything else it writes beside it, by name) and ``sources``
+    (fixed files it is built from, as ``"package:file"``). Nothing here
     is restated: the ports are the generator's own list."""
     iface = result.get("interface") or {}
     ports = iface.get("ports")
@@ -129,6 +185,10 @@ def from_result(result: dict, generator) -> dict:
         "description": doc[0] if doc else "",
         "vivado": {"module": module},
         "ports": ports,
+        # the fixed modules it is built from, as files of their own: any
+        # it names ("package:file") and np2hw's it requires
+        "sources": list(result.get("sources", ()))
+        + [f"np2hw.hdl:{m}.v" for m in result.get("requires", ())],
         # the values a width published as an expression is read at
         "module_parameters": dict(iface.get("parameters", {})),
         # the HDL the module is built from; anything else it makes (an

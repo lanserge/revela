@@ -1,0 +1,663 @@
+{
+ "blocks": {
+  "bayerlink_display": {
+   "description": "Raw Bayer frames in over a display link as bayerlink, the revela ISP, a raster out: a camera on a display, on any board that brings an HDMI front end, a transmitter, the clocks and a register bus. It names no board, no vendor and no ISP: the board fills `pipeline`, supplies the clocks and resets by role, and decides what sits between the receiver and the crossing.",
+   "parameters": {
+    "pipeline": {
+     "description": "The ISP, by reference: a composite of revela's blocks with ports isp_in and isp_out, generated and proved as part of this design. The board chooses it."
+    },
+    "mode": {
+     "default": "link_mode",
+     "description": "The output raster. By default the one the input arrives in, so the output runs at the input's rate: a 74.25 MHz raster genlocks to the stream, a 148.5 MHz one free-runs."
+    },
+    "link_mode": {
+     "default": "'1080p30'",
+     "description": "The raster the receiver advertises in its EDID: payload plus one header row."
+    },
+    "isp_mhz": {
+     "default": 155,
+     "description": "The clock the pipeline is CUT for, above the clock it runs at: generation margin makes the cut placement deterministic."
+    },
+    "rx_fifo": {
+     "default": 256,
+     "description": "The receiver's sample FIFO depth, pinned: a different depth is a different design."
+    },
+    "max_line_bytes": {
+     "default": 4096,
+     "description": "The longest packed camera line the receiver holds."
+    },
+    "fill": {
+     "default": "'0x101010'",
+     "description": "What the raster paints outside the picture."
+    },
+    "genlock": {
+     "default": 0,
+     "description": "1: the raster follows the stream's frame rate, stepping its clock's fine phase; the board decides, from the raster it builds."
+    },
+    "lane_map": {
+     "description": "Which video lane carries container byte 0, 1, 2: the front end's fact, from the board."
+    },
+    "vsync_active_high": {
+     "description": "The front end's frame-pulse polarity, from the board."
+    },
+    "sample_bits": {
+     "default": "isp.isp_in.bits",
+     "description": "The depth of one sample into the ISP: the fact its input port declares, wired from here to everything carrying samples to it."
+    },
+    "isp_width": {
+     "default": "isp.isp_in.max_width",
+     "description": "The widest line the ISP is built for, as its input port declares it; the entry crops a wider one to it."
+    },
+    "isp_out_bits": {
+     "default": "isp.isp_out.data_bits",
+     "description": "The ISP's output word, as its models trace it -- not declared anywhere: read from the ISP, wired from here to everything that carries it."
+    }
+   },
+   "inputs": [
+    {
+     "name": "rx_pclk",
+     "description": "The pixel clock the HDMI front end recovers from the cable; it stops when the cable is pulled."
+    },
+    {
+     "name": "rx_data",
+     "description": "The front end's 24 data bits."
+    },
+    {
+     "name": "rx_de",
+     "description": "The front end's data enable."
+    },
+    {
+     "name": "rx_vsync",
+     "description": "The front end's frame pulse."
+    },
+    {
+     "name": "rx_locked",
+     "description": "The front end has locked to the link."
+    },
+    {
+     "name": "isp_in",
+     "description": "The receiver's stream, back from the board: straight from rx_out, or through whatever the board puts between (a capture switch)."
+    },
+    {
+     "name": "stable_clk",
+     "description": "A clock that never stops, for the link supervisor."
+    },
+    {
+     "name": "isp_clk",
+     "description": "The clock the ISP and everything on its side runs on."
+    },
+    {
+     "name": "bus_clk",
+     "description": "The clock of the register buses."
+    },
+    {
+     "name": "raster_clk",
+     "description": "The display's pixel clock."
+    },
+    {
+     "name": "raster_locked",
+     "description": "The display clock is locked."
+    },
+    {
+     "name": "raster_ps_done",
+     "description": "The display clock's fine phase step is done (genlocked rasters).",
+     "when": "genlock"
+    },
+    {
+     "name": "en_grab",
+     "description": "Feed the grab branch of the tee."
+    },
+    {
+     "name": "en_direct",
+     "description": "Feed the direct picture branch of the tee."
+    },
+    {
+     "name": "broom",
+     "description": "The software reset: clears the receiver's tallies, restarts the link supervisor and the raster."
+    },
+    {
+     "name": "isp_rst",
+     "description": "The ISP side's reset, active high: the link's reset in that clock."
+    },
+    {
+     "name": "bus_resetn",
+     "description": "The register buses' reset, active low."
+    },
+    {
+     "name": "bus_rst",
+     "description": "The register buses' reset, active high."
+    },
+    {
+     "name": "scl_i",
+     "description": "DDC clock, from the jack."
+    },
+    {
+     "name": "sda_i",
+     "description": "DDC data, from the jack."
+    }
+   ],
+   "outputs": [
+    {
+     "name": "rx_out",
+     "description": "The receiver's stream, to the board, which returns it on isp_in."
+    },
+    {
+     "name": "grab",
+     "description": "The ISP's picture as AXI4-Stream, for a frame DMA."
+    },
+    {
+     "name": "raster",
+     "description": "The display's video, to the HDMI transmitter."
+    },
+    {
+     "name": "rst_pix",
+     "description": "The link's reset, in the cable's clock: the link supervisor's verdict."
+    },
+    {
+     "name": "raster_ps_en",
+     "description": "A fine phase step requested of the display clock (genlocked rasters).",
+     "when": "genlock"
+    },
+    {
+     "name": "raster_ps_incdec",
+     "description": "Its direction.",
+     "when": "genlock"
+    },
+    {
+     "name": "sda_pull",
+     "description": "The DDC slave pulling SDA low."
+    },
+    {
+     "name": "raster_status",
+     "description": "The raster's status word."
+    },
+    {
+     "name": "refused"
+    },
+    {
+     "name": "refuse_code"
+    },
+    {
+     "name": "hdr_bits"
+    },
+    {
+     "name": "hdr_valid"
+    },
+    {
+     "name": "hdr_phase"
+    },
+    {
+     "name": "frame_seq"
+    },
+    {
+     "name": "source_id"
+    },
+    {
+     "name": "resync_count"
+    },
+    {
+     "name": "rx_overflow"
+    },
+    {
+     "name": "link_up"
+    },
+    {
+     "name": "loss_count"
+    },
+    {
+     "name": "cdc_in_valid"
+    },
+    {
+     "name": "cdc_in_ready"
+    },
+    {
+     "name": "entry_in_valid"
+    },
+    {
+     "name": "entry_in_ready"
+    },
+    {
+     "name": "isp_out_valid"
+    },
+    {
+     "name": "torn_a"
+    },
+    {
+     "name": "torn_b"
+    }
+   ],
+   "nodes": {
+    "blrx": {
+     "block": "bayerlink_fpga.receiver:bayerlink_in",
+     "build": {
+      "lane_map": "lane_map",
+      "vsync_active_high": "vsync_active_high",
+      "fifo_depth": "rx_fifo",
+      "max_line_bytes": "max_line_bytes",
+      "bits": "sample_bits"
+     }
+    },
+    "link_rst": {
+     "block": "bayerlink_fpga.modules:link_reset"
+    },
+    "ddc": {
+     "block": "bayerlink_fpga.ddc:ddc_slave",
+     "build": {
+      "link_mode": "link_mode"
+     }
+    },
+    "isp_cdc": {
+     "block": "revela.boards.common.stream_cdc",
+     "description": "The receiver's stream into the ISP's clock: written in the pixel clock recovered from the cable, read in the ISP's, both sides reset by the link.",
+     "build": {
+      "DATA_BITS": "sample_bits"
+     }
+    },
+    "isp_entry": {
+     "block": "revela.boards.common.modules:isp_entry",
+     "build": {
+      "SAMPLE_BITS": "sample_bits",
+      "WIDTH": "isp_width"
+     }
+    },
+    "isp": {
+     "block": "pipeline",
+     "build": {
+      "clock_mhz": "isp_mhz"
+     }
+    },
+    "isp_tee": {
+     "block": "revela.boards.common.modules:tee_shim",
+     "build": {
+      "DATA_BITS": "isp_out_bits"
+     }
+    },
+    "isp_dir": {
+     "block": "revela.boards.common.modules:isp_axis",
+     "build": {
+      "DATA_BITS": "isp_out_bits"
+     }
+    },
+    "isp_out": {
+     "block": "revela.boards.common.modules:isp_axis",
+     "build": {
+      "DATA_BITS": "isp_out_bits"
+     }
+    },
+    "scanout": {
+     "block": "revela.boards.common.scanout:scanout",
+     "build": {
+      "mode": "mode",
+      "genlock": "genlock",
+      "fill": "fill"
+     }
+    },
+    "out_cdc": {
+     "block": "revela.boards.common.scanout:out_cdc",
+     "build": {
+      "mode": "mode",
+      "fill": "fill"
+     },
+     "when": "genlock"
+    }
+   },
+   "connections": [
+    [
+     "isp_cdc.out",
+     "isp_entry.in"
+    ],
+    [
+     "isp_entry.out",
+     "isp.isp_in"
+    ],
+    [
+     "isp.isp_out",
+     "isp_tee.in"
+    ],
+    [
+     "isp_tee.b",
+     "isp_out.in"
+    ],
+    [
+     "isp_tee.a",
+     "isp_dir.in"
+    ],
+    [
+     "rx_pclk",
+     "blrx.clk"
+    ],
+    [
+     "rx_data",
+     "blrx.vid_data"
+    ],
+    [
+     "rx_de",
+     "blrx.vid_de"
+    ],
+    [
+     "rx_vsync",
+     "blrx.vid_vsync"
+    ],
+    [
+     "rx_pclk",
+     "isp_cdc.wclk"
+    ],
+    [
+     "isp_clk",
+     "isp_cdc.rclk"
+    ],
+    [
+     "isp_clk",
+     "isp.clk"
+    ],
+    [
+     "isp_clk",
+     "isp_entry.clk"
+    ],
+    [
+     "blrx.hdr_width",
+     "isp_entry.hdr_width"
+    ],
+    [
+     "blrx.hdr_height",
+     "isp_entry.hdr_height"
+    ],
+    [
+     "blrx.hdr_phase",
+     "isp_entry.hdr_phase"
+    ],
+    [
+     "blrx.hdr_bits",
+     "isp_entry.hdr_bits"
+    ],
+    [
+     "isp_entry.ctx_width",
+     "isp.ctx_width"
+    ],
+    [
+     "isp_entry.ctx_height",
+     "isp.ctx_height"
+    ],
+    [
+     "isp_entry.ctx_bayer_phase",
+     "isp.ctx_bayer_phase"
+    ],
+    [
+     "isp_entry.ctx_bit_depth",
+     "isp.ctx_bit_depth"
+    ],
+    [
+     "isp_clk",
+     "isp_tee.clk"
+    ],
+    [
+     "isp_clk",
+     "isp_out.clk"
+    ],
+    [
+     "isp_out.m_axis",
+     "grab"
+    ],
+    [
+     "isp_clk",
+     "isp_dir.clk"
+    ],
+    [
+     "raster_clk",
+     "scanout.clk"
+    ],
+    [
+     "raster_locked",
+     "scanout.locked"
+    ],
+    [
+     "scanout.vid_io",
+     "raster"
+    ],
+    {
+     "from": "isp_dir.m_axis",
+     "to": "scanout.s_axis",
+     "when": "not genlock"
+    },
+    [
+     "en_grab",
+     "isp_tee.en_b"
+    ],
+    [
+     "en_direct",
+     "isp_tee.en_a"
+    ],
+    [
+     "stable_clk",
+     "link_rst.stable_clk"
+    ],
+    [
+     "rx_pclk",
+     "link_rst.pix_clk"
+    ],
+    [
+     "rx_locked",
+     "link_rst.locked_a"
+    ],
+    [
+     "broom",
+     "link_rst.soft_rst"
+    ],
+    [
+     "link_rst.rst_pix",
+     "rst_pix"
+    ],
+    [
+     "isp_rst",
+     "isp.rst"
+    ],
+    [
+     "isp_rst",
+     "isp_entry.rst"
+    ],
+    [
+     "isp_rst",
+     "isp_out.rst"
+    ],
+    [
+     "isp_rst",
+     "isp_cdc.rrst"
+    ],
+    [
+     "isp_rst",
+     "isp_tee.rst"
+    ],
+    [
+     "isp_rst",
+     "isp_dir.rst"
+    ],
+    [
+     "link_rst.rst_pix",
+     "isp_cdc.wrst"
+    ],
+    [
+     "link_rst.rst_pix",
+     "blrx.rst"
+    ],
+    [
+     "broom",
+     "blrx.diag_clear"
+    ],
+    [
+     "scanout.status",
+     "raster_status"
+    ],
+    [
+     "blrx.refused",
+     "refused"
+    ],
+    [
+     "blrx.refuse_code",
+     "refuse_code"
+    ],
+    [
+     "blrx.hdr_bits",
+     "hdr_bits"
+    ],
+    [
+     "blrx.hdr_valid",
+     "hdr_valid"
+    ],
+    [
+     "blrx.hdr_phase",
+     "hdr_phase"
+    ],
+    [
+     "isp_entry.in_valid",
+     "entry_in_valid"
+    ],
+    [
+     "isp_entry.in_ready",
+     "entry_in_ready"
+    ],
+    [
+     "isp.isp_out_valid",
+     "isp_out_valid"
+    ],
+    [
+     "isp_cdc.in_valid",
+     "cdc_in_valid"
+    ],
+    [
+     "isp_cdc.in_ready",
+     "cdc_in_ready"
+    ],
+    [
+     "blrx.overflow",
+     "rx_overflow"
+    ],
+    [
+     "blrx.hdr_frame_seq",
+     "frame_seq"
+    ],
+    [
+     "blrx.hdr_source_id",
+     "source_id"
+    ],
+    [
+     "blrx.resync_count",
+     "resync_count"
+    ],
+    [
+     "link_rst.link_up",
+     "link_up"
+    ],
+    [
+     "link_rst.loss_count",
+     "loss_count"
+    ],
+    [
+     "isp_tee.torn_a",
+     "torn_a"
+    ],
+    [
+     "isp_tee.torn_b",
+     "torn_b"
+    ],
+    [
+     "bus_clk",
+     "isp.s_axil_aclk"
+    ],
+    [
+     "bus_resetn",
+     "isp.s_axil_aresetn"
+    ],
+    [
+     "bus_clk",
+     "scanout.s_axi_aclk"
+    ],
+    [
+     "bus_resetn",
+     "scanout.s_axi_aresetn"
+    ],
+    [
+     "scl_i",
+     "ddc.scl_i"
+    ],
+    [
+     "sda_i",
+     "ddc.sda_i"
+    ],
+    [
+     "ddc.sda_pull",
+     "sda_pull"
+    ],
+    [
+     "bus_clk",
+     "ddc.clk"
+    ],
+    [
+     "bus_rst",
+     "ddc.rst"
+    ],
+    [
+     "broom",
+     "scanout.rst"
+    ],
+    {
+     "from": "scanout.ps_en",
+     "to": "raster_ps_en",
+     "when": "genlock"
+    },
+    {
+     "from": "scanout.ps_incdec",
+     "to": "raster_ps_incdec",
+     "when": "genlock"
+    },
+    {
+     "from": "raster_ps_done",
+     "to": "scanout.ps_done",
+     "when": "genlock"
+    },
+    {
+     "from": "isp_clk",
+     "to": "out_cdc.wclk",
+     "when": "genlock"
+    },
+    {
+     "from": "raster_clk",
+     "to": "out_cdc.rclk",
+     "when": "genlock"
+    },
+    {
+     "from": "isp_dir.m_axis",
+     "to": "out_cdc.s_axis",
+     "when": "genlock"
+    },
+    {
+     "from": "out_cdc.m_axis",
+     "to": "scanout.s_axis",
+     "when": "genlock"
+    },
+    {
+     "from": "isp_tee.en_a",
+     "to": "scanout.param_follow",
+     "when": "genlock"
+    },
+    {
+     "from": "broom",
+     "to": "out_cdc.wrst",
+     "when": "genlock"
+    },
+    {
+     "from": "broom",
+     "to": "out_cdc.rrst",
+     "when": "genlock"
+    },
+    [
+     "blrx.out",
+     "rx_out"
+    ],
+    [
+     "isp_in",
+     "isp_cdc.in"
+    ]
+   ]
+  }
+ }
+}

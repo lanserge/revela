@@ -1,0 +1,39 @@
+{
+  "blocks": {
+    "stream_dma": {
+      "description": "A stream into memory: an AXI4-Stream in, AXI4 writes out, registers on AXI4-Lite to say where and how much.",
+      "parameters": {
+        "implementation": {"default": "'axi_dma'", "description": "Which implementation fills this block."}
+      },
+      "inputs": [
+        {"name": "ctrl", "bus": "axilite", "width": 10, "omit": ["wstrb"], "description": "The registers."},
+        {"name": "ctrl_clk"},
+        {"name": "stream", "bus": "axis", "width": 32, "signals": ["tkeep", "tlast"], "description": "The words to store; tlast ends a transfer."},
+        {"name": "mem_clk"},
+        {"name": "resetn", "description": "Active low."}
+      ],
+      "outputs": [
+        {"name": "mem", "bus": "axi4", "width": 32, "channels": ["write"], "omit": ["awid", "awlock", "awqos", "bid"], "description": "Writes into memory."},
+        {"name": "irq", "description": "A transfer done, or an error."}
+      ],
+      "implementations": {
+        "axi_dma": {
+          "description": "AMD's AXI DMA, write side only, simple mode (no scatter-gather).",
+          "vivado": {"ip": "xilinx.com:ip:axi_dma"},
+          "config": {
+            "c_include_mm2s": "0",
+            "c_include_sg": "0",
+            "c_sg_length_width": "26",
+            "c_s_axis_s2mm_tdata_width": "32"
+          },
+          "ports": {
+            "ctrl": "S_AXI_LITE", "ctrl_clk": "s_axi_lite_aclk",
+            "stream": "S_AXIS_S2MM", "mem": "M_AXI_S2MM", "mem_clk": "m_axi_s2mm_aclk",
+            "resetn": "axi_resetn", "irq": "s2mm_introut"
+          },
+          "pin_names": {"ctrl": "s_axi_lite_{signal}", "stream": "s_axis_s2mm_{signal}", "mem": "m_axi_s2mm_{signal}"}
+        }
+      }
+    }
+  }
+}

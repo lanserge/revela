@@ -64,6 +64,7 @@ import importlib
 import importlib.util
 import inspect
 import json
+import keyword
 import re
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -223,19 +224,28 @@ _REFERENCE = re.compile(r"@([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+"
                         r"(?::[A-Za-z_][A-Za-z0-9_]*)?)")
 
 
+# A path may pass through a port called `in` -- `isp.in.bits` -- and Python
+# reads `in` as an operator. A keyword AFTER a dot is a name in a path, so it
+# is renamed before parsing and named back where the path is read.
+_KEYWORD_STEP = re.compile(
+    r"(?<=[A-Za-z0-9_])\.(" + "|".join(keyword.kwlist) + r")\b(?!\s*\()")
+_KW = "_kw_"
+
+
 def parse(text: str, where: str) -> ast.expr:
     """Parse an expression and check every node is one the walker knows. A
     string that is not an expression is refused here, at load, with its
     path -- not later, where it would look like something else."""
     try:
-        tree = ast.parse(_REFERENCE.sub(lambda m: repr(m.group(1)), text),
-                         mode="eval").body
+        text_py = _REFERENCE.sub(lambda m: repr(m.group(1)), text)
+        text_py = _KEYWORD_STEP.sub(lambda m: f".{_KW}{m.group(1)}", text_py)
+        tree = ast.parse(text_py, mode="eval").body
     except SyntaxError as error:
         raise CompositionError(f"{where}: {text!r} is not an expression: "
                                f"{error.msg}") from None
     for node in ast.walk(tree):
         if isinstance(node, (ast.Name, ast.Attribute, ast.Load, ast.IfExp,
-                             ast.BoolOp, ast.And, ast.Or)):
+                             ast.BoolOp, ast.And, ast.Or, ast.Subscript)):
             continue
         if isinstance(node, ast.Constant):
             # Integers, and strings for the vendor settings that are words
@@ -256,6 +266,9 @@ def parse(text: str, where: str) -> ast.expr:
         if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
                 and node.func.id in _CALLS and not node.keywords):
             continue
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Constant)
+                and isinstance(node.func.value, str) and not node.keywords):
+            continue                     # @package.module:function(...)
         if type(node) in _BINARY or type(node) in _UNARY or \
                 type(node) in _COMPARE:
             continue                     # operator tokens inside the above
@@ -271,7 +284,8 @@ def _dotted(node: ast.expr) -> str | None:
     """``a.b.c`` as a string, if the node is a parameter path."""
     parts = []
     while isinstance(node, ast.Attribute):
-        parts.append(node.attr)
+        attr = node.attr
+        parts.append(attr[len(_KW):] if attr.startswith(_KW) else attr)
         node = node.value
     if isinstance(node, ast.Name) and node.id not in _CALLS:
         return ".".join([node.id, *reversed(parts)])
@@ -289,6 +303,25 @@ def references(tree: ast.expr) -> list[str]:
             found.append(path)
             inner.update(id(n) for n in ast.walk(node))
     return found
+
+
+def expression_function(ref: str):
+    """The function ``@package.module:function`` names in an expression.
+    It must say it may be called from one (``fn.expression = True``): a
+    design is data, and what it can run is what its library offers it --
+    a table's lookup, say, never whatever happens to be importable."""
+    module, colon, name = ref.partition(":")
+    if not colon:
+        raise CompositionError(f"@{ref} is called, and a call names a "
+                               "function: @package.module:function")
+    try:
+        fn = getattr(importlib.import_module(module), name)
+    except (ImportError, AttributeError) as error:
+        raise CompositionError(f"@{ref}: {error}") from None
+    if not getattr(fn, "expression", False):
+        raise CompositionError(f"@{ref} does not say it may be called from "
+                               "an expression (expression = True)")
+    return fn
 
 
 def evaluate(tree: ast.expr, lookup) -> int:
@@ -319,8 +352,13 @@ def evaluate(tree: ast.expr, lookup) -> int:
             return int(any(values))
         if isinstance(node, ast.IfExp):
             return walk(node.body) if walk(node.test) else walk(node.orelse)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Constant):
+            return expression_function(node.func.value)(
+                *(walk(a) for a in node.args))
         if isinstance(node, ast.Call):
             return _CALLS[node.func.id](*(walk(a) for a in node.args))
+        if isinstance(node, ast.Subscript):
+            return walk(node.value)[walk(node.slice)]
         raise AssertionError(f"unchecked node {type(node).__name__}")
     return walk(tree)
 
@@ -429,6 +467,13 @@ class _Loader:
     def __init__(self, generate: bool = True):
         self.generate = generate
         self.build_cache: dict[str, object] = {}
+        # composites built whole, as one cell of the design around them
+        self.opaque: tuple = ()
+        # path -> (sub-design, its generated result), built once
+        self.elaborations: dict[str, tuple] = {}
+        self.elaborating: list[str] = []
+        self.whole: dict[str, Instance] = {}
+        self.inactive: set[str] = set()
         self.nodes: dict[str, _Node] = {}
         self.settings: dict[tuple[str, str], _Setting] = {}
 
@@ -627,6 +672,11 @@ class _Loader:
 
         def lookup(name):
             target = self.resolve_name(scope, name)
+            fact = self.implementation_fact(target, where)
+            if fact is None:
+                fact = self.port_fact(target, where)
+            if fact is not None:
+                return fact
             if self.classify(target, where) != "build":
                 raise CompositionError(
                     f"{where}: {raw!r} reads {name}, a register; a build "
@@ -639,7 +689,7 @@ class _Loader:
 
     STREAM_FACTS = ("bits", "max_width", "max_height", "context")
 
-    def streams(self, forward: dict) -> dict:
+    def streams(self, forward: dict, root: str = "") -> dict:
         """For each top input, the facts of the stream entering it,
         gathered from every composite input port it passes through. Each
         fact is stated once -- where the stream enters -- and a composite
@@ -671,10 +721,10 @@ class _Loader:
             return facts, where
 
         result = {}
-        top = self.nodes[""]
+        top = self.nodes[root]
         for port in top.found.obj.get("inputs", []):
             facts, source = {}, {}
-            pending, seen = [("", port["name"])], set()
+            pending, seen = [(root, port["name"])], set()
             while pending:
                 pin = pending.pop()
                 if pin in seen:
@@ -689,10 +739,159 @@ class _Loader:
                             f"same stream (entering {port['name']})")
                     facts[fact], source[fact] = value, where
                 for nxt in forward.get(pin, []):
-                    if nxt[0] and self.nodes[nxt[0]].kind == "composite":
+                    if nxt[0] != root and \
+                            self.nodes[nxt[0]].kind == "composite":
                         pending.append(nxt)
             result[port["name"]] = facts
         return result
+
+    # -- facts of a node's ports, and composites built whole --------------- #
+
+    FACTS = ("bits", "channels", "data_bits", "max_width", "max_height")
+
+    def port_fact(self, target: str, where: str):
+        """``node.port.fact`` -- a fact of the stream at a composite's port,
+        or None where `target` names no such thing. On an INPUT it is the
+        fact declared where the stream enters; on an OUTPUT it is traced, so
+        the composite is built (once) to read it. This is how a composite
+        assigns one of its parameters what a node of it produces."""
+        node, rest = self.split(target, where)
+        port, dot, fact = rest.partition(".")
+        if not dot or fact not in self.FACTS or node.kind != "composite":
+            return None
+        obj = node.found.obj
+        inputs = {p["name"] for p in obj.get("inputs", [])}
+        outputs = {p["name"] for p in obj.get("outputs", [])}
+        if port in inputs:
+            _, forward = self._edges(node.path)
+            facts = self.streams(forward, node.path)[port]
+            if fact in ("bits", "max_width", "max_height"):
+                if fact not in facts:
+                    raise CompositionError(
+                        f"{where}: {target}: the stream entering "
+                        f"{node.found.ref}'s {port} states no {fact}")
+                return facts[fact]
+            channels = int(facts.get("channels", 1))
+            return channels if fact == "channels" else \
+                int(facts["bits"]) * channels
+        if port in outputs:
+            if fact in ("max_width", "max_height"):
+                raise CompositionError(
+                    f"{where}: {target}: geometry is declared where a stream "
+                    "enters; an output's is not traced yet")
+            _, generated = self.elaborate(node.path, where)
+            out = generated.meta["boundary"]["outputs"][port]
+            return {"data_bits": out["data_bits"],
+                    "channels": out["channels"],
+                    "bits": out.get("channel_bits", out["data_bits"])}[fact]
+        raise CompositionError(
+            f"{where}: {target}: {node.found.ref} has no port {port!r} "
+            f"(inputs {sorted(inputs)}, outputs {sorted(outputs)})")
+
+    def subdesign(self, path: str) -> Design:
+        """The composite at `path` as a design of its own: the instances
+        beneath it, named relative to it, with everything the design around
+        it set on them; the edges inside it, its own ports as the boundary;
+        the stream entering it, declared where it enters."""
+        node = self.nodes[path]
+        edges, forward = self._edges(path)
+        aliases: dict = {}
+        instances = {}
+        for p, n in self.nodes.items():
+            if (n.kind == "composite" or p in self.inactive
+                    or not p.startswith(path + ".")):
+                continue
+            inst = self.instance(p, n, aliases)
+            inst.path = p[len(path) + 1:]
+            instances[inst.path] = inst
+        obj = node.found.obj
+        return Design(
+            ref=node.found.ref, description=obj.get("description", ""),
+            parameters={name: self.build_value(_join(path, name),
+                                               f"{node.found.ref}: {name}",
+                                               ())
+                        for name in obj.get("parameters", {})},
+            inputs=tuple(p["name"] for p in obj.get("inputs", [])),
+            outputs=tuple(p["name"] for p in obj.get("outputs", [])),
+            instances=instances,
+            composites={(p[len(path) + 1:] if p != path else ""):
+                        n.found.ref for p, n in self.nodes.items()
+                        if n.kind == "composite" and p not in self.inactive
+                        and (p == path or p.startswith(path + "."))},
+            edges=edges,
+            aliases={k[len(path) + 1:]: v[len(path) + 1:]
+                     for k, v in aliases.items()},
+            streams=self.streams(forward, path))
+
+    def elaborate(self, path: str, where: str):
+        """Build the composite at `path` -- model blocks -- once: its
+        sub-design and the generated result, the module a design around it
+        instantiates. Its own `clock_mhz` parameter, where it has one, is
+        the clock its datapath is cut for."""
+        if path in self.elaborations:
+            return self.elaborations[path]
+        if path in self.elaborating:
+            raise CompositionError(
+                f"{where}: a cycle: building {path} needs "
+                f"{' -> '.join([*self.elaborating, path])}")
+        self.elaborating.append(path)
+        try:
+            from revela import compose
+            sub = self.subdesign(path)
+            mhz = sub.parameters.get("clock_mhz")
+            generated = compose.generate(
+                sub, control=True,
+                clk_ns=None if mhz is None else 1000.0 / float(mhz))
+        finally:
+            self.elaborating.pop()
+        self.elaborations[path] = (sub, generated)
+        return sub, generated
+
+    def opaque_composites(self) -> tuple:
+        """The composites built whole: in a design that holds anything but
+        model blocks, each largest composite holding model blocks alone.
+        A design of model blocks alone is itself what gets built."""
+        leaves = [(p, n) for p, n in self.nodes.items()
+                  if n.kind != "composite" and p not in self.inactive]
+        if all(n.kind == "block" for _, n in leaves):
+            return ()
+
+        def models_only(path):
+            inside = [n for p, n in leaves if p.startswith(path + ".")]
+            return bool(inside) and all(n.kind == "block" for n in inside)
+        chosen = []
+        for path, node in self.nodes.items():
+            if (path and node.kind == "composite"
+                    and path not in self.inactive and models_only(path)
+                    and not any(path.startswith(c + ".") for c in chosen)):
+                chosen.append(path)
+        return tuple(chosen)
+
+    def built_whole(self, path: str) -> Instance:
+        """The composite at `path` as one leaf: the module its build made,
+        with the ports that build published, and its pack beside it."""
+        if path in self.whole:
+            return self.whole[path]
+        from revela import compose
+        from revela.designs.interfaces import buses
+        sub, generated = self.elaborate(path, path)
+        files = {f"{sub.name}.v": generated.verilog + "\n",
+                 f"{sub.name}_regmap.json":
+                     json.dumps(compose.register_map(sub), indent=2) + "\n"}
+        ports = generated.meta["ports"]
+        buses(ports)                     # its streams are whole
+        node = self.nodes[path]
+        self.whole[path] = Instance(
+            path=path, ref=node.found.ref, kind="primitive",
+            leaf={"description": node.found.obj.get("description", ""),
+                  "vivado": {"module": generated.top},
+                  "ports": ports, "module_parameters": {},
+                  "generated": [f"{sub.name}.v"], "files": files,
+                  "made_by": {"composite": node.found.ref}},
+            folder=node.found.folder,
+            domain=node.entry.get("domain"),
+            description=node.entry.get("description", ""))
+        return self.whole[path]
 
     # -- the run ------------------------------------------------------------ #
 
@@ -754,9 +953,27 @@ class _Loader:
                     and getattr(node.found.obj, "leaf", False)):
                 node.found = self.generated_leaf(path, node)
 
+        # A block described apart from its implementations is filled by the
+        # one its `implementation` parameter chooses: the tool's facts, its
+        # own port names, what follows from it.
+        for path, node in self.nodes.items():
+            if (node.kind == "primitive" and path not in self.inactive
+                    and "implementations" in node.found.obj):
+                node.found = self.implemented_leaf(path, node)
+
+        # A composite of model blocks inside a design that holds other
+        # leaves is built whole -- the ISP inside a board -- and is one
+        # cell of it, wired by the ports its build published.
+        self.opaque = self.opaque_composites()
+
         instances, aliases = {}, {}
         for path, node in self.nodes.items():
-            if node.kind == "composite" or path in self.inactive:
+            if path in self.opaque:
+                if self.generate:
+                    instances[path] = self.built_whole(path)
+                continue
+            if (node.kind == "composite" or path in self.inactive
+                    or not self.in_scope(path, "", self.opaque)):
                 continue
             instances[path] = self.instance(path, node, aliases)
 
@@ -768,7 +985,9 @@ class _Loader:
             outputs=tuple(p["name"] for p in top.obj.get("outputs", [])),
             instances=instances,
             composites={p: n.found.ref for p, n in self.nodes.items()
-                        if n.kind == "composite" and p not in self.inactive},
+                        if n.kind == "composite" and p not in self.inactive
+                        and p not in self.opaque
+                        and self.in_scope(p, "", self.opaque)},
             edges=self.edges(),
             aliases=aliases,
             pins=self.pins(),
@@ -808,11 +1027,75 @@ class _Loader:
         return Found(node.found.ref, "primitive", declaration,
                      node.found.folder)
 
+    def implementation(self, path: str, node: _Node, where: str):
+        """(name, implementation) a block's `implementation` parameter
+        chooses, or None for a leaf that is its own implementation."""
+        obj = node.found.obj
+        if isinstance(obj, dict) and "filled_by" in obj:
+            return obj["filled_by"]["implementation"], obj["filled_by"]["chosen"]
+        if not (isinstance(obj, dict) and "implementations" in obj):
+            return None
+        name = self.build_value(_join(path, "implementation"), where, ())
+        chosen = obj["implementations"].get(name)
+        if chosen is None:
+            raise CompositionError(
+                f"{where}: {path}: {node.found.ref} has no implementation "
+                f"{name!r} (implementations {sorted(obj['implementations'])})")
+        return name, chosen
+
+    def implementation_fact(self, target: str, where: str):
+        """``node.fact`` -- what follows from the implementation filling a
+        block (a front end's lane order), or None where `target` names no
+        such thing."""
+        node, rest = self.split(target, where)
+        if node.kind != "primitive" or "." in rest:
+            return None
+        found = self.implementation(node.path, node, where)
+        if found is None or rest not in found[1].get("facts", {}):
+            return None
+        return found[1]["facts"][rest]
+
+    def implemented_leaf(self, path: str, node: _Node) -> Found:
+        """A block filled by its chosen implementation: the block's ports
+        and description, wired by the design; the implementation's tool,
+        port names and settings, evaluated over the block's parameters."""
+        where = f"{path} ({node.found.ref})"
+        name, chosen = self.implementation(path, node, where)
+        block = node.found.obj
+        leaf = {k: v for k, v in block.items()
+                if k not in ("implementations", "parameters")}
+        for key in ("vivado", "sources", "constraints"):
+            if key in chosen:
+                leaf[key] = chosen[key]
+        leaf["port_map"] = dict(chosen.get("ports", {}))
+        leaf["tie"] = dict(chosen.get("tie", {}))
+        # the block's parameters at this node, which its port widths read
+        leaf["block_parameters"] = {
+            name: self.build_value(_join(path, name), where, ())
+            for name in block.get("parameters", {})}
+        # a port the block has only under some parameters, as this node
+        # sets them
+        for side in ("inputs", "outputs"):
+            leaf[side] = [
+                {k: v for k, v in port.items() if k != "when"}
+                for port in block.get(side, [])
+                if "when" not in port or self.evaluate_build(
+                    port["when"], path, f"{where}: {port['name']}: when")]
+        leaf["implementation_config"] = {
+            key: self.evaluate_build(raw, path,
+                                     f"{where}: implementation {name}: "
+                                     f"config {key}")
+            for key, raw in chosen.get("config", {}).items()}
+        leaf["filled_by"] = {"implementation": name, "chosen": chosen}
+        return Found(node.found.ref, "primitive", leaf, node.found.folder)
+
     def instance(self, path: str, node: _Node, aliases: dict) -> Instance:
         build = self.build_settings(path, node)
-        if isinstance(node.found.obj, dict) and "made_by" in node.found.obj:
-            # its settings were the generator's arguments, spent making
-            # the module; none of them is a parameter of the module itself
+        if isinstance(node.found.obj, dict) and (
+                "made_by" in node.found.obj or "filled_by" in node.found.obj):
+            # its settings were the generator's arguments, spent making the
+            # module, or the block's, spent choosing and setting its
+            # implementation; none is a parameter of the module itself
             build = {}
         leaf = node.found.obj
         overrides: dict = {}
@@ -840,6 +1123,8 @@ class _Loader:
             # model's defaults all read them from one place.
             leaf = node.found.obj.configure(overrides or None, resets=values)
         config = dict(node.entry.get("config", {}))
+        if isinstance(leaf, dict) and "implementation_config" in leaf:
+            config = {**leaf["implementation_config"], **config}
         both = sorted(set(config) & set(build))
         if both:
             raise CompositionError(f"{path}: {both} set under both build and "
@@ -888,6 +1173,13 @@ class _Loader:
         if node.kind == "block":
             return set(node.found.obj.ports.inputs), \
                 set(node.found.obj.ports.outputs)
+        if node.path in self.opaque:
+            # built whole: wired by the ports its build published -- and,
+            # where nothing is generated, wired unchecked, like a leaf
+            # generator that has not been called
+            if not self.generate:
+                return None
+            return _leaf_ports(self.built_whole(node.path).leaf)
         if node.kind == "primitive":
             return _leaf_ports(node.found.obj)
         if node.kind == "composite":
@@ -897,28 +1189,40 @@ class _Loader:
         return None
 
     def edges(self) -> list[tuple[str, str]]:
-        edges, self.forward = self._edges()
+        edges, self.forward = self._edges("", self.opaque)
         return edges
+
+    def in_scope(self, path: str, root: str, opaque=()) -> bool:
+        """Whether a node is inside the composite at `root` and not hidden
+        inside one built whole (`opaque`)."""
+        if root and not (path == root or path.startswith(root + ".")):
+            return False
+        return not any(path.startswith(o + ".") for o in opaque)
 
     def constraints(self) -> list:
         """Every constraints file of every built block, composite or
-        primitive, resolved beside the file that names it; an entry may be
-        {"file", "when"}, `when` read in that block's own scope."""
+        primitive, as ``{"file", "scoped_to"}``: resolved beside the file
+        that names it or in the package it names, `scoped_to` the module
+        whose every instance it constrains (None: the whole design). An
+        entry may also carry `when`, read in that block's own scope."""
         out = []
         for path, node in self.nodes.items():
             if path in self.inactive or not isinstance(node.found.obj, dict):
                 continue
             for entry in node.found.obj.get("constraints", []):
+                scoped = None
                 if isinstance(entry, dict):
                     where = f"{node.found.ref}: constraints {entry['file']}"
                     scope = path if node.kind == "composite" else node.parent
                     if "when" in entry and not self.evaluate_build(
                             entry["when"], scope, where):
                         continue
+                    scoped = entry.get("scoped_to")
                     entry = entry["file"]
-                f = (node.found.folder / entry).resolve()
-                if f not in out:
-                    out.append(f)
+                f = source_file(node.found.folder, entry).resolve()
+                item = {"file": f, "scoped_to": scoped}
+                if item not in out:
+                    out.append(item)
         return out
 
     def pins(self) -> dict:
@@ -939,15 +1243,19 @@ class _Loader:
                 owner[name] = node.found.ref
         return found
 
-    def _edges(self):
-        # Every connection, as an edge between PINS: (instance path, port).
-        # A composite's boundary port is one pin seen from both sides -- its
-        # parent's "child.port" and its own "port" -- so joining edges
-        # through composite pins leaves edges between leaves.
+    def _edges(self, root: str = "", opaque=()):
+        # Every connection inside the composite at `root`, as an edge between
+        # PINS: (instance path, port). A composite's boundary port is one pin
+        # seen from both sides -- its parent's "child.port" and its own
+        # "port" -- so joining edges through composite pins leaves edges
+        # between leaves. The composite at `root` is the boundary, its pins
+        # named bare; a composite in `opaque` is built whole, so its pins
+        # are a leaf's and nothing inside it is joined.
         forward: dict[tuple, list] = {}
         driven: dict[tuple, str] = {}
         for path, node in self.nodes.items():
-            if node.kind != "composite" or path in self.inactive:
+            if (node.kind != "composite" or path in self.inactive
+                    or path in opaque or not self.in_scope(path, root, opaque)):
                 continue
             for entry in node.found.obj.get("connections", []):
                 if isinstance(entry, dict):
@@ -977,13 +1285,16 @@ class _Loader:
             return pin[1] in _pin_names(self.nodes[pin[0]])
 
         def is_leaf(pin):
-            return pin[0] == "" or self.nodes[pin[0]].kind != "composite" \
-                or is_pin(pin)
+            return pin[0] == root or pin[0] in opaque \
+                or self.nodes[pin[0]].kind != "composite" or is_pin(pin)
 
         def text(pin):
-            if is_pin(pin):
+            if is_pin(pin) and not root:
                 return f"pin:{pin[1]}"
-            return pin[1] if pin[0] == "" else f"{pin[0]}.{pin[1]}"
+            if pin[0] == root:
+                return pin[1]
+            inside = pin[0][len(root) + 1:] if root else pin[0]
+            return f"{inside}.{pin[1]}"
 
         edges = []
 
@@ -1004,7 +1315,8 @@ class _Loader:
         # drives, or an input something inside reads and nothing outside
         # drives. Either would leave a leaf input silently undriven.
         for path, node in self.nodes.items():
-            if node.kind != "composite" or path in self.inactive:
+            if (node.kind != "composite" or path in self.inactive
+                    or path in opaque or not self.in_scope(path, root, opaque)):
                 continue
             for port in node.found.obj.get("outputs", []):
                 if not self.port_built(node, port):
@@ -1015,7 +1327,7 @@ class _Loader:
                         "driven by nothing inside it")
             for port in node.found.obj.get("inputs", []):
                 pin = (path, port["name"])
-                if path and pin in forward and pin not in driven:
+                if path != root and pin in forward and pin not in driven:
                     raise CompositionError(
                         f"{path}: input {port['name']} of "
                         f"{node.found.ref} is used inside it and driven by "
@@ -1035,7 +1347,11 @@ class _Loader:
     def pin(self, node: _Node, endpoint: str, role: str, where: str):
         """An endpoint written in composite ``node``, as a pin. A bare name
         is the composite's own port; ``child.port`` is a node's."""
-        inputs, outputs = self.ports(node)
+        # Its own ports as it declares them, even where it is built whole:
+        # seen from inside, a composite is its JSON.
+        obj = node.found.obj
+        inputs = {p["name"] for p in obj.get("inputs", [])}
+        outputs = {p["name"] for p in obj.get("outputs", [])}
         if "." not in endpoint and endpoint in _pin_names(node):
             return (node.path, endpoint)      # an external pin: either way
         if "." not in endpoint:
@@ -1295,4 +1611,21 @@ def assemble(name: str, blocks: dict, edges, *, inputs=("in",),
                    for path, block in blocks.items()},
         composites={"": name}, edges=[tuple(e) for e in edges], aliases={},
         streams={port: dict(stream) for port in inputs})
+
+
+def source_file(folder: Path, entry: str) -> Path:
+    """Where a leaf's source file is: beside its library file, or -- written
+    ``package:file`` -- shipped in an importable package, as np2hw ships
+    its fixed modules (``np2hw.hdl:np2hw_skid.v``)."""
+    package, colon, name = entry.partition(":")
+    if colon and "/" not in package:
+        from importlib.resources import files
+        try:
+            found = files(package).joinpath(name)
+        except ModuleNotFoundError as error:
+            raise CompositionError(f"source {entry}: {error}") from None
+        if not found.is_file():
+            raise CompositionError(f"source {entry}: {package} has no {name}")
+        return Path(str(found))
+    return Path(folder) / entry
 

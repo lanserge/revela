@@ -1,11 +1,15 @@
 {
  "blocks": {
   "hdmi_in": {
-   "description": "The HDMI-in jack: Digilent's dvi2rgb decoding the cable to parallel video, the hot-plug and DDC lines, and the pins they land on. Every design on this board that receives bayerlink uses this block rather than restating any of it. kClkRange 1: the board's own base overlay runs this exact 74.25 MHz mode with range 1 -- the IP comment's bucket arithmetic says 2, and empirically range 2 locks the clock but never aligns the data. Trust the design that demonstrably receives.",
+   "description": "The HDMI-in jack: an HDMI receiver (bayerlink-fpga's hdmi_rx, dvi2rgb by default) decoding the cable to parallel video, the hot-plug and DDC lines, and the pins they land on. Every design on this board that receives bayerlink uses this block rather than restating any of it. kClkRange 1: the board's own base overlay runs this exact 74.25 MHz mode with range 1 -- the IP comment's bucket arithmetic says 2, and empirically range 2 locks the clock but never aligns the data. Trust the design that demonstrably receives.",
    "parameters": {
-    "frontend": {
-     "default": "'bayerlink_fpga.frontends.dvi2rgb'",
-     "description": "The front end, as bayerlink-fpga names it: the facts the receiver is generated from (the byte-lane map) follow from it."
+    "lane_map": {
+     "default": "dvi_rx.lane_map",
+     "description": "Which video lane carries container byte 0, 1, 2: a fact of the front end filling dvi_rx, for the receiver behind this jack."
+    },
+    "vsync_active_high": {
+     "default": "dvi_rx.vsync_active_high",
+     "description": "The frame pulse's polarity, as the front end delivers it."
     },
     "max_link_khz": {
      "default": 148500,
@@ -69,11 +73,9 @@
    ],
    "nodes": {
     "dvi_rx": {
-     "block": "revela.boards.zynq7.ip:dvi2rgb",
+     "block": "bayerlink_fpga.frontends.hdmi_rx",
      "config": {
-      "kClkRange": "1",
-      "kEmulateDDC": "false",
-      "kAddBUFG": "true"
+      "kClkRange": "1"
      }
     },
     "hpd_one": {
@@ -92,7 +94,7 @@
    "connections": [
     [
      "refclk",
-     "dvi_rx.RefClk"
+     "dvi_rx.refclk"
     ],
     [
      "hpd_one.dout",
@@ -100,30 +102,30 @@
     ],
     [
      "rst_lo.dout",
-     "dvi_rx.aRst"
+     "dvi_rx.rst"
     ],
     [
-     "dvi_rx.TMDS",
-     "TMDS"
+     "TMDS",
+     "dvi_rx.TMDS"
     ],
     [
-     "dvi_rx.PixelClk",
+     "dvi_rx.pclk",
      "pclk"
     ],
     [
-     "dvi_rx.aPixelClkLckd",
+     "dvi_rx.locked",
      "locked"
     ],
     [
-     "dvi_rx.vid_pVDE",
+     "dvi_rx.de",
      "de"
     ],
     [
-     "dvi_rx.vid_pVSync",
+     "dvi_rx.vsync",
      "vsync"
     ],
     [
-     "dvi_rx.vid_pData",
+     "dvi_rx.data",
      "data"
     ],
     [

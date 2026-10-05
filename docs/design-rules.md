@@ -272,6 +272,50 @@ otherwise without editing it. The block chosen must present the ports of the
 default, since everything around the node was wired to them; a setting the new
 block has nowhere to put is refused.
 
+A block may be described apart from its implementations. Its entry states its
+parameters and ports, and under `implementations` the ways to realise it -- from
+different vendors, different IPs for one tool, our own HDL -- each with its tool's
+facts (`vivado`, `sources`), its own names for the block's ports, its own
+settings as expressions over the block's parameters, and what follows from it
+(`facts`). The block's `implementation` parameter chooses one, set like any other.
+A design is wired, and checked, by the block's ports and never learns which
+implementation filled it; the emitter renames each port to the implementation's.
+A block's constraints file may be shipped in a package (`np2hw.hdl:np2hw_cdc_fifo.xdc`)
+and `scoped_to` a module: one file then constrains every instance of that module by
+the module's own names, so a crossing carries its timing intent wherever it is
+placed. A port may exist only `when` an expression over the block's parameters holds (a
+clock's phase-shift handshake), and an input of the implementation that no port
+reaches is held by its `tie`. Each vendor implementation is held to its
+description by the build: once the block design is built, every described cell's
+pins are dumped and compared with what the description says they are
+(`revela.boards.vendor_check`), and a description that is not true stops the
+build before synthesis. What an implementation states is read as `node.fact` -- the HDMI front end's
+`hdmi_rx.lane_map` is dvi2rgb's lane order, and the bayerlink receiver's lanes
+are assigned from it. A block whose only implementation is a composite or a model
+needs no separate description: its ports and its trace are its owner's own word.
+
+An expression may call a function its library offers, named like a block:
+`"@revela.boards.modes:pixel_khz(mode)"` is the raster's pixel clock, read from
+np2hw's mode table. A function is callable only if it says so
+(`fn.expression = True`): a design is data, and what it can run is what its
+library offers it -- a table's lookup, never whatever happens to be importable.
+So a board's choices are parameters of the design, computed where they are
+stated, with no step beside the design supplying them.
+
+A parameter carries a fact both ways. Down: a composite declares it and wires it
+into its blocks by expressions, as any build setting. Up: a composite assigns it a
+fact of one of its nodes, `node.port.fact` -- `bits`, `channels` or `data_bits` of
+a stream, `max_width` or `max_height` of one entering. On an input that is the fact
+declared where the stream enters; on an output it is traced, so the node is built
+to read it. So the board's `sample_bits` is `isp.isp_in.bits` and its
+`isp_out_bits` is `isp.isp_out.data_bits`, wired from there into everything that
+carries those streams: each fact has one owner and every reader names it.
+
+In a design that holds anything but model blocks, a composite holding model blocks
+alone -- the ISP inside a board -- is built whole, as one cell: the register-file
+top its build generates, wired by the ports that build published, its register map
+beside it. A design of model blocks alone is itself what gets built.
+
 The ISP is sensor-independent. What it is built for is the stream entering it
 -- the depth its samples arrive at, the widest frame and the tallest -- stated
 on its input port, and nowhere else; a sensor whose mode fits them is served.
@@ -392,7 +436,9 @@ revela/
   fusesoc.py      design packs: a composite reference -> .core + Verilog + maps
   cli.py, run.py  `revela generate` and `revela run`
   designs/        composites: composite.py loads them, profile.py resolves a
-                  sensor's values for a block, blocks.schema.json the format
+                  sensor's values for a block, blocks.schema.json the format;
+                  bayerlink_display.json, the camera on a display, for any
+                  board to fill and feed
   pipelines/      compositions of blocks: bayer_isp.json (the standard ISP),
                   stereo.json (two of it)
   blocks/         one file per block; the decorated model IS the block
@@ -432,9 +478,17 @@ revela/
   host/           transports (spi, udp, pynq), register accessors, and the
                   source's packages (bridge_module.py, sensor_module.py)
   boards/         vivado.py renders a design for Vivado, bdtrace.py traces
-                  a block design;
-    zynq7/        the family: vendor IP, the PS, the bus, GPIO words
-    pynq_z2/      the board: its jacks, glue modules, pynq_demo, build.sh
+                  a block design, vendor_check.py holds each described
+                  vendor block to what Vivado built;
+    common/       blocks any board may use: described once with their
+                  implementations (hdmi_tx, clock, frame_dma, stream_dma,
+                  stream_cdc),
+                  and the modules a generic design needs (isp_entry,
+                  tee_shim, isp_axis, the raster's generators)
+    zynq7/        the family: the PS (described, its ports by its settings),
+                  vendor IP not yet described, the bus, GPIO words
+    pynq_z2/      the board: its jacks, its ISP, pynq_demo (bayerlink_display
+                  filled and fed by role), build.sh
 tests/            pytest + cocotb testbenches
 experiments/      exploratory work, NOT part of the library, float allowed
 ```

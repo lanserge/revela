@@ -46,7 +46,7 @@ def _build(mode: str, genlock: bool, fill: int) -> dict:
 def _cached(mode: str, genlock: bool, fill: int) -> dict:
     from np2hw import axil_regfile
     from np2hw.ports import Pin, header, published
-    from np2hw.stream import cdc_fifo, clock_attribute, reset_attribute
+    from np2hw.stream import clock_attribute, reset_attribute
     from np2hw.video_out import mode_timing, scanout
 
     timing = mode_timing(mode)
@@ -259,8 +259,6 @@ def _cached(mode: str, genlock: bool, fill: int) -> dict:
         # and the raster no longer share a clock, and the raster's lead
         # (G_LEAD lines of a 1920 window) is STORAGE this FIFO carries.
         # 8192 slots = four lines and headroom.
-        fifo = cdc_fifo(cable + 2, addr_bits=13,
-                        module_name="out_cdc_core")
         C = []
         c = C.append
         c("// out_cdc: the island-to-raster crossing. AXIS on both faces,")
@@ -293,7 +291,7 @@ def _cached(mode: str, genlock: bool, fill: int) -> dict:
         ]
         C += header("out_cdc", cdc_pins)
         c(f"    wire [{cable + 1}:0] head;")
-        c("    out_cdc_core fifo (")
+        c(f"    np2hw_cdc_fifo #(.W({cable + 2}), .A(13)) fifo (")
         c("        .wclk(wclk), .wrst(wrst),")
         c(f"        .in_data({{s_axis_tuser, s_axis_tlast, "
           f"s_axis_tdata[{cable - 1}:0]}}),")
@@ -305,7 +303,7 @@ def _cached(mode: str, genlock: bool, fill: int) -> dict:
         c(f"    assign m_axis_tlast = head[{cable}];")
         c(f"    assign m_axis_tuser = head[{cable + 1}];")
         c("endmodule")
-        out_cdc_text = fifo["verilog"] + "\n" + "\n".join(C) + "\n"
+        out_cdc_text = "\n".join(C) + "\n"
     else:
         cdc_pins, out_cdc_text = None, None
 
@@ -321,7 +319,7 @@ def _cached(mode: str, genlock: bool, fill: int) -> dict:
 def scanout(mode: str, genlock: int, fill: str) -> dict:
     """The display raster: np2hw's scanout behind its placement registers.
 
-    A leaf a design names (`revela.boards.pynq_z2.scanout:scanout`) with
+    A leaf a design names (`revela.boards.common.scanout:scanout`) with
     the output mode, whether the raster genlocks to the stream, and what
     it paints outside the picture (``"0x101010"``). The cable it drives
     into is the hdmi_out jack's. Every port is published.
@@ -338,11 +336,13 @@ scanout.leaf = True
 def out_cdc(mode: str, fill: str) -> dict:
     """The island-to-raster crossing the genlocked raster reads through.
 
-    A leaf a design names (`revela.boards.pynq_z2.scanout:out_cdc`) beside
+    A leaf a design names (`revela.boards.common.scanout:out_cdc`) beside
     a genlocked `scanout`, set alike. Every port is published.
     """
     built = _build(mode, True, int(str(fill), 0))
     return {"verilog": built["out_cdc"], "module": "out_cdc",
+            # the crossing itself is np2hw's fixed FIFO, at its width
+            "requires": ("np2hw_cdc_fifo",),
             "interface": {"ports": built["out_cdc_ports"]}}
 
 

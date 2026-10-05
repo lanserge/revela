@@ -1,14 +1,49 @@
 {
   "blocks": {
     "ps7": {
-      "description": "The Zynq-7000 processing system. A procedure builds it because the board's preset must be applied before its own settings, which the preset would otherwise overwrite: its properties are the settings, applied after.",
-      "vivado": {
-        "tcl": "zynq7_ps7",
-        "source": "ps7.tcl",
-        "interfaces": [
-          "M_AXI_GP0",
-          "S_AXI_HP0"
-        ]
+      "description": "The Zynq-7000 processing system: the ARM cores, DDR and MIO, and the fabric's ports into them -- the general-purpose master the fabric's registers hang off, the high-performance slave a DMA writes memory through, the fabric clocks and reset, the fabric's interrupts.",
+      "parameters": {
+        "implementation": {"default": "'preset'", "description": "Which implementation fills this block."},
+        "hp0": {"default": 0, "description": "1: the high-performance slave S_AXI_HP0 is there, for a DMA into memory."},
+        "fclk1": {"default": 0, "description": "1: the second fabric clock FCLK_CLK1 is there."},
+        "irq_count": {"default": 0, "description": "Interrupts from the fabric into the cores, 0 for none."}
+      },
+      "inputs": [
+        {"name": "M_AXI_GP0_ACLK", "description": "The clock the general-purpose master runs in."},
+        {"name": "S_AXI_HP0", "bus": "axi3", "width": 64, "id_width": 6, "when": "hp0", "description": "Memory, for a DMA."},
+        {"name": "S_AXI_HP0_ACLK", "when": "hp0"},
+        {"name": "IRQ_F2P", "width": "irq_count", "when": "irq_count", "description": "Interrupts into the cores."}
+      ],
+      "outputs": [
+        {"name": "M_AXI_GP0", "bus": "axi3", "width": 32, "id_width": 12, "description": "The general-purpose master: every register in the fabric is behind it."},
+        {"name": "FCLK_CLK0"},
+        {"name": "FCLK_CLK1", "when": "fclk1"},
+        {"name": "FCLK_RESET0_N", "description": "The fabric reset, active low."},
+        {"name": "DDR", "bus": "pins", "description": "The DDR memory's package pins.", "members": [
+          {"name": "DDR_Addr", "width": 15, "inout": true}, {"name": "DDR_BankAddr", "width": 3, "inout": true},
+          {"name": "DDR_CAS_n", "inout": true}, {"name": "DDR_CKE", "inout": true}, {"name": "DDR_CS_n", "inout": true},
+          {"name": "DDR_Clk", "inout": true}, {"name": "DDR_Clk_n", "inout": true}, {"name": "DDR_DM", "width": 4, "inout": true},
+          {"name": "DDR_DQ", "width": 32, "inout": true}, {"name": "DDR_DQS", "width": 4, "inout": true},
+          {"name": "DDR_DQS_n", "width": 4, "inout": true}, {"name": "DDR_DRSTB", "inout": true}, {"name": "DDR_ODT", "inout": true},
+          {"name": "DDR_RAS_n", "inout": true}, {"name": "DDR_WEB", "inout": true}]},
+        {"name": "FIXED_IO", "bus": "pins", "description": "MIO, the PS clock and resets, and the DDR's reference resistors.", "members": [
+          {"name": "MIO", "width": 54, "inout": true}, {"name": "PS_CLK", "inout": true}, {"name": "PS_PORB", "inout": true},
+          {"name": "PS_SRSTB", "inout": true}, {"name": "DDR_VRN", "inout": true}, {"name": "DDR_VRP", "inout": true}]}
+      ],
+      "implementations": {
+        "preset": {
+          "description": "AMD's processing_system7, built by a procedure because the board's preset -- DDR, MIO, the fixed I/O made external -- must be applied before the block's own settings, which a preset applied afterwards would overwrite. The fabric clocks' frequencies are the design's, set where the node is placed.",
+          "vivado": {"tcl": "zynq7_ps7", "source": "ps7.tcl"},
+          "config": {
+            "PCW_USE_S_AXI_HP0": "hp0",
+            "PCW_USE_S_AXI_HP1": "0",
+            "PCW_EN_CLK1_PORT": "fclk1",
+            "PCW_USE_FABRIC_INTERRUPT": "1 if irq_count else 0",
+            "PCW_IRQ_F2P_INTR": "1 if irq_count else 0"
+          },
+          "pin_names": {"M_AXI_GP0": "M_AXI_GP0_{SIGNAL}", "S_AXI_HP0": "S_AXI_HP0_{SIGNAL}"},
+          "tie": {"S_AXI_HP0_RDISSUECAP1_EN": 0, "S_AXI_HP0_WRISSUECAP1_EN": 0, "USB0_VBUS_PWRFAULT": 0}
+        }
       }
     }
   }
