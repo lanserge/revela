@@ -60,7 +60,8 @@ from pathlib import Path
 import numpy as np
 from np2hw import Rom, coords
 
-from revela.blocks import StreamPort, ispblock
+from np2hw.blocks import StreamPort
+from revela.blocks import ispblock
 
 SIZE = 128                     # power of two: the address is wiring
 MARGIN = 32

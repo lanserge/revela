@@ -16,7 +16,7 @@ import pytest
 from conftest import requires_verilator, run_cocotb
 
 from revela.blocks.demosaic import hamilton_adams as ha
-from revela.stream import StreamSpec
+from np2hw.blocks.stream import StreamSpec
 
 WIDTH = 16
 HEIGHT = 12
@@ -192,7 +192,7 @@ def test_green_verilog_is_bit_exact(tmp_path, rng):
                "frame": raw_frame(rng).ravel().tolist()}
               for phase in range(4)]
     run_cocotb(tmp_path=tmp_path, verilog=generated.verilog,
-               toplevel=generated.top, test_module="tb_block",
+               toplevel=generated.top, test_module="np2hw.testing.block",
                case={"block": "ha_green", "width": WIDTH, "height": HEIGHT,
                      "bit_depth": BIT_DEPTH, "channels": 2, "trials": trials})
 
@@ -211,7 +211,7 @@ def test_rb_verilog_is_bit_exact(tmp_path, rng):
                        "context": {"bayer_phase": phase}, "values": {},
                        "frame": pack2(word).ravel().tolist()})
     run_cocotb(tmp_path=tmp_path, verilog=generated.verilog,
-               toplevel=generated.top, test_module="tb_block",
+               toplevel=generated.top, test_module="np2hw.testing.block",
                case={"block": "ha_rb", "width": WIDTH, "height": HEIGHT,
                      "bit_depth": BIT_DEPTH, "channels": 3,
                      "in_channels": 2, "trials": trials})

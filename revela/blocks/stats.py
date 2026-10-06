@@ -64,8 +64,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from revela.blocks import StreamPort, ispblock
-from revela.params import Param, StatsWindow
+from np2hw.blocks import StreamPort
+from revela.blocks import ispblock
+from np2hw.blocks.params import Param, StatsWindow
 
 # Build-time grid maximum. The RAM is sized for this; the zone SIZE is a runtime
 # register, so one bitstream covers every resolution with the same grid.

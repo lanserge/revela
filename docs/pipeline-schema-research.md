@@ -231,4 +231,4 @@ JSON, the primitive set is right.
    specification, and the ones that read badly show where the primitives are
    wrong.
 3. Write the schema from the examples; then the loader; then make each
-   example build and run under `revela run --rtl`.
+   example build and run under `np2hw pipeline run --rtl`.

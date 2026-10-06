@@ -13,12 +13,14 @@ import json
 from pathlib import Path
 
 import pytest
-from revela import compose
 
-from revela import designs
-from revela.designs import composite
+import revela
+from np2hw.pipeline import compose
 
-FOLDER = Path(composite.__file__).parents[1] / "pipelines"
+from np2hw import pipeline as pipelines
+from np2hw.design import composite
+
+FOLDER = Path(revela.__file__).parent / "pipelines"
 # Two kinds of file: a design, holding the top revela_<file>, and a standard
 # ISP, named after its file and built for whatever stream its user sets.
 FILES = sorted(p for p in FOLDER.glob("*.json")
@@ -37,7 +39,7 @@ def test_there_are_pipelines():
 
 @pytest.mark.parametrize("path", FILES, ids=lambda p: p.stem)
 def test_a_pipeline_generates(path):
-    generated = compose.generate(designs.load(ref(path)))
+    generated = compose.generate(pipelines.load(ref(path)))
     assert generated.verilog.strip().endswith("endmodule")
     assert generated.top in generated.module_names()
 
@@ -47,7 +49,7 @@ def test_a_pipeline_is_named_after_its_file(path):
     """The block is the top module: revela_<file>, unique side by side and
     clear of anything in the integrator's own Verilog."""
     assert f"revela_{path.stem}" in json.loads(path.read_text())["blocks"]
-    assert designs.load(ref(path)).name == f"revela_{path.stem}"
+    assert pipelines.load(ref(path)).name == f"revela_{path.stem}"
 
 
 @pytest.mark.parametrize("design", [*map(ref, FILES), BOARD])
@@ -72,12 +74,12 @@ def test_a_design_is_built_for_a_stream_and_names_no_sensor(design):
 def test_stereo_is_the_standard_isp_twice():
     """Two eyes, one module per block instantiated per eye -- and each eye
     keeps its own registers, so each is tuned on its own."""
-    pipeline = designs.load(ref(FOLDER / "stereo.json"))
+    pipeline = pipelines.load(ref(FOLDER / "stereo.json"))
     modules = compose.generate(pipeline).module_names()
     assert "revela_bayer_isp_ccm" in modules
     assert not any(m.startswith(("revela_left_", "revela_right_"))
                    for m in modules)
-    from revela.designs.composite import _shared_subsystems
+    from np2hw.design.composite import _shared_subsystems
     assert sorted(_shared_subsystems(pipeline)) == ["left", "right"]
     assert compose.stage(pipeline, "left.ccm").instance.base != \
         compose.stage(pipeline, "right.ccm").instance.base
@@ -85,5 +87,5 @@ def test_stereo_is_the_standard_isp_twice():
 
 def test_a_composite_used_once_is_spelled_out():
     """Wrapping a chain in a block does not change a design's RTL."""
-    from revela.designs.composite import _shared_subsystems
-    assert not _shared_subsystems(designs.load(BOARD))
+    from np2hw.design.composite import _shared_subsystems
+    assert not _shared_subsystems(pipelines.load(BOARD))

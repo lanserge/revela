@@ -50,7 +50,7 @@ instantiated per eye, instead of two identical copies.
 ## Building one
 
 ```bash
-revela generate revela.pipelines.stereo:revela_stereo --out build
+np2hw pipeline generate revela.pipelines.stereo:revela_stereo --out build
 
 # the same build, read back to you -- where each block landed and the stream
 # topology

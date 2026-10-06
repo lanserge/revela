@@ -93,9 +93,10 @@ from __future__ import annotations
 import numpy as np
 from np2hw import Rom, coords
 
-from revela.blocks import StreamPort, ispblock
+from np2hw.blocks import StreamPort
+from revela.blocks import ispblock
 from revela.blocks.tofquad import PHASE_BITS
-from revela.params import Param
+from np2hw.blocks.params import Param
 
 #: Millimetres. Wide enough for a span of several metres and an offset that may
 #: exceed it, signed so the phase may run either way.

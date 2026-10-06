@@ -56,8 +56,9 @@ import numpy as np
 
 from np2hw import saturate
 
-from revela.blocks import ContextBit, StreamPort, ispblock
-from revela.params import Param
+from np2hw.blocks import ContextBit, StreamPort
+from revela.blocks import ispblock
+from np2hw.blocks.params import Param
 
 # Wide enough to hold a pedestal for any sensor revela targets (a 12-bit part
 # pedestals around 64, a 16-bit part around 4096) with headroom to push black

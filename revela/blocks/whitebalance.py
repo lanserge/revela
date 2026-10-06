@@ -60,8 +60,9 @@ import numpy as np
 
 from np2hw import saturate
 
-from revela.blocks import ContextBit, StreamPort, ispblock
-from revela.params import Param
+from np2hw.blocks import ContextBit, StreamPort
+from revela.blocks import ispblock
+from np2hw.blocks.params import Param
 
 # The gain's Q format lives ON THE DECLARATION below, nowhere else: the
 # model reads its shift from p.decl.gain.frac, the register map derives
@@ -150,7 +151,7 @@ def registers_from_gains(r: int, b: int, g: int = GAIN_ONE) -> dict[str, int]:
     this states -- and ALL it states -- is the convention: green at unity,
     both greens equal, R and B scaled relative to them. The register names,
     the tile shape and the representable range come from the declaration,
-    via :meth:`revela.params.Param.values`.
+    via :meth:`np2hw.blocks.params.Param.values`.
 
     Args:
         r, b, g: gains in the BASE declaration's Q8.8, as

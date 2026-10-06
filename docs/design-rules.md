@@ -70,7 +70,7 @@ description. One declaration drives four things:
 - the host-side accessor.
 
 **Blocks declare LOCAL offsets only — never absolute addresses.**
-`revela/compose.py` assigns each block **INSTANCE** a base address at
+np2hw's composer (`np2hw.pipeline.compose`) assigns each block **INSTANCE** a base address at
 composition time.
 
 Non-negotiable, and here is the test of it: a stereo pipeline instantiates every
@@ -165,7 +165,7 @@ them. A panel renders the map and decides nothing.
 
 ### The register file
 
-`revela.compose.generate(design)` emits an AXI4-Lite slave in front of the
+`np2hw.pipeline.compose.generate(design)` emits an AXI4-Lite slave in front of the
 datapath, so a design is configurable on hardware rather than presenting a few
 hundred flat parameter inputs. `generate(control=False)` stops at the datapath, which is what
 a bit-exact testbench wants: it drives coefficients directly instead of writing
@@ -202,7 +202,7 @@ window to double-buffer. The region is in the map; the RAM is not in the RTL.
 
 A pipeline's structure is a NETLIST in JSON: a composite, validated against
 `revela/designs/blocks.schema.json` on load, and built with
-`revela.designs.load()`. This is the form a pipeline builder GUI would edit.
+`np2hw.pipeline.load()`. This is the form a pipeline builder GUI would edit.
 
 **A netlist, not a list, because a real ISP is not a chain.** Statistics TAP the
 datapath and produce no pixels. A preview path FORKS off the main one. Luma and
@@ -235,7 +235,7 @@ declares what each node MEANS; np2hw decides whether the graph is buildable.
 
     design (composite)     INPUT    structure, no addresses   revela/pipelines/
     profile                INPUT    values, no structure      revela/sensors/
-    register map           OUTPUT   addresses, generated      revela/compose.py
+    register map           OUTPUT   addresses, generated      np2hw.pipeline.compose
 
 **Neither input can express an address**: the schema has nowhere to write one.
 Blocks declare local offsets; revela assigns each block instance a base at
@@ -288,14 +288,21 @@ clock's phase-shift handshake), and an input of the implementation that no port
 reaches is held by its `tie`. Each vendor implementation is held to its
 description by the build: once the block design is built, every described cell's
 pins are dumped and compared with what the description says they are
-(`revela.boards.vendor_check`), and a description that is not true stops the
-build before synthesis. What an implementation states is read as `node.fact` -- the HDMI front end's
+(`np2hw.toolchain.vivado.vendor_check`), and a description that is not true
+stops the build before synthesis. What an implementation states is read as `node.fact` -- the HDMI front end's
 `hdmi_rx.lane_map` is dvi2rgb's lane order, and the bayerlink receiver's lanes
 are assigned from it. A block whose only implementation is a composite or a model
 needs no separate description: its ports and its trace are its owner's own word.
 
+A loaded design is a netlist (`np2hw.design.netlist`), built once: every leaf
+with its implementation, settings and ports as the build resolves them, every
+connection as a bundle -- a stream or a bus, joined by name -- or a net of pins,
+and the board's external pins. The wiring check reads it, and the build writes it
+out as `netlist.json` beside everything else, for any tool that wants the design
+without loading it.
+
 An expression may call a function its library offers, named like a block:
-`"@revela.boards.modes:pixel_khz(mode)"` is the raster's pixel clock, read from
+`"@np2hw.video_out:pixel_khz(mode)"` is the raster's pixel clock, read from
 np2hw's mode table. A function is callable only if it says so
 (`fn.expression = True`): a design is data, and what it can run is what its
 library offers it -- a table's lookup, never whatever happens to be importable.
@@ -357,7 +364,7 @@ possible, because a block with its own buffers can be instantiated alone and hel
 bit-exact against its model. If fusion is ever needed, the route is to trace a
 sub-chain as ONE np2hw expression (np2hw already hash-conses and shares line
 buffers within a single traced expression) — a composition choice in
-`revela/compose.py`, not an architectural rewrite.
+`np2hw.pipeline.compose`, not an architectural rewrite.
 
 ## Sensors
 
@@ -429,15 +436,13 @@ The name is not covered by the licence: see [TRADEMARK.md](../TRADEMARK.md).
 ## Layout
 
 ```
-revela/
-  params.py       Param, Context, StatsWindow, ParamSet, AddressAllocator
-  stream.py       stream interface + AXI4-Stream Video adapter
-  compose.py      composition, address allocation, JSON map emission
-  fusesoc.py      design packs: a composite reference -> .core + Verilog + maps
-  cli.py, run.py  `revela generate` and `revela run`
-  designs/        composites: composite.py loads them, profile.py resolves a
-                  sensor's values for a block, blocks.schema.json the format;
-                  bayerlink_display.json, the camera on a display, for any
+revela/          (np2hw holds the machinery: np2hw.blocks -- the framework,
+                  register declarations, the stream spec; np2hw.design -- the
+                  composite format, its loader, netlist and checks, profile
+                  layering; np2hw.pipeline -- composition, allocation, the map,
+                  the RTL twin, the design pack and `np2hw pipeline`;
+                  np2hw.toolchain -- the Vivado flow)
+  designs/        bayerlink_display.json, the camera on a display, for any
                   board to fill and feed
   pipelines/      compositions of blocks: bayer_isp.json (the standard ISP),
                   stereo.json (two of it)
@@ -477,9 +482,9 @@ revela/
   sensors/        schema.json + <name>/sensor.json, and a sensor's profile.json
   host/           transports (spi, udp, pynq), register accessors, and the
                   source's packages (bridge_module.py, sensor_module.py)
-  boards/         vivado.py renders a design for Vivado, bdtrace.py traces
-                  a block design, vendor_check.py holds each described
-                  vendor block to what Vivado built;
+  boards/         board designs and the blocks they use; np2hw.toolchain
+                  renders them for Vivado and holds each described vendor
+                  block to what Vivado built;
     common/       blocks any board may use: described once with their
                   implementations (hdmi_tx, clock, frame_dma, stream_dma,
                   stream_cdc),
@@ -507,9 +512,13 @@ experiments/      exploratory work, NOT part of the library, float allowed
   (`out[py::2, px::2] = ...`), and because the four planes partition the image it
   lowers them to ONE full-rate datapath with the coefficient selected by pixel
   position, not four quarter-rate paths.
-- **A block is a decorated function.** `@ispblock` declares what the arithmetic
-  cannot say -- the register set, which context bits the model takes -- and
-  `Block.generate()` is generic, shared by every block. Stream WIDTHS are
+- **A block is a decorated function.** np2hw's block framework
+  (`np2hw.blocks`) holds what the arithmetic cannot say -- the register set,
+  which context bits the model takes -- and `Block.generate()` is generic,
+  shared by every block. revela's `@ispblock` is np2hw's decorator with
+  revela's pipeline context (`revela.blocks.context`) bound as the vocabulary
+  its blocks consume; the Verilog traced from a model carries the licence the
+  model's own source file states. Stream WIDTHS are
   deliberately not declared: np2hw derives them from the trace, and declaring
   them twice is how `in_flags` and `ctx_ports` went wrong. A design holds
   Blocks, not modules; the registry discovers Blocks; a block that cannot be

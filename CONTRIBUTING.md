@@ -120,7 +120,7 @@ failing test cases, and quality comparisons. Open an issue -- the
 Blocks WITHOUT such lineage -- plumbing, statistics, format conversions --
 follow the normal path below, CLA and all.
 
-1. One file in `revela/blocks/`, one `@ispblock`-decorated model function (the decorated function IS the block: `Block.run()` runs it, the generic `generate()` traces it, `.params` is its register set — declare nothing beside it).
+1. One file in `revela/blocks/`, one `@ispblock`-decorated model function (the decorated function IS the block, an `np2hw.blocks.Block`: `Block.run()` runs it, the generic `generate()` traces it, `.params` is its register set — declare nothing beside it). The file's licence header is the generated Verilog's too.
 2. The model is the specification. Write it at the hardware's arithmetic first
    and let the RTL follow, not the other way round.
 3. A test in `tests/` proving bit-exact agreement between model and generated

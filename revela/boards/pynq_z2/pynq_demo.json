@@ -36,7 +36,7 @@
      "description": "What the raster paints outside the picture."
     },
     "out_khz": {
-     "default": "@revela.boards.modes:pixel_khz(mode)",
+     "default": "@np2hw.video_out:pixel_khz(mode)",
      "description": "The output raster's pixel clock in kHz, from np2hw's mode table."
     },
     "genlock": {

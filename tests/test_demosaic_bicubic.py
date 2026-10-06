@@ -16,7 +16,7 @@ import pytest
 from conftest import requires_verilator, run_cocotb
 
 from revela.blocks.demosaic import bicubic as bicubic_module
-from revela.stream import StreamSpec
+from np2hw.blocks.stream import StreamSpec
 
 bicubic = bicubic_module.bicubic
 
@@ -191,7 +191,7 @@ def test_verilog_is_bit_exact_with_the_model(tmp_path, rng):
         tmp_path=tmp_path,
         verilog=generated.verilog,
         toplevel=generated.top,
-        test_module="tb_block",
+        test_module="np2hw.testing.block",
         case={
             "block": "bicubic",
             "width": WIDTH,

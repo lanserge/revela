@@ -109,7 +109,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from revela.blocks import StreamPort, ispblock
+from np2hw.blocks import StreamPort
+from revela.blocks import ispblock
 
 #: Rounds of CORDIC. Each adds about one bit of angle; 12 puts the error two
 #: orders of magnitude below this sensor's noise.

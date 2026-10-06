@@ -16,7 +16,7 @@ from conftest import raw_frame, requires_verilator, run_cocotb
 
 from revela.blocks import whitebalance
 from revela.blocks.whitebalance import GAIN_ONE
-from revela.stream import StreamSpec
+from np2hw.blocks.stream import StreamSpec
 
 GAIN = whitebalance.whitebalance.params.declaration("gain")
 
@@ -144,7 +144,7 @@ def test_verilog_is_bit_exact_with_the_model(tmp_path, rng):
         tmp_path=tmp_path,
         verilog=generated.verilog,
         toplevel=generated.top,
-        test_module="tb_block",
+        test_module="np2hw.testing.block",
         case={
             "block": "whitebalance",
             "width": WIDTH,

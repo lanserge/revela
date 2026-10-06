@@ -21,7 +21,7 @@ same JSON the host API reads, which comes from the same block declarations that
 produced the Verilog:
 
 ```bash
-revela generate revela.pipelines.stereo:revela_stereo --out build
+np2hw pipeline generate revela.pipelines.stereo:revela_stereo --out build
 ```
 
 writes `build/<name>.v`, `build/<name>_regmap.json`, `build/<name>.rdl`,

@@ -124,8 +124,8 @@ def library(description: dict) -> str:
 
 def build(description: dict):
     """The pipeline ``description`` describes, through the composite loader."""
-    from revela import designs
-    return designs.load(library(description))
+    from np2hw import pipeline as pipelines
+    return pipelines.load(library(description))
 
 
 @pytest.fixture
@@ -155,50 +155,15 @@ def raw_frame(rng: np.random.Generator, width: int, height: int,
 
 def run_cocotb(tmp_path: Path, verilog: str, toplevel: str, test_module: str,
                case: dict) -> None:
-    """Build one design with Verilator and run its cocotb testbench.
+    """Build one design with Verilator and run a cocotb testbench over it,
+    through :func:`np2hw.testing.run_cocotb`.
 
-    Args:
-        verilog: the complete generated source.
-        toplevel: module to elaborate.
-        test_module: importable module in ``tests/`` holding the cocotb tests.
-        case: stimulus and configuration, handed to the testbench as JSON. The
-            testbench recomputes the expected values from the NumPy model
-            itself, so the model stays the single reference rather than being
-            copied into the test.
-
-    Raises:
-        AssertionError: if any cocotb test failed.
+    A case for np2hw's testbench for any block (``np2hw.testing.block``)
+    names revela's block by its registered name; this gives np2hw its
+    reference.
     """
-    from cocotb_tools.runner import get_runner, get_results
+    from np2hw.testing import run_cocotb as run
 
-    source = tmp_path / f"{toplevel}.v"
-    source.write_text(verilog)
-
-    case_path = tmp_path / "case.json"
-    case_path.write_text(json.dumps(case))
-
-    build_dir = tmp_path / "sim_build"
-    runner = get_runner("verilator")
-    runner.build(
-        sources=[source],
-        hdl_toplevel=toplevel,
-        build_dir=build_dir,
-        always=True,
-        # np2hw's cores compare unsigned counters against constants and widen
-        # accumulators intentionally; those warnings are expected and are not
-        # allowed to fail the build. Genuine errors still do.
-        build_args=["-Wno-fatal", "--timing"],
-        timescale=("1ns", "1ps"),
-    )
-    results = runner.test(
-        hdl_toplevel=toplevel,
-        test_module=test_module,
-        test_dir=str(TESTS_DIR),
-        build_dir=build_dir,
-        timescale=("1ns", "1ps"),
-        extra_env={"REVELA_CASE": str(case_path)},
-    )
-    total, failed = get_results(results)
-    assert failed == 0, (
-        f"{failed} of {total} cocotb test(s) failed for {toplevel}; "
-        f"see {results} and the log above")
+    if "block" in case:
+        case = dict(case, block=block_ref(case["block"]))
+    run(tmp_path, verilog, toplevel, test_module, case, test_dir=TESTS_DIR)

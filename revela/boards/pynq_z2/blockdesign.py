@@ -26,15 +26,15 @@ import sys
 from pathlib import Path
 
 from revela.boards.pynq_z2 import HERE, board, choices, default
-from revela.boards import vivado
-from revela.designs.composite import block_name, load, write_generated
+from np2hw.toolchain import vivado
+from np2hw.design.composite import block_name, load, write_generated
 
 DESIGN = "revela.boards.pynq_z2.pynq_demo"
 
 
 def check_board(c: dict) -> None:
     """The design's choices met against the board's facts."""
-    from revela.boards.modes import pixel_khz
+    from np2hw.video_out import pixel_khz
     b = board()
     if c["capture"] and not b.get("capture", False):
         raise SystemExit("blockdesign: this board cannot host the capture "
@@ -111,14 +111,20 @@ def main(argv=None) -> int:
                       board_part=b["board_part"],
                       board_files=Path(paths["p_board_files"]),
                       ip_repos=[Path(paths["p_vivado_library"]),
-                                out / "generated" / "busdef"])
+                                out / "generated" / "busdef"],
+                      # the project and its block design, by the name the
+                      # board's flow scripts and bench files read
+                      name="rx")
     target = out / "generated" / "bd.tcl"
     target.write_text(tcl)
     # what each described vendor block should be once the tool has built
-    # it, for revela.boards.vendor_check after the block design runs
-    from revela.boards.vendor_check import expected
+    # it, for np2hw.toolchain.vivado.vendor_check after the block design runs
+    from np2hw.toolchain.vivado.vendor_check import expected
     (out / "generated" / "vendor_expected.json").write_text(json.dumps(
         expected(design, vivado.cell_names(design)), indent=1) + "\n")
+    # the build's product, for any tool that reads it
+    (out / "generated" / "netlist.json").write_text(
+        json.dumps(design.netlist, indent=1, default=str) + "\n")
     (out / "generated" / "gpio_layout.json").write_text(
         json.dumps(layout, indent=1) + "\n")
     from np2hw.ipxact import write_definitions

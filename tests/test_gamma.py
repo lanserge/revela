@@ -10,7 +10,7 @@ from conftest import raw_frame, requires_verilator, run_cocotb
 
 from revela.blocks import gamma
 from revela.host import curves
-from revela.stream import StreamSpec
+from np2hw.blocks.stream import StreamSpec
 
 KNOTS = gamma.gamma.params.declaration("knots")
 
@@ -156,6 +156,6 @@ def test_verilog_is_bit_exact_with_the_model(tmp_path, rng):
                "frame": raw_frame(rng, WIDTH, HEIGHT, BIT_DEPTH).ravel().tolist()}
               for label, table in tables.items()]
     run_cocotb(tmp_path=tmp_path, verilog=generated.verilog,
-               toplevel=generated.top, test_module="tb_block",
+               toplevel=generated.top, test_module="np2hw.testing.block",
                case={"block": "gamma", "width": WIDTH, "height": HEIGHT,
                      "bit_depth": BIT_DEPTH, "trials": trials})

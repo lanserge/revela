@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from revela import compose
+from np2hw.pipeline import compose
 
 from revela.blocks import blacklevel, stats
 from revela.host import Device, MemoryTransport, Register
@@ -21,7 +21,7 @@ from revela.host.spi import SpiTransport
 from revela.host.udp import UdpTransport
 from conftest import build, chain, describe
 
-from revela.stream import StreamSpec
+from np2hw.blocks.stream import StreamSpec
 
 
 @pytest.fixture

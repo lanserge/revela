@@ -5,8 +5,8 @@
     python examples/build_pipeline.py revela.pipelines.stereo:revela_stereo
     python examples/build_pipeline.py revela.boards.pynq_z2.isp:revela_isp_core
 
-The artifacts come from ``revela.fusesoc.emit`` -- the same one emitter
-``revela generate`` and the FuseSoC generator call, which proves the RTL
+The artifacts come from ``np2hw.pipeline.pack.emit`` -- the same one
+emitter ``np2hw pipeline generate`` and the FuseSoC generator call, which proves the RTL
 bit-exact against the models before it writes anything. There is no
 second way to build a design here, because a second way is a way for two
 builds of one design to differ.
@@ -26,8 +26,9 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from revela import designs, fusesoc
-from revela.designs import profile as profiles
+from np2hw import pipeline as pipelines
+from np2hw.design import profile as profiles
+from np2hw.pipeline import compose, pack
 
 
 def main() -> int:
@@ -47,21 +48,22 @@ def main() -> int:
                              "read, not a pack to build anything from")
     args = parser.parse_args()
 
-    pipeline = designs.load(args.description)
+    pipeline = pipelines.load(args.description)
+    form = compose.shape(pipeline)
     out = args.out or Path("build") / pipeline.name
-    written = fusesoc.emit(args.description, out,
-                           clock_mhz=args.clock_mhz,
-                           verify=not args.no_verify)
+    written = pack.emit(args.description, out,
+                        clock_mhz=args.clock_mhz,
+                        verify=not args.no_verify)
 
     print(f"design      {args.description}")
     print(f"pipeline    {pipeline.name}: "
           + " | ".join(_stream_summary(pipeline)))
-    print(f"datapath    {pipeline.spec.bit_depth}-bit, "
-          f"{pipeline.width}x{pipeline.height}, latency "
+    print(f"datapath    {form.spec.bit_depth}-bit, "
+          f"{form.width}x{form.height}, latency "
           f"{written['latency']} pixel(s)")
     print()
     print("address map")
-    for stage in pipeline.stages:
+    for stage in compose.stages(pipeline):
         windows = ", ".join(f"{name} @ 0x{base:04x}"
                             for name, base in stage.instance.stats_bases.items())
         print(f"  0x{stage.instance.base:04x}  {stage.path:<22} "
@@ -70,7 +72,7 @@ def main() -> int:
 
     if args.profile is not None:
         profile = profiles.resolve(args.profile)
-        anchored = profiles.flatten(profile, pipeline.register_map())
+        anchored = profiles.flatten(profile, compose.register_map(pipeline))
         print()
         print(f"profile     {profile.ref}, for {profile.for_ref}: "
               f"{len(anchored)} register(s)")
@@ -86,7 +88,7 @@ def main() -> int:
 def _stream_summary(pipeline) -> list[str]:
     """One entry per independent stream, in datapath order."""
     streams: dict[str, list[str]] = {}
-    for stage in pipeline.datapath:
+    for stage in compose.datapath(pipeline):
         prefix, _, instance = stage.path.rpartition(".")
         streams.setdefault(prefix, []).append(instance)
     return [f"{name + ': ' if name else ''}" + " -> ".join(blocks)

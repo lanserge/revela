@@ -18,9 +18,9 @@ from conftest import requires_verilator
 
 from revela.blocks.tofquad import tofquad
 from revela.blocks.tofrange import tofrange
-from revela.designs.composite import assemble
-from revela.run import pixel_chain, run_model, run_rtl
-from revela.stream import StreamSpec
+from np2hw.design.composite import assemble
+from np2hw.pipeline.run import pixel_chain, run_model, run_rtl
+from np2hw.blocks.stream import StreamSpec
 
 WIDTH = 16
 HEIGHT = 8

@@ -503,7 +503,7 @@ def main() -> int:
                              "design (package.module:name), baked in")
     parser.add_argument("--library", action="append", metavar="DIR",
                         help="a directory to find libraries in, for this "
-                             "run (see revela.designs.composite)")
+                             "run (see np2hw.design.composite)")
     parser.add_argument("--version", default="0.1")
     parser.add_argument("--out", default="revela-isp.tar.gz")
     args = parser.parse_args()
@@ -511,8 +511,8 @@ def main() -> int:
     regmap = json.loads(Path(args.regmap).read_text())
     design = {}
     if args.profile:
-        from revela.designs import profile
-        from revela.designs.composite import add_libraries
+        from np2hw.design import profile
+        from np2hw.design.composite import add_libraries
         add_libraries(args.library)
         design = profile.flatten(profile.resolve(args.profile), regmap)
     files = {

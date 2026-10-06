@@ -16,7 +16,8 @@ from pathlib import Path
 
 import pytest
 
-from revela.boards import bdtrace, pynq_z2
+from np2hw.toolchain.vivado import bdtrace
+from revela.boards import pynq_z2
 
 BUILD = pynq_z2.HERE / "build.sh"
 
@@ -144,7 +145,7 @@ def test_a_mis_wired_design_is_refused_before_vivado(built, tmp_path,
     """Mutation check: the demo with one 5-bit pin wired to a 1-bit one
     is refused as soon as it is loaded, naming the wire -- before any
     emitter, for any toolchain."""
-    from revela.designs.composite import CompositionError, load
+    from np2hw.design.composite import CompositionError, load
     design = json.loads((pynq_z2.HERE / "pynq_demo.json").read_text())
     conns = design["blocks"]["pynq_demo"]["connections"]
     i = conns.index(["control.broom", "fabric.broom"])
@@ -163,7 +164,7 @@ def test_the_capture_variant_crosses_with_np2hw():
     np2hw's stream crossing into the DMA's clock -- no vendor converter --
     and the stream dressed as AXI4-Stream only once it is there. Loaded,
     and so wired and checked, like the default variant."""
-    from revela.designs.composite import load
+    from np2hw.design.composite import load
     design = load("revela.boards.pynq_z2.pynq_demo", build={"capture": 1})
     cells = {p.rpartition(".")[2]: i for p, i in design.instances.items()}
     assert cells["cdc"].leaf["vivado"] == {"module": "np2hw_stream_cdc"}
@@ -173,3 +174,23 @@ def test_the_capture_variant_crosses_with_np2hw():
         if isinstance(i.leaf, dict))
     assert ("sw.a", "cdc.in") in design.edges
     assert ("cdc.out", "shim.in") in design.edges
+
+
+def test_the_build_writes_its_netlist(built):
+    """The netlist is the build's product: every leaf with its
+    implementation and resolved ports, every bundle and net -- the one
+    statement of the wiring, written beside the block design."""
+    netlist = json.loads((built / "generated" / "netlist.json").read_text())
+    assert set(netlist) >= {"design", "instances", "bundles", "nets", "pins"}
+    rx = netlist["instances"]["fabric.blrx"]
+    assert rx["implementation"]["module"] == "bayerlink_in"
+    assert rx["ports"]["out_data"] == ["output", 12]
+    tx = netlist["instances"]["hdmi_out.hdmi_tx"]
+    assert tx["implementation"]["implementation"] == "rgb2dvi"
+    # the receiver's stream to the board and back is one bundle connection
+    assert {"from": "fabric.blrx.out", "to": "fabric.isp_cdc.in"} in \
+        netlist["bundles"]
+    # no net is driven twice, and every net's stated pins agree in width
+    for net in netlist["nets"]:
+        assert len(net["drivers"]) <= 1
+        assert len(set(net["widths"].values())) <= 1

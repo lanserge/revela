@@ -41,10 +41,10 @@ skips a step fails on a missing file rather than quietly using a stale
 one. What only takes a width or a depth is a Verilog file, read where it
 ships. In order:
 
-1. `revela generate revela.boards.pynq_z2.isp:revela_isp_core` proves the
-   ISP -- its RTL against its models, word for word -- at the clock the
-   board cuts it for, and writes its pack (the FuseSoC core, register map
-   and docs) to `isp/` beside the build.
+1. `np2hw pipeline generate revela.boards.pynq_z2.isp:revela_isp_core`
+   proves the ISP -- its RTL against its models, word for word -- at the
+   clock the board cuts it for, and writes its pack (the FuseSoC core,
+   register map and docs) to `isp/` beside the build.
 2. `blockdesign.py` loads `pynq_demo` -- whose raster pixel clock is an
    expression over its mode, read from np2hw's mode table -- checks the
    board can honour it, and writes the block design. `pynq_demo` places
@@ -76,14 +76,15 @@ ships. In order:
    generated one publishes the list it was written from, a hand-written
    one declares it in its library entry (`revela/boards/common/modules.json`),
    held to its Verilog by the tests.
+   The loaded design is a netlist, written as `generated/netlist.json`.
    Every wire between our own modules is checked against those ports, at
    this build's parameters, when the design is loaded -- a stream or an
    AXI4-Stream bus whose widths differ, a net whose pins do, a net two
    leaves drive; a block design would connect the low bits of a mismatch
    and call it a warning.
 3. Vivado: the generated `bd.tcl`, `impl_a.tcl` (synthesis, placement),
-   `impl_b.tcl` (routing, bitstream); then `checkhwh` audits the design
-   as built.
+   `impl_b.tcl` (routing, bitstream); then
+   `np2hw.toolchain.vivado.checkhwh` audits the design as built.
 
 The GPIO words software reads and writes -- control bits, status, the
 stream's identity -- are declared once, field by field, on `pynq_demo`'s

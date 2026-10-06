@@ -16,22 +16,6 @@ Three layers, each a library of JSON blocks:
                 from them, e.g. pynq_z2.pynq_demo
   (receiver)    bayerlink_fpga's modules, the receiver's Verilog
 
-A design is JSON through and through, and its wires are checked when it
-is loaded, against the ports each leaf states (revela.designs.wiring);
-vivado.py renders it as the block design Vivado builds. bdtrace reads such
-a script back without Vivado, and checkhwh audits the design as built.
+A design is JSON through and through; np2hw loads it, checks its wires
+and renders it for Vivado (np2hw.toolchain.vivado).
 """
-from __future__ import annotations
-
-from pathlib import Path
-
-
-def resolve(ref: str) -> tuple[dict, Path]:
-    """A JSON block by reference, `package.module:block`, and the folder it
-    lives in (where the files it names are). The one resolver is the
-    composition loader's; this is it, for a primitive."""
-    from revela.designs.composite import find
-    found = find(ref)
-    if found.kind not in ("primitive", "composite"):
-        raise ValueError(f"{ref} is a {found.kind}, not a JSON block")
-    return found.obj, found.folder

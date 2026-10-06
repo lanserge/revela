@@ -79,8 +79,9 @@ from __future__ import annotations
 import numpy as np
 from np2hw import saturate
 
-from revela.blocks import StreamPort, ispblock
-from revela.params import Param
+from np2hw.blocks import StreamPort
+from revela.blocks import ispblock
+from np2hw.blocks.params import Param
 
 # 33 knots = 32 segments: the classic budget. A design overrides shape for
 # more shadow fidelity, and bits alongside bit_depth -- see the docstring.

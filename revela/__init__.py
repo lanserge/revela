@@ -9,9 +9,10 @@ where the hardware has LUTs, shifts where the hardware shifts. There is one mode
 per block and it is both the specification and the golden reference. Verilog is
 generated from it by np2hw; the two are held bit-exactly equal by the tests.
 
-Start at :mod:`revela.compose` for composition and address allocation,
-:mod:`revela.params` for how a register is declared, and :mod:`revela.stream`
-for the interface between blocks.
+A block is np2hw's (:mod:`np2hw.blocks`): its model plus the declarations
+its arithmetic cannot state, registers included (:mod:`np2hw.blocks.params`).
+revela is the content: the blocks in :mod:`revela.blocks`, the pipelines
+built of them, the sensors' tunings, and the boards that demonstrate them.
 """
 
 # The version has ONE owner: the packaging metadata in
@@ -22,23 +23,4 @@ from importlib.metadata import version as _version
 
 __version__ = _version("revela")
 
-from revela.params import (
-    AddressAllocator,
-    BlockInstance,
-    Context,
-    Param,
-    ParamSet,
-    StatsWindow,
-)
-from revela.stream import StreamSpec
-
-__all__ = [
-    "AddressAllocator",
-    "BlockInstance",
-    "Context",
-    "Param",
-    "ParamSet",
-    "StatsWindow",
-    "StreamSpec",
-    "__version__",
-]
+__all__ = ["__version__"]

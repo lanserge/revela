@@ -3,7 +3,7 @@
 """Host-side register access, generated from the emitted register map.
 
 The device object mirrors the pipeline's hierarchy, so the instance path that
-:mod:`revela.compose` allocated is the attribute chain software uses::
+:mod:`np2hw.pipeline.compose` allocated is the attribute chain software uses::
 
     dev = Device(register_map, transport)
     dev.pipe.window_x0 = 0
@@ -338,7 +338,7 @@ class Device:
         # Taken from the generator rather than restated: this library is shipped
         # with revela, so the version it understands IS the version revela emits,
         # and a literal here would be a copy free to fall behind.
-        from revela.compose import MAP_FORMAT_VERSION as expected
+        from np2hw.pipeline.compose import MAP_FORMAT_VERSION as expected
 
         if register_map.get("map_format_version") != expected:
             raise ValueError(

@@ -61,7 +61,8 @@ from __future__ import annotations
 import numpy as np
 from np2hw import saturate
 
-from revela.blocks import ContextBit, StreamPort, ispblock
+from np2hw.blocks import ContextBit, StreamPort
+from revela.blocks import ispblock
 
 # Keys cubic convolution, a = -1/2, evaluated at the half-phase positions
 # (+-0.5, +-1.5 lattice units): the one kernel this block needs.

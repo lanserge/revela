@@ -72,7 +72,7 @@ echo "== ISP proved (its RTL against its models, word for word), and its pack"
 # design loads it. This proves the same composite at the same clock first
 # and writes its deliverable -- the FuseSoC pack, register map and docs --
 # beside the build, so a pack that does not verify stops the build here.
-python3 -m revela generate "$ISP" --out "$OUT/isp" --clock-mhz "$ISP_MHZ"
+python3 -m np2hw pipeline generate "$ISP" --out "$OUT/isp" --clock-mhz "$ISP_MHZ"
 
 echo "== block design (generated from pynq_demo: the ISP and every generated leaf built with it)"
 # Loading the design builds the ISP inside it; the ISP's widths reach the
@@ -92,7 +92,7 @@ cd "$OUT"
 vivado -mode batch -source "$OUT/generated/bd.tcl" -tclargs "$OUT"
 # Every described vendor block against the pins the tool built for it:
 # a description that is not true stops the build before synthesis.
-python3 -m revela.boards.vendor_check "$OUT"
+python3 -m np2hw.toolchain.vivado.vendor_check "$OUT"
 vivado -mode batch -source "$here/impl_a.tcl" -tclargs "$OUT"
 vivado -mode batch -source "$here/impl_b.tcl" -tclargs "$OUT"
 
@@ -104,7 +104,7 @@ echo "== audit of the design AS BUILT"
 # The JSON states the intent; this reads what the automation and the
 # polarity propagation actually did. Every rule in it is a board hang
 # this bench already paid for once.
-python3 -m revela.boards.checkhwh "$OUT/out/rx.hwh"
+python3 -m np2hw.toolchain.vivado.checkhwh "$OUT/out/rx.hwh"
 
 echo
 echo "artifacts: $OUT/out/rx.bit, rx.hwh and gpio_layout.json"

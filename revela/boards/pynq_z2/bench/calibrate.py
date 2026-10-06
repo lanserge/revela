@@ -17,7 +17,7 @@ revela to compute: resolve the profile against the build's map where
 revela is installed, anchored wherever its composite sits. Several
 files are applied in order, a later one winning:
 
-    python3 -m revela.designs.profile revela.sensors.ov5647.profile:ov5647 \
+    python3 -m np2hw.design.profile revela.sensors.ov5647.profile:ov5647 \
         --map revela_isp_core_regmap.json > sensor.json
 
     python3 calibrate.py --bit rx.bit --map revela_isp_core_regmap.json \

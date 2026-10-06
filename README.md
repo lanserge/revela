@@ -109,7 +109,7 @@ naming because the pieces are designed to fit:
 Two things make the seam work, and both are worth knowing before wiring
 anything to this ISP:
 
-**The boundary is traced, not declared.** `revela generate` writes
+**The boundary is traced, not declared.** `np2hw pipeline generate` writes
 `<name>_build.json` beside the Verilog: each output's `data_bits`,
 `channels` and `channel_bits`, the geometry the cores were built around,
 and the latency. **Read it — do not restate it.** A three-channel word is
@@ -181,7 +181,7 @@ curve. A node may also set a declared register's build-time attributes —
 RTL, the register map and the host all follow the one declaration.
 
 ```bash
-revela generate revela.pipelines.stereo:revela_stereo --out build --clock-mhz 148.5
+np2hw pipeline generate revela.pipelines.stereo:revela_stereo --out build --clock-mhz 148.5
 ```
 
 That is the shipping path: it builds the design, proves the generated Verilog

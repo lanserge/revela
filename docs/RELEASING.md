@@ -98,7 +98,7 @@ pip install -e ".[dev]" && pip install -e ../np2hw
 Pre-1.0, so the register map format and the block API can still change.
 What must not change silently:
 
-- `MAP_FORMAT_VERSION` in `revela/compose.py` — bump it when the
+- `MAP_FORMAT_VERSION` in np2hw's `np2hw/pipeline/compose.py` — bump it when the
   *structure* of the emitted register-map JSON changes, so a host refuses
   a map it does not understand instead of misreading it.
 - A block's declared `version` — bump it when that block's register

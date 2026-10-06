@@ -141,8 +141,8 @@ def main() -> int:
     args = parser.parse_args()
     out = args.out or f"sensor-{args.sensor}.tar.gz"
 
-    from revela.designs import profile
-    from revela.designs.composite import CompositionError, add_libraries
+    from np2hw.design import profile
+    from np2hw.design.composite import CompositionError, add_libraries
     add_libraries(args.library)
     ref = args.profile or f"revela.sensors.{args.sensor}.profile:{args.sensor}"
     try:

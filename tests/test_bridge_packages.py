@@ -16,8 +16,8 @@ import sys
 import tarfile
 
 from conftest import build, chain, describe
-from revela import designs
-from revela import compose
+from np2hw import pipeline as pipelines
+from np2hw.pipeline import compose
 from revela.host import bridge_module
 
 
@@ -136,8 +136,8 @@ int main(void) {{
 
 
 def _board():
-    from revela.designs import profile
-    regmap = compose.register_map(designs.load(
+    from np2hw.design import profile
+    regmap = compose.register_map(pipelines.load(
         "revela.boards.pynq_z2.isp:revela_isp_core"))
     # Extra design settings a --profile would bake in: the board's own
     # curve is its reset now, so any registers of the design will do.
@@ -160,7 +160,7 @@ def test_link_up_writes_the_design_then_the_sensor_at_their_anchors(tmp_path):
     """At link-up the package writes the design's own settings, then the
     sensor's tuning anchored wherever the sensor's composite sits --
     every value to the register the map says, nothing else."""
-    from revela.designs import profile
+    from np2hw.design import profile
     regmap, design, fitted, sensor, ids, address, raw = _board()
     writes, _ = _run_link_up(tmp_path, regmap, design, sensor, ids)
     expected = [raw(k, v) for k, v in design.items()]

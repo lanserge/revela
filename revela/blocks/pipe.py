@@ -19,7 +19,7 @@ that class of failure impossible to express.
 offset 0, and it gets a base address from the allocator like everything else. It
 is placed at base 0 by convention, because a host bringing up an unknown
 bitstream has to start reading somewhere, but nothing in the code special-cases
-it: :mod:`revela.compose` allocates it through the same path as the rest.
+it: the composer allocates it through the same path as the rest.
 
 Why these are run-time facts and not build-time constants
 ---------------------------------------------------------
@@ -34,100 +34,13 @@ structural: the datapath's width and the line buffers' size.
 """
 from __future__ import annotations
 
-from revela.blocks import configblock
-from revela.params import Context, Param
+from np2hw.blocks import configblock
+from np2hw.blocks.params import Param, Vocabulary
 
-# Bayer phase encodes the position of the R pixel within the 2x2 CFA tile:
-# bit 1 is R's row parity, bit 0 is R's column parity. The four combinations are
-# the four standard CFA orders.
-BAYER_RGGB = 0b00
-BAYER_GRBG = 0b01
-BAYER_GBRG = 0b10
-BAYER_BGGR = 0b11
-
-BAYER_ORDER_NAMES = {
-    BAYER_RGGB: "RGGB",
-    BAYER_GRBG: "GRBG",
-    BAYER_GBRG: "GBRG",
-    BAYER_BGGR: "BGGR",
-}
-BAYER_ORDER_CODES = {name: code for code, name in BAYER_ORDER_NAMES.items()}
-
-# The context signals every pipeline carries. Adding one here makes it available
-# to any block that names it in `consumes`; it does not cost the blocks that do
-# not.
-CONTEXT = (
-    Context(
-        name="width",
-        bits=16,
-        default=1920,
-        description="Active line length in pixels. Blocks that buffer lines are built "
-                    "for a maximum; this is the length actually in use",
-    ),
-    Context(
-        name="height",
-        bits=16,
-        default=1080,
-        description="Active frame height in lines",
-    ),
-    Context(
-        name="window_x0",
-        bits=16,
-        default=0,
-        description="Left edge of the active window, in pixels from the line start",
-        origin="register",
-    ),
-    Context(
-        name="window_y0",
-        bits=16,
-        default=0,
-        description="Top edge of the active window, in lines from the frame start",
-        origin="register",
-    ),
-    Context(
-        name="window_x1",
-        bits=16,
-        default=1920,
-        description="Right edge of the active window, exclusive",
-        origin="register",
-    ),
-    Context(
-        name="window_y1",
-        bits=16,
-        default=1080,
-        description="Bottom edge of the active window, exclusive",
-        origin="register",
-    ),
-    Context(
-        name="bayer_phase",
-        bits=2,
-        default=BAYER_RGGB,
-        description="Position of the R pixel in the 2x2 CFA tile: bit 1 row parity, "
-                    "bit 0 column parity. 0=RGGB 1=GRBG 2=GBRG 3=BGGR. A register, not "
-                    "a build option, so one bitstream serves every sensor orientation",
-    ),
-    Context(
-        name="bit_depth",
-        bits=5,
-        default=12,
-        description="Bits per component actually delivered by the sensor. The datapath "
-                    "is BUILT for a maximum; this reports what is in use, so software "
-                    "can scale without a rebuild",
-    ),
-    Context(
-        name="frame_phase",
-        bits=4,
-        default=0,
-        description="The live frame's position in the sensor's capture loop -- a "
-                    "time-of-flight reference phase, an HDR exposure slot -- the "
-                    "temporal twin of bayer_phase. Unlike bayer_phase it advances "
-                    "every frame, so software never writes it: the receiver derives "
-                    "it as (frame counter + offset) mod loop length, the loop length "
-                    "and offset being the sensor's, set once. A block reads the "
-                    "position of the frame i back as (frame_phase - i) mod length",
-        origin="stream",
-    ),
-)
+from revela.blocks.context import (  # noqa: F401  (the pipe's own context)
+    BAYER_BGGR, BAYER_GBRG, BAYER_GRBG, BAYER_ORDER_CODES, BAYER_ORDER_NAMES,
+    BAYER_RGGB, CONTEXT, CONTEXT_BY_NAME, bayer_phase_of, context_names,
+    resolve)
 
 # No stream ports: `pipe` owns configuration and fans context out as wires. It is
 # still an ordinary block -- allocated an address like any other, with an
@@ -170,30 +83,7 @@ pipe = configblock(
     + [COMMIT],
 )
 
-CONTEXT_BY_NAME = {ctx.name: ctx for ctx in CONTEXT}
-
-
-def context_names() -> tuple[str, ...]:
-    """Every context signal a block may name in ``consumes``."""
-    return tuple(ctx.name for ctx in CONTEXT)
-
-
-def resolve(name: str) -> Context:
-    """The declaration for one context signal, or a useful error."""
-    try:
-        return CONTEXT_BY_NAME[name]
-    except KeyError:
-        raise KeyError(
-            f"no pipeline context signal {name!r}; the pipe block provides "
-            f"{list(CONTEXT_BY_NAME)}") from None
-
-
-def bayer_phase_of(order: str) -> int:
-    """Register value for a CFA order named the way datasheets name it."""
-    key = order.upper()
-    try:
-        return BAYER_ORDER_CODES[key]
-    except KeyError:
-        raise KeyError(
-            f"unknown CFA order {order!r}; expected one of "
-            f"{sorted(BAYER_ORDER_CODES)}") from None
+#: revela's pipeline context, with the block that owns it: what every
+#: revela block is declared with, and what places ``pipe`` at base 0 in
+#: every pipeline built of them.
+VOCABULARY = Vocabulary(CONTEXT, block=pipe, commit="commit")

@@ -18,7 +18,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from revela.boards import resolve
 
 HERE = Path(__file__).resolve().parent
 
@@ -30,9 +29,10 @@ def board() -> dict:
 def default(block: str, parameter: str):
     """A board block's own value for one of its parameters -- the jack's
     limit, the cable's width -- as the block states it."""
-    from revela.designs.composite import evaluate, parse
-    found, _ = resolve(f"revela.boards.pynq_z2.{block}")
-    raw = found["parameters"][parameter]["default"]
+    from np2hw.design.composite import evaluate, parse
+    from np2hw.design.composite import find
+    raw = find(f"revela.boards.pynq_z2.{block}").obj["parameters"][
+        parameter]["default"]
     if not isinstance(raw, str):
         return raw
     return evaluate(parse(raw, f"{block}.{parameter}"), lambda name: None)
@@ -41,7 +41,7 @@ def default(block: str, parameter: str):
 def choices() -> dict:
     """The demo's own choices -- its parameters that the build does not
     supply -- as the design states them."""
-    from revela.designs.composite import load
+    from np2hw.design.composite import load
     # what the ISP's facts would say, which only building it can answer
     placeholder = {"sample_bits": 0, "isp_out_bits": 0,
                    "fabric.sample_bits": 0, "fabric.isp_width": 0,
@@ -59,14 +59,14 @@ def isp_ref() -> str:
 
 def isp_name() -> str:
     """The ISP's name: its generated modules and pack are named after it."""
-    from revela.designs.composite import block_name
+    from np2hw.design.composite import block_name
     return block_name(isp_ref())
 
 
 def isp_stream() -> dict:
     """The facts of the stream entering the ISP -- bits, max_width,
     max_height, context -- as the composite states them where it enters."""
-    from revela.designs.composite import load
+    from np2hw.design.composite import load
     streams = load(isp_ref()).streams
     if len(streams) != 1:
         raise ValueError(f"{isp_ref()}: this board feeds one stream, and the "

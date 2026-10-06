@@ -64,7 +64,8 @@ from __future__ import annotations
 import numpy as np
 from np2hw import saturate
 
-from revela.blocks import ContextBit, StreamPort, ispblock
+from np2hw.blocks import ContextBit, StreamPort
+from revela.blocks import ispblock
 
 _PHASE_CONTEXT = (
     ContextBit("phase_row", "bayer_phase", bit=1,

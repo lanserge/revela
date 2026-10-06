@@ -75,7 +75,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from revela.blocks import ContextBit, StreamPort, ispblock
+from np2hw.blocks import ContextBit, StreamPort
+from revela.blocks import ispblock
 
 
 @ispblock(
