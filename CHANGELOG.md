@@ -40,6 +40,32 @@ Pre-1.0, so the block API and the map format can still change. See
   `np2hw-fusesoc`. The `revela` and `revela-fusesoc` scripts and
   `python -m revela` are gone. `--bayer-phase N` is
   `--context bayer_phase=N`.
+- **The tone curves state their output depth once.** `gamma` and
+  `rgb_gamma` no longer declare `out_depth` beside their models: the depth
+  they hand on is traced, and np2hw's model run reads it from the trace.
+- **The board's register bus is the design's.** Vivado's automation and
+  `bus.tcl`, which repaired what it built, are gone. `pynq_demo` wires
+  its bus explicitly: the processor's port onto np2hw's AXI3 bridge, a
+  decoder onto every register slave at the window each states, an arbiter
+  in `bayerlink_display` sharing the ISP's registers with the DDC bridge,
+  and the DMAs onto memory through an explicitly configured interconnect.
+  np2hw's reset synchroniser replaces both `proc_sys_reset` cells. Every
+  register slave is on the processor's clock: the ISP's and the raster's
+  register files cross to it themselves, so the island-clock bus and its
+  clock converters are gone.
+- **The host finds registers in `address_map.json`**, written beside the
+  bitstream; the hardware handoff no longer lists them. The bench scripts
+  read it through `bench/addresses.py`.
+- **`stream_cdc` is np2hw's description** (`np2hw.hdl.stream:stream_cdc`):
+  an np2hw module's ports and constraints are stated beside it, not here.
+- **The board's glue is np2hw's**: constants, slices, concatenations and
+  inverters are np2hw's portable modules (`np2hw.hdl.glue`,
+  `np2hw.glue:concat`) instead of Xilinx's cells; the interrupt
+  concatenation says it carries interrupts, which is how the processor's
+  interrupt input is sized.
+- **A GPIO is a described block** (`revela.boards.common.gpio`, filled by
+  AMD's AXI GPIO), held to its description by `vendor_check` like the
+  DMAs, its register port stating its window.
 
 ### Fixed
 

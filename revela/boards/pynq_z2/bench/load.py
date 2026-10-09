@@ -10,19 +10,35 @@ power-on -- and then getting out of the way. Run it from a boot
 oneshot (load-bitstream.service, beside this script); nothing stays resident.
 
     python3 load.py --bit rx.bit
+
+Two things happen, in this order: the processor's fabric clocks are set to
+what the design states (``clocks.json``, written by the build beside the
+bitstream), and the fabric is programmed. Nothing reads the hardware
+handoff: the design builds its own buses, so the handoff holds only the
+processor, and its clocks are the design's to state.
 """
 import argparse
+import json
 import sys
+from pathlib import Path
 
-from pynq import Overlay
+from pynq import Bitstream, Clocks
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--bit", default="rx.bit")
     args = parser.parse_args()
-    Overlay(args.bit, download=True)
-    print(f"loaded {args.bit}; the fabric owns the picture from here")
+    bit = Path(args.bit).resolve()
+    clocks = json.loads((bit.parent / "clocks.json").read_text())
+    # the clocks first, so the fabric never runs on the last design's
+    for name, mhz in sorted(clocks.items()):
+        setattr(Clocks, name, mhz)
+    Bitstream(str(bit)).download()
+    print(f"loaded {bit.name}; clocks "
+          + ", ".join(f"{n[:-4]} {getattr(Clocks, n):.3f} MHz"
+                      for n in sorted(clocks))
+          + "; the fabric owns the picture from here")
     return 0
 
 

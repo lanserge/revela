@@ -2,6 +2,7 @@
   "blocks": {
     "ps7": {
       "description": "The Zynq-7000 processing system: the ARM cores, DDR and MIO, and the fabric's ports into them -- the general-purpose master the fabric's registers hang off, the high-performance slave a DMA writes memory through, the fabric clocks and reset, the fabric's interrupts.",
+      "facts": {"clocks": {"M_AXI_GP0": ["M_AXI_GP0_ACLK"], "S_AXI_HP0": ["S_AXI_HP0_ACLK"]}, "ancestry": {"FCLK_CLK0": "board", "FCLK_CLK1": "board", "FCLK_RESET0_N": "board"}},
       "parameters": {
         "implementation": {"default": "'preset'", "description": "Which implementation fills this block."},
         "hp0": {"default": 0, "description": "1: the high-performance slave S_AXI_HP0 is there, for a DMA into memory."},
@@ -34,6 +35,7 @@
         "preset": {
           "description": "AMD's processing_system7, built by a procedure because the board's preset -- DDR, MIO, the fixed I/O made external -- must be applied before the block's own settings, which a preset applied afterwards would overwrite. The fabric clocks' frequencies are the design's, set where the node is placed.",
           "vivado": {"tcl": "zynq7_ps7", "source": "ps7.tcl"},
+          "facts": {"gp0_base": 1073741824, "gp0_span": 1073741824},
           "config": {
             "PCW_USE_S_AXI_HP0": "hp0",
             "PCW_USE_S_AXI_HP1": "0",

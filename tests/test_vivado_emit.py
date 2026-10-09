@@ -4,7 +4,7 @@
 
 The emitter is np2hw's and is tested there; this holds revela's
 descriptions -- the HDMI transmitter, the stream DMA, the processing system
-and its bus -- to the block design they make. The rendering is read back
+-- to the block design they make. The rendering is read back
 with np2hw.toolchain.vivado.bdtrace's stubs, so what is checked is the
 design the script builds, not the text of the script.
 """
@@ -66,32 +66,24 @@ def test_the_transmitter_and_the_dma_render_by_their_implementations(
     assert s["ports"] == {"TMDS": "external rx/TMDS"}
 
 
-def test_the_processing_system_is_built_before_the_nets_and_the_bus_after(
+def test_the_processing_system_takes_its_preset_then_its_settings(
         library, tmp_path):
-    (tmp_path / "p.tcl").write_text("")
     lib = library({"top": {
         "nodes": {"ps7": {"block": "revela.boards.zynq7.ps7",
                           "build": {"hp0": 1},
                           "config": {"PCW_FPGA0_PERIPHERAL_FREQMHZ": "100"}},
-                  "k": {"block": f"{IP}:xlconstant"},
-                  "bus": {"block": "revela.boards.zynq7.bus:axi_bus",
-                          "config": {"bus_reset": "r/o", "link_reset": "l/o",
-                                     "link_reset_keeps": [],
-                                     "control_interconnect": "ic",
-                                     "island_clock": "/ps7/FCLK_CLK0",
-                                     "steps": [{"addresses": []}]}}},
-        "connections": [["ps7.FCLK_CLK0", "k.x"]]}})
+                  "k": {"block": "np2hw.hdl.glue:not"}},
+        "connections": [["ps7.FCLK_CLK0", "k.a"]]}})
     tcl, s = render(load(f"{lib}.lib:top"), tmp_path)
     lines = tcl.splitlines()
     ps = next(i for i, l in enumerate(lines) if l.startswith("zynq7_ps7 ps7"))
     net = next(i for i, l in enumerate(lines) if l.startswith("connect_bd_net"))
-    bus = next(i for i, l in enumerate(lines) if l.startswith("zynq7_axi_bus bus"))
-    assert ps < net < bus
+    assert ps < net
     # the block's settings, from its parameters, and the node's own
     assert s["cells"]["ps7"]["config"] == {
         "CONFIG.PCW_USE_S_AXI_HP0": "1", "CONFIG.PCW_USE_S_AXI_HP1": "0",
         "CONFIG.PCW_EN_CLK1_PORT": "0", "CONFIG.PCW_USE_FABRIC_INTERRUPT": "0",
         "CONFIG.PCW_IRQ_F2P_INTR": "0",
         "CONFIG.PCW_FPGA0_PERIPHERAL_FREQMHZ": "100"}
+    # the board preset is applied by the procedure, before those settings
     assert s["automation"][0][:2] == ["-rule", "xilinx.com:bd_rule:processing_system7"]
-    assert s["addresses"] == [[]]

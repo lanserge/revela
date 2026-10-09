@@ -2,6 +2,7 @@
   "blocks": {
     "frame_dma": {
       "description": "Frames from a stream into memory: an AXI4-Stream in, AXI4 writes out, registers on AXI4-Lite to say where and how many.",
+      "facts": {"clocks": {"ctrl": ["ctrl_clk", "resetn"], "mem": ["mem_clk", "resetn"]}},
       "parameters": {
         "implementation": {"default": "'axi_vdma'", "description": "Which implementation fills this block."}
       },
@@ -27,7 +28,8 @@
             "c_include_s2mm": "1",
             "c_use_fsync": "0",
             "c_num_fstores": "1",
-            "c_s2mm_genlock_mode": "0"
+            "c_s2mm_genlock_mode": "0",
+            "c_prmry_is_aclk_async": {"value": "0 if same_net('ctrl_clk', 'frames_clk', 'mem_clk') else 1", "wired": true}
           },
           "ports": {
             "ctrl": "S_AXI_LITE", "ctrl_clk": "s_axi_lite_aclk",

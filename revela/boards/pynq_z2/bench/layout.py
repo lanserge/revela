@@ -9,7 +9,7 @@ that file; no script here writes a bit position down.
 
     from layout import Layout
     fields = Layout.beside("rx.bit")
-    fields.verify(lambda gpio: MMIO(overlay.ip_dict[gpio]["phys_addr"], 0x1000))
+    fields.verify(Addresses.beside("rx.bit").mmio)
     fields.read(mmio, "status_gpio", "hdr_valid")
 
 A field marked `constant` is a word the fabric holds whatever software does

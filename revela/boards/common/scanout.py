@@ -327,7 +327,10 @@ def scanout(mode: str, genlock: int, fill: str) -> dict:
     built = _build(mode, genlock, int(str(fill), 0))
     return {"verilog": built["scanout"], "module": "scanout_top",
             "file": "scanout.v",
-            "interface": {"ports": built["scanout_ports"]}}
+            "interface": {"ports": built["scanout_ports"]},
+            # its registers ride the board's clock and reset, not the
+            # raster's (np2hw.design.ancestry holds the board to it)
+            "facts": {"clocks": {"s_axi": ["s_axi_aclk", "s_axi_aresetn"]}}}
 
 
 scanout.leaf = True

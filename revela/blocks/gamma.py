@@ -109,18 +109,6 @@ def _knots_param() -> Param:
     )
 
 
-def _out_bits(paramset) -> int:
-    """The output depth, read from the knot declaration that owns it.
-
-    The same number ``_curve`` saturates to, reached from the declaration
-    rather than restated, so a design that overrides the knot width moves
-    the model and the hardware together."""
-    for param in paramset.params:
-        if param.name == "knots":
-            return param.bits - 1
-    raise ValueError("a curve block without a knots declaration")
-
-
 def _curve(value, p, bit_depth):
     """The PWL machinery both blocks share: slice, gather, lerp, clip."""
     knots = p.knots
@@ -168,10 +156,6 @@ def _curve(value, p, bit_depth):
                         "knot declaration sets -- 8 bits by default, because "
                         "this is the block that makes RGB for a display."),),
     params=[_knots_param()],
-    # The output depth, from the SAME declaration the arithmetic reads:
-    # knots are one bit wider than what leaves. Stated here so the model
-    # chain narrows exactly where the hardware does.
-    out_depth=lambda bit_depth, paramset: _out_bits(paramset),
 )
 def gamma(pixel, p, ctx, bit_depth: int):
     """THE model. Segment by bit-slice, gather two knots, integer lerp.
@@ -197,10 +181,6 @@ def gamma(pixel, p, ctx, bit_depth: int):
     outputs=(StreamPort("out",
                         "Tone-mapped RGB, same width per channel."),),
     params=[_knots_param()],
-    # The output depth, from the SAME declaration the arithmetic reads:
-    # knots are one bit wider than what leaves. Stated here so the model
-    # chain narrows exactly where the hardware does.
-    out_depth=lambda bit_depth, paramset: _out_bits(paramset),
 )
 def rgb_gamma(pixel, p, ctx, bit_depth: int):
     """THE model. The same curve, once per channel, one knot table.

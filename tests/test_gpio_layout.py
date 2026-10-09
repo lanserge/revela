@@ -23,22 +23,21 @@ STATUS = {"gpio": "stat", "channels": [{"direction": "in", "cell": "cat", "field
 
 def test_the_control_word_is_derived_from_its_fields():
     block = gpio.words(CONTROL)
-    cfg = block["nodes"]["ctrl"]["config"]
     # width from the fields; power-on value from their defaults: pick (bit
     # 1) and mode = 2 at bits 3..4
-    assert cfg["C_GPIO_WIDTH"] == "5"
-    assert cfg["C_DOUT_DEFAULT"] == f"0x{(1 << 1) | (2 << 3):08X}"
-    assert block["nodes"]["s_mode"]["config"] == {
-        "DIN_WIDTH": "5", "DIN_FROM": "4", "DIN_TO": "3"}
+    assert block["nodes"]["ctrl"]["build"] == {
+        "width": 5, "out": 1, "default": (1 << 1) | (2 << 3)}
+    assert block["nodes"]["s_mode"]["build"] == {"IN": 5, "HI": 4, "LO": 3}
     assert block["nodes"]["s_pick"]["when"] == "capture"
     assert [p["name"] for p in block["outputs"]] == ["reset", "pick", "mode"]
 
 
 def test_the_status_word_is_packed_low_bit_first():
     block = gpio.words(STATUS)
-    assert block["nodes"]["stat"]["config"]["C_GPIO_WIDTH"] == str(1 + 3 + 4 + 8)
-    assert block["nodes"]["cat"]["config"] == {"NUM_PORTS": "3"}
-    assert block["nodes"]["zero"]["config"] == {"CONST_WIDTH": "4", "CONST_VAL": "0"}
+    assert block["nodes"]["stat"]["build"] == {"width": 1 + 3 + 4 + 8}
+    # each word's width stated: ok, the group (code + pad), count
+    assert block["nodes"]["cat"]["build"] == {"widths": [1, 7, 8]}
+    assert block["nodes"]["zero"]["build"] == {"WIDTH": 4, "VALUE": 0}
     fields = gpio.layout(STATUS)["channels"][0]["fields"]
     assert {k: (v["lsb"], v["bits"]) for k, v in fields.items()} == {
         "ok": (0, 1), "code": (1, 3), "count": (8, 8)}
@@ -52,10 +51,10 @@ IDENT = {"gpio": "id", "parameters": {"stamp": "the build's checksum"},
 def test_a_constant_field_reads_a_constant_cell_not_a_port():
     block = gpio.words(IDENT)
     assert block["nodes"]["k"] == {
-        "block": f"{gpio.IP}:xlconstant", "config": {"CONST_WIDTH": "32"},
-        "build": {"CONST_VAL": "stamp"}}
-    assert "inputs" not in block                # nothing to wire from outside
-    assert ["k.dout", "id.gpio_io_i"] in block["connections"]
+        "block": gpio.CONST, "build": {"WIDTH": 32, "VALUE": "stamp"}}
+    # nothing to wire from outside but the register port
+    assert [p["name"] for p in block["inputs"]] == ["regs", "aclk", "aresetn"]
+    assert ["k.q", "id.gpio_i"] in block["connections"]
     assert gpio.layout(IDENT)["channels"][0]["fields"]["stamp"] == {
         "lsb": 0, "bits": 32, "constant": True}
 

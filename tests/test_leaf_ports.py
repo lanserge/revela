@@ -28,10 +28,13 @@ VALUES = {"SAMPLE_BITS": 13, "DATA_BITS": 27, "WIDTH": 640, "DW": 24}
 
 
 def _hand_written():
+    """revela's own hand-written leaves the board reaches; np2hw's fixed
+    modules are held to their descriptions by np2hw's tests."""
     leaves = {}
     for path, found in composite.tree(DESIGN).items():
         obj = found.obj
-        if found.kind == "primitive" and obj.get("sources"):
+        if found.kind == "primitive" and obj.get("sources") and not all(
+                s.startswith("np2hw.hdl:") for s in obj["sources"]):
             leaves[found.ref] = found
     return sorted(leaves.items())
 
@@ -51,7 +54,7 @@ LEAVES = _hand_written()
 
 
 def test_the_board_reaches_hand_written_leaves():
-    assert len(LEAVES) >= 9, [ref for ref, _ in LEAVES]
+    assert len(LEAVES) >= 8, [ref for ref, _ in LEAVES]
 
 
 @pytest.mark.parametrize("ref,found", LEAVES, ids=[r for r, _ in LEAVES])

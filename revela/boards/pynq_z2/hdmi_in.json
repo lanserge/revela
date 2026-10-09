@@ -1,7 +1,7 @@
 {
  "blocks": {
   "hdmi_in": {
-   "description": "The HDMI-in jack: an HDMI receiver (bayerlink-fpga's hdmi_rx, dvi2rgb by default) decoding the cable to parallel video, the hot-plug and DDC lines, and the pins they land on. Every design on this board that receives bayerlink uses this block rather than restating any of it. kClkRange 1: the board's own base overlay runs this exact 74.25 MHz mode with range 1 -- the IP comment's bucket arithmetic says 2, and empirically range 2 locks the clock but never aligns the data. Trust the design that demonstrably receives.",
+   "description": "The HDMI-in jack: an HDMI receiver (bayerlink-fpga's hdmi_rx, dvi2rgb by default) decoding the cable to parallel video, the hot-plug and DDC lines, and the pins they land on. Every design on this board that receives bayerlink uses this block rather than restating any of it. The link's rate is one parameter: the jack's clock is constrained at it, and the front end's clocking is set for it.",
    "parameters": {
     "lane_map": {
      "default": "dvi_rx.lane_map",
@@ -11,9 +11,8 @@
      "default": "dvi_rx.vsync_active_high",
      "description": "The frame pulse's polarity, as the front end delivers it."
     },
-    "max_link_khz": {
-     "default": 148500,
-     "description": "The link clock this jack is constrained for (hdmi_in.xdc states it as a period): the fastest legal link, as the board's base overlay does. A link mode advertised in the EDID is checked against it."
+    "link_khz": {
+     "description": "The link's pixel clock, in kHz: the rate the receiver advertises and the source sends. The TMDS pin's clock is constrained at it and the front end set for it."
     }
    },
    "inputs": [
@@ -53,7 +52,11 @@
    "pins": [
     {
      "name": "TMDS",
-     "interface": true
+     "interface": true,
+     "clock": {
+      "signal": "clk_p",
+      "khz": "link_khz"
+     }
     },
     {
      "name": "hdmi_hpd",
@@ -74,17 +77,22 @@
    "nodes": {
     "dvi_rx": {
      "block": "bayerlink_fpga.frontends.hdmi_rx",
-     "config": {
-      "kClkRange": "1"
+     "build": {
+      "link_khz": "link_khz"
      }
     },
     "hpd_one": {
-     "block": "revela.boards.zynq7.ip:xlconstant"
+     "block": "np2hw.hdl.glue:const",
+     "build": {
+      "WIDTH": 1,
+      "VALUE": 1
+     }
     },
     "rst_lo": {
-     "block": "revela.boards.zynq7.ip:xlconstant",
-     "config": {
-      "CONST_VAL": "0"
+     "block": "np2hw.hdl.glue:const",
+     "build": {
+      "WIDTH": 1,
+      "VALUE": 0
      }
     },
     "ddc_phy": {
@@ -97,11 +105,11 @@
      "dvi_rx.refclk"
     ],
     [
-     "hpd_one.dout",
+     "hpd_one.q",
      "hdmi_hpd"
     ],
     [
-     "rst_lo.dout",
+     "rst_lo.q",
      "dvi_rx.rst"
     ],
     [

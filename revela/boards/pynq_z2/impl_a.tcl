@@ -9,22 +9,20 @@ if {[llength $argv] != 1} {
 }
 set out [file normalize [lindex $argv 0]]
 source [file join $out generated paths.tcl]
+source [file join $out generated flow.tcl]
 # The board part lives outside Vivado's own store; without its path the
 # project reopens with the board unset, and says so.
 set_param board.repoPaths [list $p_board_files]
 open_project [file join $out build rx rx.xpr]
-set bd [get_files rx.bd]
-set_property synth_checkpoint_mode None $bd
-generate_target all $bd
 update_compile_order -fileset sources_1
 # The data files the design's IP reads by RELATIVE path at synthesis
 # (dvi2rgb's EDID ROM, today): the launch_runs flow copies them beside
 # its run. We are the run, so they come here, whichever IP they are.
-foreach f [get_files -all -of_objects $bd -filter {FILE_TYPE == "Data Files"}] {
+foreach f [get_files -all -filter {FILE_TYPE == "Data Files"}] {
     file copy -force $f [pwd]
 }
-# The part is the project's, which the block design set from the board.
-synth_design -top rx_wrapper -part [get_property PART [current_project]]
+# The top is the design's own module; the part is the project's.
+synth_design -top $p_top -part [get_property PART [current_project]]
 opt_design
 # Explore: the last tens of picoseconds live in the placer's seed.
 # Explore is the general-purpose choice; ExtraTimingOpt spends its

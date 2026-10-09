@@ -2,6 +2,7 @@
   "blocks": {
     "stream_dma": {
       "description": "A stream into memory: an AXI4-Stream in, AXI4 writes out, registers on AXI4-Lite to say where and how much.",
+      "facts": {"clocks": {"ctrl": ["ctrl_clk", "resetn"], "mem": ["mem_clk", "resetn"]}},
       "parameters": {
         "implementation": {"default": "'axi_dma'", "description": "Which implementation fills this block."}
       },

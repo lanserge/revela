@@ -17,8 +17,7 @@ import argparse
 import sys
 import time
 
-from pynq import Overlay, MMIO
-
+from addresses import Addresses
 from layout import Layout
 
 
@@ -32,10 +31,9 @@ def main() -> int:
     parser.add_argument("--interval", type=float, default=2.0)
     args = parser.parse_args()
 
-    overlay = Overlay(args.bit, download=False)
     fields = Layout.beside(args.bit)
-    gpio = {name: MMIO(overlay.ip_dict[name]["phys_addr"], 0x1000)
-            for name in fields.gpios}
+    regs = Addresses.beside(args.bit)
+    gpio = {name: regs.mmio(name) for name in fields.gpios}
     fields.verify(gpio.__getitem__)
 
     def f(name, gpio_name="status_gpio"):

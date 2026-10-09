@@ -20,8 +20,9 @@ import sys
 import time
 
 import numpy as np
-from pynq import Overlay, allocate, MMIO
+from pynq import allocate
 
+from addresses import Addresses
 from layout import Layout
 
 MODE_W, MODE_H = 1920, 1080
@@ -40,11 +41,11 @@ def main() -> int:
                         help="per-frame wait budget, seconds")
     args = parser.parse_args()
 
-    overlay = Overlay(args.bit, download=False)
-    ctrl = MMIO(overlay.ip_dict["ctrl_gpio"]["phys_addr"], 0x1000)
+    regs = Addresses.beside(args.bit)
+    ctrl = regs.mmio("ctrl_gpio")
     fields = Layout.beside(args.bit)
-    fields.verify(lambda gpio: MMIO(overlay.ip_dict[gpio]["phys_addr"], 0x1000))
-    vdma = MMIO(overlay.ip_dict["vdma"]["phys_addr"], 0x1000)
+    fields.verify(regs.mmio)
+    vdma = regs.mmio("vdma")
 
     fb = allocate(shape=(MODE_H + 1, MODE_W, 4), dtype="u1")
     out = np.zeros((args.frames, MODE_H, MODE_W, 4), dtype=np.uint8)

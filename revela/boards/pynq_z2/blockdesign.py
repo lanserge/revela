@@ -12,11 +12,16 @@ The board says what is possible: whether it can host the capture path,
 and how fast each HDMI jack runs. A choice the board cannot honour is
 refused here, by name, rather than by a cascade of Tcl errors in Vivado.
 
-Writes <build dir>/generated/bd.tcl, which build.sh hands Vivado, and
+Writes the design as Verilog into <build dir>/hdl and <build dir>/generated/
+rtl.tcl, which build.sh hands Vivado to make its own blocks and the build,
+and
 gpio_layout.json: the GPIO fields by name, from the same declarations,
 for the bench scripts -- which never write a bit position down. Its
 checksum is built into the fabric as a constant GPIO word, so a script
 handed a layout from another build refuses it instead of misreading.
+And address_map.json: where each register slave sits, by its cell's name,
+from the windows the design's bus placed -- the host reads addresses
+there, because the hardware handoff cannot see through the bus.
 """
 from __future__ import annotations
 
@@ -34,7 +39,6 @@ DESIGN = "revela.boards.pynq_z2.pynq_demo"
 
 def check_board(c: dict) -> None:
     """The design's choices met against the board's facts."""
-    from np2hw.video_out import pixel_khz
     b = board()
     if c["capture"] and not b.get("capture", False):
         raise SystemExit("blockdesign: this board cannot host the capture "
@@ -44,13 +48,20 @@ def check_board(c: dict) -> None:
         raise SystemExit(f"blockdesign: mode {c['mode']} needs "
                          f"{c['out_khz'] / 1000:g} MHz but hdmi_out is built "
                          f"for {tx:g}")
-    rx = default("hdmi_in", "max_link_khz") / 1000
-    link = pixel_khz(c["link_mode"]) / 1000
-    if link > rx:
-        raise SystemExit(f"blockdesign: link_mode {c['link_mode']} advertises "
-                         f"{link:g} MHz but hdmi_in is constrained to {rx:g}; "
-                         "a source honouring it would send a clock this "
-                         "receiver cannot lock")
+
+def check_link(design) -> None:
+    """The link the design advertises, met against the front end that
+    receives it: the jack is constrained at the link's own rate and the
+    front end set for it, so the one limit left is the front end's
+    slowest (its fact min_link_khz)."""
+    rx = design.instances["hdmi_in.dvi_rx"].leaf
+    low = rx.get("filled_by", {}).get("chosen", {}).get(
+        "facts", {}).get("min_link_khz")
+    link = design.pins["TMDS"]["clock"]["khz"]
+    if low is not None and link < low:
+        raise SystemExit(f"blockdesign: the link runs at {link / 1000:g} MHz, "
+                         f"below the {low / 1000:g} MHz the HDMI front end "
+                         "can be set for")
 
 
 def gpio_layout(design) -> dict:
@@ -78,7 +89,7 @@ def gpio_layout(design) -> dict:
             for f in declared["fields"]:
                 if "value" in f and f["name"] in ch["fields"]:
                     ch["fields"][f["name"]]["value"] = \
-                        by_cell[f["cell"]].build["CONST_VAL"]
+                        by_cell[f["cell"]].build["VALUE"]
         out[config["gpio"]] = layout
     return out
 
@@ -94,10 +105,19 @@ def main(argv=None) -> int:
     from revela.boards.zynq7.gpio import digest
     layout_id = digest(gpio_layout(load(DESIGN)))
     design = load(DESIGN, build={"layout_id": layout_id})
+    check_link(design)
     layout = gpio_layout(design)
     if digest(layout) != layout_id:
         raise SystemExit("blockdesign: the GPIO layout moved when its own "
                          "checksum was built in")
+    # Anything a host can reach must answer: every bus clock and reset the
+    # board's, never the cable's -- refused here, before a build, not on
+    # the bench after a hang.
+    from np2hw.design.ancestry import audit
+    problems = audit(design)
+    if problems:
+        raise SystemExit("blockdesign: a bus that a cable can stop:\n  "
+                         + "\n  ".join(problems))
     paths = {}
     for line in (out / "generated" / "paths.tcl").read_text().splitlines():
         if line.startswith("set "):
@@ -107,18 +127,27 @@ def main(argv=None) -> int:
     # design's settings, beside the rest of the build's.
     write_generated(design, out / "hdl")
     b = board()
-    tcl = vivado.emit(design, out=out, part=b["part"],
-                      board_part=b["board_part"],
-                      board_files=Path(paths["p_board_files"]),
-                      ip_repos=[Path(paths["p_vivado_library"]),
-                                out / "generated" / "busdef"],
-                      # the project and its block design, by the name the
-                      # board's flow scripts and bench files read
-                      name="rx")
-    target = out / "generated" / "bd.tcl"
+    # The design as Verilog, one module per composite, and the Tcl that has
+    # Vivado make only its own blocks and synthesise it
+    # (np2hw.toolchain.vivado.rtl).
+    from np2hw.toolchain.vivado.rtl import emit_rtl
+    tcl, files, facts = emit_rtl(
+        design, out=out, part=b["part"], board_part=b["board_part"],
+        board_files=Path(paths["p_board_files"]),
+        ip_repos=[Path(paths["p_vivado_library"]),
+                  out / "generated" / "busdef"],
+        # the project, by the name the board's flow scripts read
+        name="rx")
+    for file, text in files.items():
+        (out / "hdl" / file).write_text(text)
+    target = out / "generated" / "rtl.tcl"
     target.write_text(tcl)
+    # what the implementation steps read: the top
+    (out / "generated" / "flow.tcl").write_text(
+        "# GENERATED by blockdesign.py -- do not edit.\n"
+        f"set p_top {facts['top']}\n")
     # what each described vendor block should be once the tool has built
-    # it, for np2hw.toolchain.vivado.vendor_check after the block design runs
+    # it, for np2hw.toolchain.vivado.vendor_check after rtl.tcl runs
     from np2hw.toolchain.vivado.vendor_check import expected
     (out / "generated" / "vendor_expected.json").write_text(json.dumps(
         expected(design, vivado.cell_names(design)), indent=1) + "\n")
@@ -127,6 +156,20 @@ def main(argv=None) -> int:
         json.dumps(design.netlist, indent=1, default=str) + "\n")
     (out / "generated" / "gpio_layout.json").write_text(
         json.dumps(layout, indent=1) + "\n")
+    # where each register slave sits, by its cell's name, from the windows
+    # the bus published: the host's map, since Vivado cannot see through
+    # our decoder to put the slaves in the hardware handoff
+    from np2hw.bus import address_map
+    cells = vivado.cell_names(design)
+    (out / "generated" / "address_map.json").write_text(json.dumps(
+        {cells[path]: {"base": w["base"], "size": w["size"]}
+         for path, w in address_map(design).items()}, indent=1) + "\n")
+    # the fabric clocks the processor drives, which a host sets before it
+    # programs the fabric: the design states them, and nothing needs the
+    # hardware handoff to read them back
+    from revela.boards.zynq7 import fabric_clocks
+    (out / "generated" / "clocks.json").write_text(
+        json.dumps(fabric_clocks(design), indent=1) + "\n")
     from np2hw.ipxact import write_definitions
     write_definitions(out / "generated" / "busdef")
     p = design.parameters

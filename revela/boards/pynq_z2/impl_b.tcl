@@ -39,6 +39,9 @@ puts "UTILIZATION: [file join $out out utilization.rpt] (+ -hier)"
 file mkdir /tmp/rxout
 write_bitstream -force /tmp/rxout/rx.bit
 file copy -force /tmp/rxout/rx.bit [file join $out out rx.bit]
-file copy -force [glob [file join $out build rx *.gen sources_1 bd rx hw_handoff rx.hwh]] \
-    [file join $out out rx.hwh]
+# the handoff of the one block design -- the processor's, which is what
+# the board reads of it; the rest of the map is address_map.json
+set hwh [glob [file join $out build rx *.gen sources_1 bd * hw_handoff *.hwh]]
+if {[llength $hwh] != 1} { error "impl_b.tcl: one handoff expected, have: $hwh" }
+file copy -force $hwh [file join $out out rx.hwh]
 puts "BITSTREAM_DONE"

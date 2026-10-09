@@ -78,7 +78,10 @@
      }
     },
     "hdmi_in": {
-     "block": "revela.boards.pynq_z2.hdmi_in"
+     "block": "revela.boards.pynq_z2.hdmi_in",
+     "build": {
+      "link_khz": "@np2hw.video_out:pixel_khz(link_mode)"
+     }
     },
     "vdma": {
      "block": "revela.boards.common.frame_dma",
@@ -117,15 +120,22 @@
      }
     },
     "irq_cat": {
-     "block": "revela.boards.zynq7.ip:xlconcat"
+     "block": "np2hw.glue:concat",
+     "build": {
+      "widths": [
+       1,
+       1
+      ],
+      "interrupt": 1
+     }
     },
     "irq_tie": {
-     "block": "revela.boards.zynq7.ip:xlconstant",
-     "config": {
-      "CONST_WIDTH": "1",
-      "CONST_VAL": "0"
-     },
-     "when": "not capture"
+     "block": "np2hw.hdl.glue:const",
+     "when": "not capture",
+     "build": {
+      "WIDTH": 1,
+      "VALUE": 0
+     }
     },
     "control": {
      "block": "revela.boards.zynq7.gpio:words",
@@ -188,9 +198,6 @@
        }
       ]
      }
-    },
-    "rst_isp": {
-     "block": "revela.boards.zynq7.ip:proc_sys_reset"
     },
     "status": {
      "block": "revela.boards.zynq7.gpio:words",
@@ -297,12 +304,12 @@
      }
     },
     "spy_tie": {
-     "block": "revela.boards.zynq7.ip:xlconstant",
-     "config": {
-      "CONST_WIDTH": "16",
-      "CONST_VAL": "0"
-     },
-     "when": "not capture"
+     "block": "np2hw.hdl.glue:const",
+     "when": "not capture",
+     "build": {
+      "WIDTH": 16,
+      "VALUE": 0
+     }
     },
     "stream": {
      "block": "revela.boards.zynq7.gpio:words",
@@ -360,23 +367,19 @@
       ]
      }
     },
-    "rst_bus": {
-     "block": "revela.boards.zynq7.ip:proc_sys_reset"
-    },
     "lock_inv": {
-     "block": "revela.boards.zynq7.ip:util_vector_logic",
-     "config": {
-      "C_SIZE": "1",
-      "C_OPERATION": "not"
+     "block": "np2hw.hdl.glue:not",
+     "build": {
+      "WIDTH": 1
      }
     },
     "lock_hi": {
-     "block": "revela.boards.zynq7.ip:xlconstant",
-     "config": {
-      "CONST_WIDTH": "1",
-      "CONST_VAL": "1"
-     },
-     "when": "genlock"
+     "block": "np2hw.hdl.glue:const",
+     "when": "genlock",
+     "build": {
+      "WIDTH": 1,
+      "VALUE": 1
+     }
     },
     "clk_out74": {
      "block": "revela.boards.common.clock",
@@ -410,7 +413,7 @@
      "when": "capture"
     },
     "cdc": {
-     "block": "revela.boards.common.stream_cdc",
+     "block": "np2hw.hdl.stream:stream_cdc",
      "when": "capture",
      "description": "The capture branch into FCLK0, where the DMA runs: np2hw's stream crossing, reset by the broom on both sides, as the capture path is.",
      "build": {
@@ -428,89 +431,60 @@
      },
      "when": "capture"
     },
-    "bus": {
-     "block": "revela.boards.zynq7.bus:axi_bus",
-     "description": "The AXI bus, after every cell and connection exists.",
+    "one": {
+     "block": "np2hw.hdl.glue:const",
+     "description": "A one, for a reset whose clock needs no lock.",
      "build": {
-      "island_clock": "'/ps7/FCLK_CLK0' if genlock else '/clk_out/clk_out1'",
-      "capture": "capture"
-     },
-     "config": {
-      "bus_reset": "rst_bus/peripheral_aresetn",
-      "link_reset": "rst_isp/peripheral_aresetn",
-      "link_reset_keeps": [],
-      "control_interconnect": "ps7_axi_periph",
-      "steps": [
-       {
-        "automate": "vdma/S_AXI_LITE",
-        "config": "Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} Master {/ps7/M_AXI_GP0} intc_ip {New AXI Interconnect}"
-       },
-       {
-        "automate": "dma/S_AXI_LITE",
-        "only": "capture",
-        "config": "Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} Master {/ps7/M_AXI_GP0} intc_ip {New AXI Interconnect}"
-       },
-       {
-        "automate": "status_gpio/S_AXI",
-        "config": "Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} Master {/ps7/M_AXI_GP0} intc_ip {New AXI Interconnect}"
-       },
-       {
-        "automate": "stream_gpio/S_AXI",
-        "config": "Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} Master {/ps7/M_AXI_GP0} intc_ip {New AXI Interconnect}"
-       },
-       {
-        "automate": "isp/s_axil",
-        "repair": 1,
-        "config": "Clk_master {/ps7/FCLK_CLK0} Clk_slave {%island%} Clk_xbar {/ps7/FCLK_CLK0} Master {/ps7/M_AXI_GP0} intc_ip {New AXI Interconnect}"
-       },
-       {
-        "automate": "scanout/s_axi",
-        "repair": 1,
-        "config": "Clk_master {/ps7/FCLK_CLK0} Clk_slave {%island%} Clk_xbar {/ps7/FCLK_CLK0} Master {/ps7/M_AXI_GP0} intc_ip {Auto}"
-       },
-       {
-        "second_master": "isp/s_axil",
-        "master": "ddc/M_AXI",
-        "name": "ic_ddc",
-        "segment": "isp/s_axil/reg0",
-        "range": "32K"
-       },
-       {
-        "automate": "ctrl_gpio/S_AXI",
-        "config": "Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} Master {/ps7/M_AXI_GP0} intc_ip {New AXI Interconnect}"
-       },
-       {
-        "automate": "ps7/S_AXI_HP0",
-        "config": "Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} Master {/vdma/M_AXI_S2MM}  Slave {/ps7/S_AXI_HP0} ddr_seg {Auto} intc_ip {New AXI Interconnect} master_apm {0}"
-       },
-       {
-        "memory_master": "axi_mem_intercon",
-        "only": "capture",
-        "master": "dma/M_AXI_S2MM",
-        "clock": "ps7/FCLK_CLK0",
-        "port": 1
-       },
-       {
-        "reset_polarity": "rst_clk_out_148M"
-       },
-       {
-        "sweep": 1
-       },
-       {
-        "addresses": [
-         [
-          "/dma/Data_S2MM",
-          "ps7/S_AXI_HP0/HP0_DDR_LOWOCM",
-          "capture"
-         ],
-         [
-          "/vdma/Data_S2MM",
-          "ps7/S_AXI_HP0/HP0_DDR_LOWOCM",
-          ""
-         ]
-        ]
-       }
-      ]
+      "WIDTH": 1,
+      "VALUE": 1
+     }
+    },
+    "rst_bus": {
+     "block": "np2hw.hdl.bus:reset_sync",
+     "description": "The register bus's reset, on the bus clock: the processor's fabric reset, and nothing the link does."
+    },
+    "link_rst_n": {
+     "block": "np2hw.hdl.glue:not",
+     "description": "The link's reset, active low, for the ISP side's synchroniser.",
+     "build": {
+      "WIDTH": 1
+     }
+    },
+    "rst_isp": {
+     "block": "np2hw.hdl.bus:reset_sync",
+     "description": "The ISP side's reset, on its clock: the link's reset, held until its clock is locked."
+    },
+    "gp0": {
+     "block": "np2hw.hdl.bus:axi3_to_axil",
+     "description": "The processor's general-purpose port onto the register bus."
+    },
+    "gp0_slice": {
+     "block": "np2hw.hdl.bus:axil_slice",
+     "description": "Registers between the processor's port and the bus: the port's outputs are slow out of the hard block, and without this the bus was one combinational path from them to every register file's write decode."
+    },
+    "regs": {
+     "block": "np2hw.bus:axil_decoder",
+     "description": "The register bus: each slave at the window it states, placed in the processor's general-purpose region.",
+     "build": {
+      "sizes": [
+       "fabric.isp.s_axil.window",
+       "fabric.scanout.s_axi.window",
+       "status.status_gpio.regs.window",
+       "stream.stream_gpio.regs.window",
+       "control.ctrl_gpio.regs.window",
+       "vdma.ctrl.window",
+       "dma.ctrl.window if capture else 0"
+      ],
+      "base": "ps7.gp0_base",
+      "span": "ps7.gp0_span"
+     }
+    },
+    "mem": {
+     "block": "revela.boards.zynq7.ip:axi_interconnect",
+     "description": "The DMAs' writes onto the processor's memory port.",
+     "build": {
+      "NUM_SI": "2 if capture else 1",
+      "NUM_MI": 1
      }
     }
    },
@@ -570,15 +544,15 @@
     },
     [
      "vdma.irq",
-     "irq_cat.In0"
+     "irq_cat.in0"
     ],
     {
-     "from": "irq_tie.dout",
-     "to": "irq_cat.In1",
+     "from": "irq_tie.q",
+     "to": "irq_cat.in1",
      "when": "not capture"
     },
     [
-     "irq_cat.dout",
+     "irq_cat.q",
      "ps7.IRQ_F2P"
     ],
     [
@@ -602,25 +576,7 @@
      "fabric.broom"
     ],
     {
-     "from": "clk_out.clk_out",
-     "to": "rst_isp.slowest_sync_clk",
-     "when": "not genlock"
-    },
-    [
-     "fabric.rst_pix",
-     "rst_isp.ext_reset_in"
-    ],
-    {
-     "from": "clk_out.locked",
-     "to": "rst_isp.dcm_locked",
-     "when": "not genlock"
-    },
-    [
-     "rst_isp.peripheral_reset",
-     "fabric.isp_rst"
-    ],
-    {
-     "from": "spy_tie.dout",
+     "from": "spy_tie.q",
      "to": "status.spy_status",
      "when": "not capture"
     },
@@ -652,10 +608,6 @@
     [
      "fabric.hdr_phase",
      "status.hdr_phase"
-    ],
-    [
-     "rst_isp.peripheral_reset",
-     "status.island_reset"
     ],
     [
      "fabric.entry_in_valid",
@@ -713,29 +665,6 @@
      "fabric.torn_b",
      "stream.torn_b"
     ],
-    {
-     "from": "clk_out.clk_out",
-     "to": "rst_bus.slowest_sync_clk",
-     "when": "not genlock"
-    },
-    [
-     "ps7.FCLK_RESET0_N",
-     "rst_bus.ext_reset_in"
-    ],
-    {
-     "from": "clk_out.locked",
-     "to": "rst_bus.dcm_locked",
-     "when": "not genlock"
-    },
-    {
-     "from": "clk_out.clk_out",
-     "to": "fabric.bus_clk",
-     "when": "not genlock"
-    },
-    [
-     "rst_bus.peripheral_aresetn",
-     "fabric.bus_resetn"
-    ],
     [
      "hdmi_in.scl_i",
      "fabric.scl_i"
@@ -748,10 +677,6 @@
      "fabric.sda_pull",
      "hdmi_in.sda_pull"
     ],
-    [
-     "rst_bus.peripheral_reset",
-     "fabric.bus_rst"
-    ],
     {
      "from": "clk_out.clk_out",
      "to": "vdma.frames_clk",
@@ -759,11 +684,11 @@
     },
     {
      "from": "clk_out.locked",
-     "to": "lock_inv.Op1",
+     "to": "lock_inv.a",
      "when": "not genlock"
     },
     [
-     "lock_inv.Res",
+     "lock_inv.y",
      "hdmi_out.reset"
     ],
     {
@@ -812,33 +737,8 @@
      "when": "genlock"
     },
     {
-     "from": "ps7.FCLK_CLK0",
-     "to": "rst_isp.slowest_sync_clk",
-     "when": "genlock"
-    },
-    {
-     "from": "lock_hi.dout",
-     "to": "rst_isp.dcm_locked",
-     "when": "genlock"
-    },
-    {
      "from": "clk_out74.locked",
      "to": "status.raster_locked",
-     "when": "genlock"
-    },
-    {
-     "from": "ps7.FCLK_CLK0",
-     "to": "rst_bus.slowest_sync_clk",
-     "when": "genlock"
-    },
-    {
-     "from": "lock_hi.dout",
-     "to": "rst_bus.dcm_locked",
-     "when": "genlock"
-    },
-    {
-     "from": "ps7.FCLK_CLK0",
-     "to": "fabric.bus_clk",
      "when": "genlock"
     },
     {
@@ -848,7 +748,7 @@
     },
     {
      "from": "clk_out74.locked",
-     "to": "lock_inv.Op1",
+     "to": "lock_inv.a",
      "when": "genlock"
     },
     {
@@ -873,7 +773,7 @@
     },
     {
      "from": "dma.irq",
-     "to": "irq_cat.In1",
+     "to": "irq_cat.in1",
      "when": "capture"
     },
     {
@@ -945,6 +845,252 @@
      "from": "shim.m_axis",
      "to": "spy_cdc.s_axis",
      "when": "capture"
+    },
+    [
+     "ps7.FCLK_CLK0",
+     "ps7.M_AXI_GP0_ACLK"
+    ],
+    [
+     "ps7.FCLK_CLK0",
+     "fabric.bus_clk"
+    ],
+    [
+     "ps7.FCLK_CLK0",
+     "rst_bus.clk"
+    ],
+    [
+     "ps7.FCLK_RESET0_N",
+     "rst_bus.rst_n_in"
+    ],
+    [
+     "one.q",
+     "rst_bus.locked"
+    ],
+    [
+     "rst_bus.rst_n",
+     "fabric.bus_resetn"
+    ],
+    [
+     "rst_bus.rst",
+     "fabric.bus_rst"
+    ],
+    [
+     "ps7.FCLK_CLK0",
+     "gp0.aclk"
+    ],
+    [
+     "rst_bus.rst_n",
+     "gp0.aresetn"
+    ],
+    [
+     "ps7.M_AXI_GP0",
+     "gp0.s_axi"
+    ],
+    [
+     "ps7.FCLK_CLK0",
+     "regs.aclk"
+    ],
+    [
+     "rst_bus.rst_n",
+     "regs.aresetn"
+    ],
+    [
+     "ps7.FCLK_CLK0",
+     "gp0_slice.aclk"
+    ],
+    [
+     "rst_bus.rst_n",
+     "gp0_slice.aresetn"
+    ],
+    [
+     "gp0.m_axi",
+     "gp0_slice.s_axi"
+    ],
+    [
+     "gp0_slice.m_axi",
+     "regs.s_axi"
+    ],
+    [
+     "regs.m00_axi",
+     "fabric.regs_isp"
+    ],
+    [
+     "regs.m01_axi",
+     "fabric.regs_scanout"
+    ],
+    [
+     "regs.m02_axi",
+     "status.regs"
+    ],
+    [
+     "regs.m03_axi",
+     "stream.regs"
+    ],
+    [
+     "regs.m04_axi",
+     "control.regs"
+    ],
+    [
+     "regs.m05_axi",
+     "vdma.ctrl"
+    ],
+    {
+     "from": "regs.m06_axi",
+     "to": "dma.ctrl",
+     "when": "capture"
+    },
+    [
+     "ps7.FCLK_CLK0",
+     "status.aclk"
+    ],
+    [
+     "rst_bus.rst_n",
+     "status.aresetn"
+    ],
+    [
+     "ps7.FCLK_CLK0",
+     "stream.aclk"
+    ],
+    [
+     "rst_bus.rst_n",
+     "stream.aresetn"
+    ],
+    [
+     "ps7.FCLK_CLK0",
+     "control.aclk"
+    ],
+    [
+     "rst_bus.rst_n",
+     "control.aresetn"
+    ],
+    [
+     "ps7.FCLK_CLK0",
+     "vdma.ctrl_clk"
+    ],
+    [
+     "rst_bus.rst_n",
+     "vdma.resetn"
+    ],
+    [
+     "ps7.FCLK_CLK0",
+     "vdma.mem_clk"
+    ],
+    {
+     "from": "ps7.FCLK_CLK0",
+     "to": "dma.ctrl_clk",
+     "when": "capture"
+    },
+    {
+     "from": "rst_bus.rst_n",
+     "to": "dma.resetn",
+     "when": "capture"
+    },
+    [
+     "vdma.mem",
+     "mem.S00_AXI"
+    ],
+    {
+     "from": "dma.mem",
+     "to": "mem.S01_AXI",
+     "when": "capture"
+    },
+    [
+     "mem.M00_AXI",
+     "ps7.S_AXI_HP0"
+    ],
+    [
+     "ps7.FCLK_CLK0",
+     "ps7.S_AXI_HP0_ACLK"
+    ],
+    [
+     "ps7.FCLK_CLK0",
+     "mem.ACLK"
+    ],
+    [
+     "ps7.FCLK_CLK0",
+     "mem.S00_ACLK"
+    ],
+    [
+     "ps7.FCLK_CLK0",
+     "mem.M00_ACLK"
+    ],
+    {
+     "from": "ps7.FCLK_CLK0",
+     "to": "mem.S01_ACLK",
+     "when": "capture"
+    },
+    [
+     "rst_bus.rst_n",
+     "mem.ARESETN"
+    ],
+    [
+     "rst_bus.rst_n",
+     "mem.S00_ARESETN"
+    ],
+    [
+     "rst_bus.rst_n",
+     "mem.M00_ARESETN"
+    ],
+    {
+     "from": "rst_bus.rst_n",
+     "to": "mem.S01_ARESETN",
+     "when": "capture"
+    },
+    [
+     "fabric.rst_pix",
+     "link_rst_n.a"
+    ],
+    [
+     "link_rst_n.y",
+     "rst_isp.rst_n_in"
+    ],
+    {
+     "from": "clk_out.clk_out",
+     "to": "rst_isp.clk",
+     "when": "not genlock"
+    },
+    {
+     "from": "ps7.FCLK_CLK0",
+     "to": "rst_isp.clk",
+     "when": "genlock"
+    },
+    {
+     "from": "clk_out.locked",
+     "to": "rst_isp.locked",
+     "when": "not genlock"
+    },
+    {
+     "from": "lock_hi.q",
+     "to": "rst_isp.locked",
+     "when": "genlock"
+    },
+    [
+     "rst_isp.rst",
+     "fabric.isp_rst"
+    ],
+    [
+     "rst_isp.rst",
+     "status.island_reset"
+    ],
+    [
+     "ps7.DDR",
+     "DDR"
+    ],
+    [
+     "ps7.FIXED_IO",
+     "FIXED_IO"
+    ]
+   ],
+   "pins": [
+    {
+     "name": "DDR",
+     "interface": true,
+     "description": "The processor's DDR memory."
+    },
+    {
+     "name": "FIXED_IO",
+     "interface": true,
+     "description": "The processor's MIO, clock and resets."
     }
    ]
   }

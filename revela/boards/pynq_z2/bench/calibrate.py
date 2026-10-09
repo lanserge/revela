@@ -29,7 +29,9 @@ import sys
 import time
 from pathlib import Path
 
-from pynq import Overlay, MMIO
+from pynq import MMIO
+
+from addresses import Addresses
 
 
 def main() -> int:
@@ -41,12 +43,12 @@ def main() -> int:
                              "files win")
     args = parser.parse_args()
 
-    overlay = Overlay(args.bit, download=False)
-    if "isp" not in overlay.ip_dict:
+    regs = Addresses.beside(args.bit)
+    if "isp" not in regs:
         print("this bitstream has no live register file (baked build)")
         return 2
     rmap = json.loads(Path(args.map).read_text())
-    base = overlay.ip_dict["isp"]["phys_addr"]
+    base = regs.base("isp")
     csr = MMIO(base, 1 << rmap["control"]["address_bits"])
     addr = {f"{b['path']}.{r['name']}": (r["address"], r["bits"])
             for b in rmap["blocks"] for r in b["registers"]}

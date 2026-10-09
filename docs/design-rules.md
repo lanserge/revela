@@ -301,6 +301,21 @@ and the board's external pins. The wiring check reads it, and the build writes i
 out as `netlist.json` beside everything else, for any tool that wants the design
 without loading it.
 
+A design's register bus is its own, wired like any other connection: the
+processor's port onto np2hw's AXI3 bridge, a decoder (`np2hw.bus:axil_decoder`)
+onto every slave, an arbiter where a register file has a second master, a reset
+synchroniser per clock domain (`np2hw.hdl.bus`). No address is written down. Each
+slave states its window as a fact, `node.port.window` -- two to the power of its
+register port's address width, at least a page -- the decoder is built with those
+sizes and the processor's region (a fact of the processor's block), and np2hw's
+allocator places them. The decoder publishes where each landed (its fact
+`windows`); the toolchain sets each window in the block design, through any block
+that only forwards (`forwards`), and the build writes the same windows, by cell,
+to `address_map.json` beside the bitstream. The hardware handoff cannot see
+through our decoder, so the host reads its addresses from that file, never from
+the `.hwh`. Every register slave sits on one bus clock, the processor's; a
+register file whose datapath runs elsewhere crosses to it itself.
+
 An expression may call a function its library offers, named like a block:
 `"@np2hw.video_out:pixel_khz(mode)"` is the raster's pixel clock, read from
 np2hw's mode table. A function is callable only if it says so

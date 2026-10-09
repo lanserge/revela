@@ -1,42 +1,11 @@
 {
   "blocks": {
-    "axi_gpio": {
-      "description": "AXI GPIO: software's bits in, the fabric's bits out.",
+    "axi_interconnect": {
+      "description": "AMD's AXI interconnect, for the memory side: masters onto the processor's memory port, bursts and widths converted.",
+      "facts": {"clocks": {"S00_AXI": ["S00_ACLK", "S00_ARESETN"], "S01_AXI": ["S01_ACLK", "S01_ARESETN"], "M00_AXI": ["M00_ACLK", "M00_ARESETN"]}},
       "vivado": {
-        "ip": "xilinx.com:ip:axi_gpio",
-        "interfaces": [
-          "S_AXI"
-        ]
-      }
-    },
-    "proc_sys_reset": {
-      "description": "A reset generator: asserts on its inputs, releases synchronously to its clock.",
-      "vivado": {
-        "ip": "xilinx.com:ip:proc_sys_reset"
-      }
-    },
-    "util_vector_logic": {
-      "description": "Bitwise logic between pins.",
-      "vivado": {
-        "ip": "xilinx.com:ip:util_vector_logic"
-      }
-    },
-    "xlconcat": {
-      "description": "Bits side by side into one bus.",
-      "vivado": {
-        "ip": "xilinx.com:ip:xlconcat"
-      }
-    },
-    "xlconstant": {
-      "description": "A constant.",
-      "vivado": {
-        "ip": "xilinx.com:ip:xlconstant"
-      }
-    },
-    "xlslice": {
-      "description": "Some bits of a bus.",
-      "vivado": {
-        "ip": "xilinx.com:ip:xlslice"
+        "ip": "xilinx.com:ip:axi_interconnect",
+        "integrator": true
       }
     }
   }

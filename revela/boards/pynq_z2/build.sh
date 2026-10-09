@@ -89,7 +89,7 @@ fi
 
 echo "== implementation"
 cd "$OUT"
-vivado -mode batch -source "$OUT/generated/bd.tcl" -tclargs "$OUT"
+vivado -mode batch -source "$OUT/generated/rtl.tcl" -tclargs "$OUT"
 # Every described vendor block against the pins the tool built for it:
 # a description that is not true stops the build before synthesis.
 python3 -m np2hw.toolchain.vivado.vendor_check "$OUT"
@@ -99,14 +99,11 @@ vivado -mode batch -source "$here/impl_b.tcl" -tclargs "$OUT"
 # The GPIO fields by name, beside the bitstream they describe: the bench
 # scripts read every bit through it.
 cp "$OUT/generated/gpio_layout.json" "$OUT/out/gpio_layout.json"
-
-echo "== audit of the design AS BUILT"
-# The JSON states the intent; this reads what the automation and the
-# polarity propagation actually did. Every rule in it is a board hang
-# this bench already paid for once.
-python3 -m np2hw.toolchain.vivado.checkhwh "$OUT/out/rx.hwh"
+cp "$OUT/generated/address_map.json" "$OUT/out/address_map.json"
+# the fabric clocks load.py sets before it programs the fabric
+cp "$OUT/generated/clocks.json" "$OUT/out/clocks.json"
 
 echo
-echo "artifacts: $OUT/out/rx.bit, rx.hwh and gpio_layout.json"
+echo "artifacts: $OUT/out/rx.bit, gpio_layout.json, address_map.json and clocks.json"
 echo "NEXT: if the picture sits displaced, measure the write-side skew"
 echo "-- it re-rolls per link lock. See the README, 'After the build'."

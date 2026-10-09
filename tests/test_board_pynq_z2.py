@@ -10,13 +10,13 @@ is found in seconds, not twenty minutes into a synthesis run.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-from np2hw.toolchain.vivado import bdtrace
 from revela.boards import pynq_z2
 
 BUILD = pynq_z2.HERE / "build.sh"
@@ -27,7 +27,6 @@ def test_scripts_read_only_sources_that_exist_beside_them():
     there. What is generated lives in the build directory; a script
     reaching for it beside the sources finds nothing, and Vivado says so
     only after synthesis has begun."""
-    import re
     for script in ("impl_a.tcl", "impl_b.tcl"):
         text = (pynq_z2.HERE / script).read_text()
         for parts in re.findall(r"\[file join \$here ([^\]]+)\]", text):
@@ -59,26 +58,53 @@ def built(tmp_path_factory):
     return out
 
 
+def ip_config(built, module):
+    """The settings ``rtl.tcl`` gives the vendor IP built as ``module``."""
+    tcl = (built / "generated" / "rtl.tcl").read_text()
+    out = {}
+    for line in tcl.splitlines():
+        m = re.fullmatch(r"set_property -dict \[list (.*)\] "
+                         rf"\[get_ips {module}\]", line)
+        if m:
+            out.update(re.findall(r"CONFIG\.(\w+) \{?([^ }]*)\}?",
+                                  m.group(1)))
+    return out
+
+
+def instance(built, name):
+    """``(module, parameters, connections)`` of the cell ``name`` in the
+    Verilog the build wrote."""
+    for v in (built / "hdl").glob("*.v"):
+        m = re.search(rf"^[ ]+(\w+)[ ]*(?:#\(([^\n]*)\))?[ ]+{name} \((.*?)\);",
+                      v.read_text(), re.M | re.S)
+        if m:
+            params = dict(re.findall(r"\.(\w+)\(([^()]*)\)", m.group(2) or ""))
+            conns = dict(re.findall(r"\.(\w+)\(([^()]*)\)", m.group(3)))
+            return m.group(1), params, conns
+    raise AssertionError(f"no cell {name} in the written Verilog")
+
+
 def test_the_demo_generates_and_checks_without_vivado(built):
-    for name in ("paths.tcl", "bd.tcl"):
+    for name in ("paths.tcl", "rtl.tcl", "flow.tcl"):
         assert (built / "generated" / name).is_file(), name
     for name in ("bayerlink_formats.v", "ddc_slave.v", "revela_isp_core.v",
-                 "scanout.v", "out_cdc.v"):
+                 "scanout.v", "out_cdc.v", "pynq_demo.v"):
         assert (built / "hdl" / name).is_file(), name
     # Fixed modules are read from the package that ships them, never
     # copied, and each is a source once however many blocks instantiate it
-    bd = (built / "generated" / "bd.tcl").read_text()
+    tcl = (built / "generated" / "rtl.tcl").read_text()
     for package, module in (("np2hw", "np2hw_skid"), ("np2hw", "np2hw_tee"),
                             ("np2hw", "np2hw_cdc_fifo"),
                             ("bayerlink_fpga", "bayerlink_in")):
-        assert bd.count(f"/{module}.v}}") == 1, module
-        assert f"/{package}/hdl/{module}.v}}" in bd, module
+        assert tcl.count(f"/{module}.v}}") == 1, module
+        assert f"/{package}/hdl/{module}.v}}" in tcl, module
         assert not (built / "hdl" / f"{module}.v").exists()
     # A fixed module is sized on its cell, from the values its leaf works
     # out: the receiver's lane order is the front end's, not the default.
-    rx = next(line for line in bd.splitlines()
-              if line.startswith("set_property") and "[get_bd_cells blrx]" in line)
-    assert "CONFIG.LANE0 1 CONFIG.LANE1 2 CONFIG.LANE2 0" in rx, rx
+    module, params, _ = instance(built, "blrx")
+    assert module == "bayerlink_in"
+    assert (params["LANE0"], params["LANE1"], params["LANE2"]) == \
+        ("1", "2", "0"), params
     # Nothing is written beside the sources: they ship in the package.
     assert not (pynq_z2.HERE / "generated").exists()
 
@@ -88,15 +114,13 @@ def test_the_gpio_layout_is_the_fabrics(built):
     fabric: the control word's defaults are the GPIO's power-on value,
     and each status word's fields fit the width the GPIO was built at."""
     layout = json.loads((built / "generated" / "gpio_layout.json").read_text())
-    s = bdtrace.structure(bdtrace.trace(built / "generated" / "bd.tcl",
-                                        [str(built)]))
     ctrl = layout["ctrl_gpio"]["channels"][0]
     # The power-on word is the whole declaration's: the consumer bit is
     # set even in a build without the capture path, as it always was.
-    assert int(s["cells"]["ctrl_gpio"]["config"]["CONFIG.C_DOUT_DEFAULT"],
-               16) == ctrl["default"] == 0x12
+    assert int(ip_config(built, "ctrl_gpio")["C_DOUT_DEFAULT"], 16) == \
+        ctrl["default"] == 0x12
     assert "consumer" not in ctrl["fields"]     # capture is off here
-    width = int(s["cells"]["status_gpio"]["config"]["CONFIG.C_GPIO_WIDTH"])
+    width = int(ip_config(built, "status_gpio")["C_GPIO_WIDTH"])
     top = max(f["lsb"] + f["bits"] for f in
               layout["status_gpio"]["channels"][0]["fields"].values())
     assert top <= width
@@ -110,34 +134,54 @@ def test_the_layout_checksum_is_built_into_the_fabric(built):
     layout from another build."""
     from revela.boards.zynq7.gpio import digest
     layout = json.loads((built / "generated" / "gpio_layout.json").read_text())
-    s = bdtrace.structure(bdtrace.trace(built / "generated" / "bd.tcl",
-                                        [str(built)]))
-    held = int(s["cells"]["layout_const"]["config"]["CONFIG.CONST_VAL"])
+    module, params, const = instance(built, "layout_const")
+    assert module == "np2hw_const"
+    held = int(params["VALUE"].split("'d")[-1])
     stated = layout["ctrl_gpio"]["channels"][1]["fields"]["layout_id"]
     assert held == stated["value"] == digest(layout) != 0
     assert stated["constant"] and stated["lsb"] == 0 and stated["bits"] == 32
-    assert s["cells"]["ctrl_gpio"]["config"]["CONFIG.C_ALL_INPUTS_2"] == "1"
-    assert ["ctrl_gpio/gpio2_io_i", "layout_const/dout"] in s["nets"]
+    assert ip_config(built, "ctrl_gpio")["C_ALL_INPUTS_2"] == "1"
+    _, _, gpio = instance(built, "ctrl_gpio")
+    assert gpio["gpio2_io_i"] == const["q"]
 
 
-def test_the_block_design_is_the_design(built):
-    """The generated script, read back: the jacks' cells are there under
+def test_the_top_is_the_design(built):
+    """The written Verilog, read back: the jacks' cells are there under
     their own names, the capture path only where the design asks for it,
-    and every pin the constraints name is a port."""
-    s = bdtrace.structure(bdtrace.trace(built / "generated" / "bd.tcl",
-                                        [str(built)]))
-    for cell in ("ps7", "dvi_rx", "hdmi_tx", "blrx", "isp", "scanout",
-                 "ddc_phy", "rst_bus"):
-        assert cell in s["cells"], cell
-    assert "dma" not in s["cells"]            # capture is off by default
-    assert set(s["ports"]) == {"TMDS", "hdmi_hpd", "ddc_scl_io",
-                               "ddc_sda_io", "hdmi_tx"}
-    assert s["cells"]["dvi_rx"]["config"]["CONFIG.kClkRange"] == "1"
-    # the VDMA derives its stream width and its clocking from what it is
-    # connected to, and refuses both as settings: neither is restated
-    vdma = s["cells"]["vdma"]["config"]
-    assert "CONFIG.c_s_axis_s2mm_tdata_width" not in vdma
-    assert "CONFIG.c_prmry_is_aclk_async" not in vdma
+    and every pin the constraints name is a port of the top."""
+    for cell in ("dvi_rx", "hdmi_tx", "blrx", "isp", "scanout", "ddc_phy",
+                 "rst_bus"):
+        instance(built, cell)
+    # the processor is one of the cells the block design holds
+    tcl = (built / "generated" / "rtl.tcl").read_text()
+    assert "create_bd_design pynq_demo_bd" in tcl
+    assert "zynq7_ps7 ps7 " in tcl
+    with pytest.raises(AssertionError):
+        instance(built, "dma")                # capture is off by default
+    top = (built / "hdl" / "pynq_demo.v").read_text()
+    ports = set(re.findall(r"^\s+(?:input|output|inout)\s+wire\s+"
+                           r"(?:\[\d+:0\]\s+)?(\w+)", top, re.M))
+    named = set()
+    for xdc in pynq_z2.HERE.glob("*.xdc"):
+        named |= {re.sub(r"\[\d+\]$", "", n) for n in re.findall(
+            r"get_ports \{?([\w\[\]]+)\}?\]", xdc.read_text())}
+    assert named and named <= ports, named - ports
+    # the jack is constrained at the link it advertises, and the front end
+    # set for it: a 74.25 MHz link, range 2 (its VCO at 742.5 MHz)
+    from np2hw.video_out import pixel_khz
+    from revela.boards.pynq_z2 import choices
+    khz = pixel_khz(choices()["link_mode"])
+    clocks = (built / "hdl" / "rx_pin_clocks.xdc").read_text()
+    assert f"create_clock -period {1e6 / khz:.3f} -name TMDS_clk " \
+        "[get_ports TMDS_clk_p]" in clocks
+    assert khz == 74250 and ip_config(built, "dvi_rx")["kClkRange"] == "2"
+    assert not any("create_clock" in line and "TMDS" in line
+                   for xdc in pynq_z2.HERE.glob("*.xdc")
+                   for line in xdc.read_text().splitlines()
+                   if not line.lstrip().startswith("#"))
+    # the VDMA's clocking follows its wiring: all three clocks are FCLK0
+    # in this build, so it is built synchronous
+    assert ip_config(built, "vdma")["c_prmry_is_aclk_async"] == "0"
 
 
 def test_a_mis_wired_design_is_refused_before_vivado(built, tmp_path,
@@ -190,7 +234,27 @@ def test_the_build_writes_its_netlist(built):
     # the receiver's stream to the board and back is one bundle connection
     assert {"from": "fabric.blrx.out", "to": "fabric.isp_cdc.in"} in \
         netlist["bundles"]
-    # no net is driven twice, and every net's stated pins agree in width
+    # no net is driven twice, and every net's stated pins agree in width --
+    # but an address, of which each end uses the bits it decodes
     for net in netlist["nets"]:
         assert len(net["drivers"]) <= 1
-        assert len(set(net["widths"].values())) <= 1
+        assert len(set(net["widths"].values())) <= 1 or net.get("ranged")
+    # a bundle is its members' nets: the raster reaches the transmitter
+    # signal by signal, though the two name their bundles differently
+    nets = [set(net["pins"]) for net in netlist["nets"]]
+    for src, dst in (("vid_active_video", "rgb_active_video"),
+                     ("vid_data", "rgb_data"), ("vid_hsync", "rgb_hsync"),
+                     ("vid_vsync", "rgb_vsync")):
+        assert {f"fabric.scanout.{src}", f"hdmi_out.hdmi_tx.{dst}"} in [
+            n & {f"fabric.scanout.{src}", f"hdmi_out.hdmi_tx.{dst}"}
+            for n in nets], (src, dst)
+
+
+def test_every_bus_answers_whatever_the_cable_does():
+    """Every clock and reset of every bus, in both variants, traced through
+    the netlist to the processor or a constant: none to the cable."""
+    from np2hw.design.ancestry import audit
+    from np2hw.design.composite import load
+    for build in ({}, {"capture": 1}):
+        assert audit(load("revela.boards.pynq_z2.pynq_demo",
+                          build=build)) == [], build

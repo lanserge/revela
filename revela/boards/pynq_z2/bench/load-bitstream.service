@@ -4,7 +4,7 @@
 # genlock and the link recovery are the fabric's alone. Install:
 #   sudo cp load-bitstream.service /etc/systemd/system/
 #   sudo systemctl enable load-bitstream
-# with rx.bit and rx.hwh in /home/xilinx/.
+# with rx.bit and clocks.json in /home/xilinx/.
 #
 # AFTER bootpy: a PYNQ image runs /boot/boot.py at every boot, and the
 # stock one ends by loading the base overlay. Whichever of the two

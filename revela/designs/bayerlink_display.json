@@ -128,6 +128,14 @@
      "description": "The register buses' reset, active high."
     },
     {
+     "name": "regs_isp",
+     "description": "The ISP's registers, from the processor's bus. The DDC bridge shares them through an arbiter."
+    },
+    {
+     "name": "regs_scanout",
+     "description": "The raster's placement registers, from the processor's bus."
+    },
+    {
      "name": "scl_i",
      "description": "DDC clock, from the jack."
     },
@@ -246,8 +254,12 @@
       "link_mode": "link_mode"
      }
     },
+    "regs_arb": {
+     "block": "np2hw.hdl.bus:axil_arbiter",
+     "description": "The ISP's registers, reached from the processor's bus and from the DDC bridge, one transaction at a time."
+    },
     "isp_cdc": {
-     "block": "revela.boards.common.stream_cdc",
+     "block": "np2hw.hdl.stream:stream_cdc",
      "description": "The receiver's stream into the ISP's clock: written in the pixel clock recovered from the cable, read in the ISP's, both sides reset by the link.",
      "build": {
       "DATA_BITS": "sample_bits"
@@ -594,6 +606,30 @@
     [
      "bus_rst",
      "ddc.rst"
+    ],
+    [
+     "bus_clk",
+     "regs_arb.aclk"
+    ],
+    [
+     "bus_resetn",
+     "regs_arb.aresetn"
+    ],
+    [
+     "regs_isp",
+     "regs_arb.s0_axi"
+    ],
+    [
+     "ddc.M_AXI",
+     "regs_arb.s1_axi"
+    ],
+    [
+     "regs_arb.m_axi",
+     "isp.s_axil"
+    ],
+    [
+     "regs_scanout",
+     "scanout.s_axi"
     ],
     [
      "broom",

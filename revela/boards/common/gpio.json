@@ -1,0 +1,139 @@
+{
+  "blocks": {
+    "gpio": {
+      "description": "Software's words to and from the fabric: one or two channels of bits, each read by software or written by it, behind a register port.",
+      "facts": {"clocks": {"regs": ["aclk", "aresetn"]}, "ancestry": {"gpio_o": "board", "gpio2_o": "board"}},
+      "parameters": {
+        "implementation": {
+          "default": "'axi_gpio'",
+          "description": "Which implementation fills this block."
+        },
+        "width": {
+          "default": 32,
+          "description": "Bits in channel 1."
+        },
+        "out": {
+          "default": 0,
+          "description": "1: software writes channel 1; 0: software reads it."
+        },
+        "default": {
+          "default": 0,
+          "description": "Channel 1's power-on value, where software writes it."
+        },
+        "dual": {
+          "default": 0,
+          "description": "1: a second channel."
+        },
+        "width2": {
+          "default": 32,
+          "description": "Bits in channel 2."
+        },
+        "out2": {
+          "default": 0,
+          "description": "1: software writes channel 2; 0: software reads it."
+        },
+        "default2": {
+          "default": 0,
+          "description": "Channel 2's power-on value, where software writes it."
+        }
+      },
+      "inputs": [
+        {
+          "name": "aclk",
+          "description": "The register port's clock."
+        },
+        {
+          "name": "aresetn",
+          "description": "The register port's reset, active low."
+        },
+        {
+          "name": "regs",
+          "bus": "axilite",
+          "width": 9,
+          "description": "The registers."
+        },
+        {
+          "name": "gpio_i",
+          "width": "width",
+          "when": "not out",
+          "description": "Channel 1, read by software."
+        },
+        {
+          "name": "gpio2_i",
+          "width": "width2",
+          "when": "dual and not out2",
+          "description": "Channel 2, read by software."
+        }
+      ],
+      "outputs": [
+        {
+          "name": "gpio_o",
+          "width": "width",
+          "when": "out",
+          "description": "Channel 1, written by software."
+        },
+        {
+          "name": "gpio2_o",
+          "width": "width2",
+          "when": "dual and out2",
+          "description": "Channel 2, written by software."
+        }
+      ],
+      "implementations": {
+        "axi_gpio": {
+          "description": "AMD's AXI GPIO, all-input or all-output per channel.",
+          "vivado": {
+            "ip": "xilinx.com:ip:axi_gpio"
+          },
+          "ports": {
+            "aclk": "s_axi_aclk",
+            "aresetn": "s_axi_aresetn",
+            "regs": "S_AXI",
+            "gpio_i": "gpio_io_i",
+            "gpio_o": "gpio_io_o",
+            "gpio2_i": "gpio2_io_i",
+            "gpio2_o": "gpio2_io_o"
+          },
+          "pin_names": {
+            "regs": "s_axi_{signal}"
+          },
+          "config": {
+            "C_GPIO_WIDTH": "width",
+            "C_ALL_OUTPUTS": {
+              "value": "1",
+              "when": "out"
+            },
+            "C_ALL_INPUTS": {
+              "value": "1",
+              "when": "not out"
+            },
+            "C_DOUT_DEFAULT": {
+              "value": "@np2hw.toolchain.vivado:hex_word(default)",
+              "when": "out and default"
+            },
+            "C_IS_DUAL": {
+              "value": "1",
+              "when": "dual"
+            },
+            "C_GPIO2_WIDTH": {
+              "value": "width2",
+              "when": "dual"
+            },
+            "C_ALL_OUTPUTS_2": {
+              "value": "1",
+              "when": "dual and out2"
+            },
+            "C_ALL_INPUTS_2": {
+              "value": "1",
+              "when": "dual and not out2"
+            },
+            "C_DOUT_DEFAULT_2": {
+              "value": "@np2hw.toolchain.vivado:hex_word(default2)",
+              "when": "dual and out2 and default2"
+            }
+          }
+        }
+      }
+    }
+  }
+}

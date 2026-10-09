@@ -80,11 +80,16 @@ ships. In order:
    Every wire between our own modules is checked against those ports, at
    this build's parameters, when the design is loaded -- a stream or an
    AXI4-Stream bus whose widths differ, a net whose pins do, a net two
-   leaves drive; a block design would connect the low bits of a mismatch
-   and call it a warning.
-3. Vivado: the generated `bd.tcl`, `impl_a.tcl` (synthesis, placement),
-   `impl_b.tcl` (routing, bitstream); then
-   `np2hw.toolchain.vivado.checkhwh` audits the design as built.
+   leaves drive, a bus input nothing drives; a block design would connect
+   the low bits of a mismatch and call it a warning. A bus is wired member
+   to member by each signal's part in it, whatever the two ends call
+   their bundles.
+   Every bus clock and reset is traced through the netlist to what makes
+   it (`np2hw.design.ancestry`): one a cable can stop refuses the build.
+3. Vivado: the generated `rtl.tcl` (the design's own Verilog, each vendor
+   IP made under its cell's name, the processor in its own small block
+   design), `impl_a.tcl` (synthesis, placement), `impl_b.tcl` (routing,
+   bitstream).
 
 The GPIO words software reads and writes -- control bits, status, the
 stream's identity -- are declared once, field by field, on `pynq_demo`'s
@@ -105,14 +110,16 @@ directory to build in and give it this script as the command.
 
 ## Timing margin, and what your build will and will not match
 
-The design closes, but not with room to spare. Measured here on
-xc7z020-1 with Vivado 2025.2: **WNS +0.003 to +0.020 ns** at 148.5 MHz
-across the last few builds. A different Vivado, a different speed grade
-or a different seed may miss, and the lever that matters is placement --
-`place_design -directive ExtraTimingOpt` in `impl_a.tcl`. On one and the
-same design, `Explore` gave +0.001 and `ExtraTimingOpt` gave +0.055; the
-post-route physical-optimisation loop can only hand back what placement
-left on the table.
+Measured here on xc7z020-1 with Vivado 2025.2: **WNS +0.246 ns** for the
+default build and +0.106 ns with the capture path, the processor's clock
+at 142.857 MHz and the link's at the rate `link_mode` advertises (74.25
+MHz for 1080p30). The worst paths are in the processor's clock domain, in
+AMD's VDMA and the ISP's tone curve; the receiver and the register bus are
+not among them. A different Vivado, speed grade or seed will land
+elsewhere, and the lever that matters is placement --
+`place_design -directive ExtraTimingOpt` in `impl_a.tcl`; the post-route
+physical-optimisation loop can only hand back what placement left on the
+table.
 
 Your bitstream will also not be byte-identical to the one in the demo
 video. The depth model has moved since that recording, so one block cuts
