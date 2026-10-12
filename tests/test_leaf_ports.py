@@ -24,7 +24,8 @@ pytestmark = pytest.mark.skipif(shutil.which("verilator") is None,
 DESIGN = "revela.boards.pynq_z2.pynq_demo:pynq_demo"
 
 # Values no module defaults to, so a width that ignores its parameter shows.
-VALUES = {"SAMPLE_BITS": 13, "DATA_BITS": 27, "WIDTH": 640, "DW": 24}
+VALUES = {"SAMPLE_BITS": 13, "DATA_BITS": 27, "WIDTH": 640, "DW": 24,
+          "FB_WORD": 0}
 
 
 def _hand_written():
@@ -90,7 +91,7 @@ GENERATED = _generated_leaves()
 
 def test_the_board_has_generated_leaves():
     assert {p.rpartition(".")[2] for p, _ in GENERATED} >= {
-        "blrx", "ddc", "scanout", "out_cdc"}
+        "blrx", "ddc", "scanout_regs"}
 
 
 @pytest.mark.parametrize("path,inst", GENERATED,

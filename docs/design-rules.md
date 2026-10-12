@@ -317,8 +317,8 @@ the `.hwh`. Every register slave sits on one bus clock, the processor's; a
 register file whose datapath runs elsewhere crosses to it itself.
 
 An expression may call a function its library offers, named like a block:
-`"@np2hw.video_out:pixel_khz(mode)"` is the raster's pixel clock, read from
-np2hw's mode table. A function is callable only if it says so
+`"@revela.boards.common.clocking:pixel_khz(mode)"` is the raster's pixel
+clock, read from bayerlink's rasters. A function is callable only if it says so
 (`fn.expression = True`): a design is data, and what it can run is what its
 library offers it -- a table's lookup, never whatever happens to be importable.
 So a board's choices are parameters of the design, computed where they are
@@ -457,7 +457,7 @@ revela/          (np2hw holds the machinery: np2hw.blocks -- the framework,
                   layering; np2hw.pipeline -- composition, allocation, the map,
                   the RTL twin, the design pack and `np2hw pipeline`;
                   np2hw.toolchain -- the Vivado flow)
-  designs/        bayerlink_display.json, the camera on a display, for any
+  designs/        isp_demo.json, the camera on a display, for any
                   board to fill and feed
   pipelines/      compositions of blocks: bayer_isp.json (the standard ISP),
                   stereo.json (two of it)
@@ -495,8 +495,12 @@ revela/          (np2hw holds the machinery: np2hw.blocks -- the framework,
       menon.py    stub; directional with refinement, the quality tier
     ...           stubs with intent documented
   sensors/        schema.json + <name>/sensor.json, and a sensor's profile.json
-  host/           transports (spi, udp, pynq), register accessors, and the
-                  source's packages (bridge_module.py, sensor_module.py)
+  host/           transports (spi, udp, pynq), register accessors
+  firmware/       the ISP's firmware, portable C: its contract (revela_hal.h,
+                  revela_fw.h, revela_algo.h, revela_sensor.h), core/, one
+                  folder per 3A module (ae/, awb/, af/), platform/pi (the
+                  HAL over a picam2hdmi bridge), and package.py, which cuts
+                  each part as a module the bridge loads
   boards/         board designs and the blocks they use; np2hw.toolchain
                   renders them for Vivado and holds each described vendor
                   block to what Vivado built;
@@ -507,7 +511,7 @@ revela/          (np2hw holds the machinery: np2hw.blocks -- the framework,
                   tee_shim, isp_axis, the raster's generators)
     zynq7/        the family: the PS (described, its ports by its settings),
                   vendor IP not yet described, the bus, GPIO words
-    pynq_z2/      the board: its jacks, its ISP, pynq_demo (bayerlink_display
+    pynq_z2/      the board: its jacks, its ISP, pynq_demo (isp_demo
                   filled and fed by role), build.sh
 tests/            pytest + cocotb testbenches
 experiments/      exploratory work, NOT part of the library, float allowed

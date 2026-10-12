@@ -4,7 +4,12 @@
       "description": "A clock made from another: a PLL or MMCM with the recipe its implementation's settings state, and optionally a fine phase shift stepped at run time.",
       "parameters": {
         "implementation": {"default": "'clk_wiz'", "description": "Which implementation fills this block."},
-        "fine_phase_shift": {"default": 0, "description": "1: the output's phase can be stepped finely at run time, through ps*."}
+        "fine_phase_shift": {"default": 0, "description": "1: the output's phase can be stepped finely at run time, through ps*."},
+        "stop_flags": {"default": 0, "description": "1: the clock says why it is not locked -- its input stopped, or its feedback did."},
+        "in_khz": {"default": 0, "description": "The input's rate in kHz. 0: the node states its own."},
+        "out_khz": {"default": 0, "description": "The output's rate in kHz, where the design derives it: the requested frequency is set from it. 0: the node states its own."},
+        "divclk": {"default": 1, "description": "The recipe's input divider, where the design states a recipe."},
+        "mult8": {"default": 0, "description": "The recipe's feedback multiplier, in eighths (297: 37.125): with in_khz, divclk and out_khz, an exact MMCM recipe, the output divider worked out from them (revela.boards.common.clocking). 0: the wizard chooses."}
       },
       "inputs": [
         {"name": "clk_in"},
@@ -15,19 +20,31 @@
       "outputs": [
         {"name": "clk_out"},
         {"name": "locked"},
-        {"name": "psdone", "when": "fine_phase_shift", "description": "The step requested has been made."}
+        {"name": "psdone", "when": "fine_phase_shift", "description": "The step requested has been made."},
+        {"name": "clkin_stopped", "when": "stop_flags", "description": "Its input clock has stopped."},
+        {"name": "clkfb_stopped", "when": "stop_flags", "description": "Its feedback clock has stopped."}
       ],
       "implementations": {
         "clk_wiz": {
-          "description": "AMD's clocking wizard. The frequencies and any MMCM recipe are the board's, set as its settings where the node is placed.",
+          "description": "AMD's clocking wizard. The frequencies follow in_khz and out_khz where the design gives them, and a recipe the design states is forced, not requested: asked for 74.250 the wizard lands 74.287, 490 ppm off and past a genlock's whole authority.",
           "vivado": {"ip": "xilinx.com:ip:clk_wiz"},
           "config": {
             "PRIM_SOURCE": "'No_buffer'",
             "USE_LOCKED": "'true'",
             "USE_RESET": "'false'",
-            "USE_DYN_PHASE_SHIFT": "'true' if fine_phase_shift else 'false'"
+            "USE_DYN_PHASE_SHIFT": "'true' if fine_phase_shift else 'false'",
+            "USE_INCLK_STOPPED": "'true' if stop_flags else 'false'",
+            "USE_CLKFB_STOPPED": "'true' if stop_flags else 'false'",
+            "PRIM_IN_FREQ": {"value": "@np2hw.toolchain.vivado:mhz(in_khz)", "when": "in_khz"},
+            "CLKOUT1_REQUESTED_OUT_FREQ": {"value": "@np2hw.toolchain.vivado:mhz(out_khz)", "when": "out_khz"},
+            "OVERRIDE_MMCM": {"value": "'true'", "when": "mult8"},
+            "MMCM_DIVCLK_DIVIDE": {"value": "divclk", "when": "mult8"},
+            "MMCM_CLKFBOUT_MULT_F": {"value": "@revela.boards.common.clocking:multiplier(mult8)", "when": "mult8"},
+            "MMCM_CLKOUT0_DIVIDE_F": {"value": "@revela.boards.common.clocking:output_divide(in_khz, divclk, mult8, out_khz)", "when": "mult8"},
+            "CLK_OUT1_USE_FINE_PS_GUI": {"value": "'true'", "when": "fine_phase_shift"},
+            "MMCM_CLKOUT0_USE_FINE_PS": {"value": "'true'", "when": "fine_phase_shift"}
           },
-          "ports": {"clk_in": "clk_in1", "clk_out": "clk_out1"}
+          "ports": {"clk_in": "clk_in1", "clk_out": "clk_out1", "clkin_stopped": "input_clk_stopped", "clkfb_stopped": "clkfb_stopped"}
         }
       }
     }

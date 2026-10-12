@@ -42,9 +42,9 @@ def main() -> int:
     for n in range(max(1, args.count)):
         if n:
             time.sleep(args.interval)
-        # The scanout's status word is its generator's: sof-per-frame
-        # [2:0], locked, armed, underflow, misalign, refused -- and on a
-        # genlocked raster, glocked at bit 14.
+        # The scanout's status word is raster.v's: sof-per-frame
+        # [2:0], locked, armed, underflow, misalign, refused, and the
+        # genlock's own lock at bit 14.
         sc = f("scanout_status")
         print(f"lock={f('link_locked')} ovf={f('rx_overflow')} "
               f"isl[rst={f('island_reset')} inV={f('isp_in_valid')} "

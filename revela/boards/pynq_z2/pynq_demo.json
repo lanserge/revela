@@ -9,7 +9,7 @@
     },
     "mode": {
      "default": "link_mode",
-     "description": "The output raster. By default the one the input arrives in, so the output runs at the input's rate: a 74.25 MHz raster genlocks to the stream, a 148.5 MHz one free-runs."
+     "description": "The output raster. By default the one the input arrives in, so the output runs at the input's rate, genlocked to it."
     },
     "link_mode": {
      "default": "'1080p30'",
@@ -32,16 +32,24 @@
      "description": "The longest packed camera line the receiver holds."
     },
     "fill": {
-     "default": "'0x101010'",
-     "description": "What the raster paints outside the picture."
+     "default": 1052688,
+     "description": "What the raster paints outside the picture: 0x101010."
     },
     "out_khz": {
-     "default": "@np2hw.video_out:pixel_khz(mode)",
-     "description": "The output raster's pixel clock in kHz, from np2hw's mode table."
+     "default": "@revela.boards.common.clocking:pixel_khz(mode)",
+     "description": "The output raster's pixel clock in kHz, from bayerlink's rasters."
     },
-    "genlock": {
-     "default": "1 if out_khz < 100000 else 0",
-     "description": "A 74.25-class raster genlocks to the stream; a 148.5-class one free-runs."
+    "fclk1_khz": {
+     "default": 200000,
+     "description": "FCLK1, the raster clock's input: the 200 MHz the processing system makes."
+    },
+    "raster_divclk": {
+     "default": 10,
+     "description": "The raster clock's recipe: 200 MHz / 10 x 37.125, a 742.5 MHz VCO, divides exactly to 74.25 (1080p30) and 148.5 (1080p60); its output divider follows from the mode."
+    },
+    "raster_mult8": {
+     "default": 297,
+     "description": "Its feedback multiplier, in eighths: 37.125."
     },
     "sample_bits": {
      "default": "fabric.sample_bits",
@@ -58,10 +66,7 @@
    },
    "constraints": [
     "design.xdc",
-    {
-     "file": "genlock-clocks.xdc",
-     "when": "genlock"
-    }
+    "raster-clocks.xdc"
    ],
    "nodes": {
     "ps7": {
@@ -80,7 +85,7 @@
     "hdmi_in": {
      "block": "revela.boards.pynq_z2.hdmi_in",
      "build": {
-      "link_khz": "@np2hw.video_out:pixel_khz(link_mode)"
+      "link_khz": "@revela.boards.common.clocking:pixel_khz(link_mode)"
      }
     },
     "vdma": {
@@ -90,7 +95,7 @@
      }
     },
     "fabric": {
-     "block": "revela.designs.bayerlink_display",
+     "block": "revela.designs.isp_demo",
      "description": "The camera-on-a-display design, filled with this board's ISP and fed this board's clocks and resets.",
      "build": {
       "pipeline": "pipeline",
@@ -100,23 +105,27 @@
       "rx_fifo": "rx_fifo",
       "max_line_bytes": "max_line_bytes",
       "fill": "fill",
-      "genlock": "genlock",
       "lane_map": "hdmi_in.lane_map",
-      "vsync_active_high": "hdmi_in.vsync_active_high"
+      "vsync_active_high": "hdmi_in.vsync_active_high",
+      "ps_per_pixel": "@revela.boards.common.clocking:fine_steps(fclk1_khz, raster_divclk, raster_mult8, out_khz)"
      }
-    },
-    "clk_out": {
-     "block": "revela.boards.common.clock",
-     "config": {
-      "PRIM_IN_FREQ": "200.000",
-      "CLKOUT1_REQUESTED_OUT_FREQ": "148.500"
-     },
-     "when": "not genlock"
     },
     "hdmi_out": {
      "block": "revela.boards.pynq_z2.hdmi_out",
      "build": {
       "out_khz": "out_khz"
+     }
+    },
+    "clk_raster": {
+     "block": "revela.boards.common.clock",
+     "description": "The raster's clock, steered by the scanout's genlock through its fine phase shifter.",
+     "build": {
+      "in_khz": "fclk1_khz",
+      "out_khz": "out_khz",
+      "divclk": "raster_divclk",
+      "mult8": "raster_mult8",
+      "fine_phase_shift": 1,
+      "stop_flags": 1
      }
     },
     "irq_cat": {
@@ -180,7 +189,7 @@
           "name": "direct",
           "cell": "o_direct",
           "default": 1,
-          "description": "The direct picture's branch of the tee; on a genlocked build it also makes the raster follow the stream."
+          "description": "The direct picture's branch of the tee; it also makes the raster follow the stream."
          }
         ]
        },
@@ -245,7 +254,15 @@
             "description": "The pixel side's sample was accepted."
            },
            {
-            "pad": 10,
+            "name": "raster_clkin_stopped",
+            "description": "The raster clock's input has stopped: why it is not locked, if it is not."
+           },
+           {
+            "name": "raster_clkfb_stopped",
+            "description": "The raster clock's feedback has stopped."
+           },
+           {
+            "pad": 8,
             "cell": "isl_pad"
            }
           ]
@@ -296,7 +313,7 @@
          {
           "name": "scanout_status",
           "bits": 15,
-          "description": "The scanout's own status word, as its generator lays it out."
+          "description": "The raster's own status word, as raster.v lays it out."
          }
         ]
        }
@@ -375,27 +392,9 @@
     },
     "lock_hi": {
      "block": "np2hw.hdl.glue:const",
-     "when": "genlock",
      "build": {
       "WIDTH": 1,
       "VALUE": 1
-     }
-    },
-    "clk_out74": {
-     "block": "revela.boards.common.clock",
-     "config": {
-      "PRIM_IN_FREQ": "200.000",
-      "CLKOUT1_REQUESTED_OUT_FREQ": "74.250",
-      "OVERRIDE_MMCM": "true",
-      "MMCM_DIVCLK_DIVIDE": "10",
-      "MMCM_CLKFBOUT_MULT_F": "37.125",
-      "MMCM_CLKOUT0_DIVIDE_F": "10.000",
-      "CLK_OUT1_USE_FINE_PS_GUI": "true",
-      "MMCM_CLKOUT0_USE_FINE_PS": "true"
-     },
-     "when": "genlock",
-     "build": {
-      "fine_phase_shift": 1
      }
     },
     "sw": {
@@ -467,8 +466,6 @@
      "description": "The register bus: each slave at the window it states, placed in the processor's general-purpose region.",
      "build": {
       "sizes": [
-       "fabric.isp.s_axil.window",
-       "fabric.scanout.s_axi.window",
        "status.status_gpio.regs.window",
        "stream.stream_gpio.regs.window",
        "control.ctrl_gpio.regs.window",
@@ -509,39 +506,14 @@
      "hdmi_in.vsync",
      "fabric.rx_vsync"
     ],
-    {
-     "from": "ps7.FCLK_CLK1",
-     "to": "clk_out.clk_in",
-     "when": "not genlock"
-    },
-    {
-     "from": "clk_out.clk_out",
-     "to": "fabric.isp_clk",
-     "when": "not genlock"
-    },
     [
      "fabric.grab",
      "vdma.frames"
     ],
-    {
-     "from": "clk_out.clk_out",
-     "to": "fabric.raster_clk",
-     "when": "not genlock"
-    },
-    {
-     "from": "clk_out.locked",
-     "to": "fabric.raster_locked",
-     "when": "not genlock"
-    },
     [
      "fabric.raster",
      "hdmi_out.rgb"
     ],
-    {
-     "from": "clk_out.clk_out",
-     "to": "hdmi_out.pixel_clk",
-     "when": "not genlock"
-    },
     [
      "vdma.irq",
      "irq_cat.in0"
@@ -580,11 +552,14 @@
      "to": "status.spy_status",
      "when": "not capture"
     },
-    {
-     "from": "clk_out.locked",
-     "to": "status.raster_locked",
-     "when": "not genlock"
-    },
+    [
+     "clk_raster.clkin_stopped",
+     "status.raster_clkin_stopped"
+    ],
+    [
+     "clk_raster.clkfb_stopped",
+     "status.raster_clkfb_stopped"
+    ],
     [
      "fabric.raster_status",
      "status.scanout_status"
@@ -677,80 +652,58 @@
      "fabric.sda_pull",
      "hdmi_in.sda_pull"
     ],
-    {
-     "from": "clk_out.clk_out",
-     "to": "vdma.frames_clk",
-     "when": "not genlock"
-    },
-    {
-     "from": "clk_out.locked",
-     "to": "lock_inv.a",
-     "when": "not genlock"
-    },
     [
      "lock_inv.y",
      "hdmi_out.reset"
     ],
-    {
-     "from": "ps7.FCLK_CLK1",
-     "to": "clk_out74.clk_in",
-     "when": "genlock"
-    },
-    {
-     "from": "clk_out74.clk_out",
-     "to": "clk_out74.psclk",
-     "when": "genlock"
-    },
-    {
-     "from": "ps7.FCLK_CLK0",
-     "to": "fabric.isp_clk",
-     "when": "genlock"
-    },
-    {
-     "from": "clk_out74.clk_out",
-     "to": "fabric.raster_clk",
-     "when": "genlock"
-    },
-    {
-     "from": "clk_out74.locked",
-     "to": "fabric.raster_locked",
-     "when": "genlock"
-    },
-    {
-     "from": "clk_out74.clk_out",
-     "to": "hdmi_out.pixel_clk",
-     "when": "genlock"
-    },
-    {
-     "from": "fabric.raster_ps_en",
-     "to": "clk_out74.psen",
-     "when": "genlock"
-    },
-    {
-     "from": "fabric.raster_ps_incdec",
-     "to": "clk_out74.psincdec",
-     "when": "genlock"
-    },
-    {
-     "from": "clk_out74.psdone",
-     "to": "fabric.raster_ps_done",
-     "when": "genlock"
-    },
-    {
-     "from": "clk_out74.locked",
-     "to": "status.raster_locked",
-     "when": "genlock"
-    },
-    {
-     "from": "ps7.FCLK_CLK0",
-     "to": "vdma.frames_clk",
-     "when": "genlock"
-    },
-    {
-     "from": "clk_out74.locked",
-     "to": "lock_inv.a",
-     "when": "genlock"
-    },
+    [
+     "ps7.FCLK_CLK1",
+     "clk_raster.clk_in"
+    ],
+    [
+     "clk_raster.clk_out",
+     "clk_raster.psclk"
+    ],
+    [
+     "ps7.FCLK_CLK0",
+     "fabric.isp_clk"
+    ],
+    [
+     "clk_raster.clk_out",
+     "fabric.raster_clk"
+    ],
+    [
+     "clk_raster.locked",
+     "fabric.raster_locked"
+    ],
+    [
+     "clk_raster.clk_out",
+     "hdmi_out.pixel_clk"
+    ],
+    [
+     "fabric.raster_ps_en",
+     "clk_raster.psen"
+    ],
+    [
+     "fabric.raster_ps_incdec",
+     "clk_raster.psincdec"
+    ],
+    [
+     "clk_raster.psdone",
+     "fabric.raster_ps_done"
+    ],
+    [
+     "clk_raster.locked",
+     "status.raster_locked"
+    ],
+    [
+     "ps7.FCLK_CLK0",
+     "vdma.frames_clk"
+    ],
+    [
+     "clk_raster.locked",
+     "lock_inv.a"
+    ],
     {
      "from": "fabric.rx_out",
      "to": "sw.in",
@@ -912,30 +865,22 @@
     ],
     [
      "regs.m00_axi",
-     "fabric.regs_isp"
-    ],
-    [
-     "regs.m01_axi",
-     "fabric.regs_scanout"
-    ],
-    [
-     "regs.m02_axi",
      "status.regs"
     ],
     [
-     "regs.m03_axi",
+     "regs.m01_axi",
      "stream.regs"
     ],
     [
-     "regs.m04_axi",
+     "regs.m02_axi",
      "control.regs"
     ],
     [
-     "regs.m05_axi",
+     "regs.m03_axi",
      "vdma.ctrl"
     ],
     {
-     "from": "regs.m06_axi",
+     "from": "regs.m04_axi",
      "to": "dma.ctrl",
      "when": "capture"
     },
@@ -1044,26 +989,14 @@
      "link_rst_n.y",
      "rst_isp.rst_n_in"
     ],
-    {
-     "from": "clk_out.clk_out",
-     "to": "rst_isp.clk",
-     "when": "not genlock"
-    },
-    {
-     "from": "ps7.FCLK_CLK0",
-     "to": "rst_isp.clk",
-     "when": "genlock"
-    },
-    {
-     "from": "clk_out.locked",
-     "to": "rst_isp.locked",
-     "when": "not genlock"
-    },
-    {
-     "from": "lock_hi.q",
-     "to": "rst_isp.locked",
-     "when": "genlock"
-    },
+    [
+     "ps7.FCLK_CLK0",
+     "rst_isp.clk"
+    ],
+    [
+     "lock_hi.q",
+     "rst_isp.locked"
+    ],
     [
      "rst_isp.rst",
      "fabric.isp_rst"

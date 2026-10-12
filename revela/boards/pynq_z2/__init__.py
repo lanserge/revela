@@ -49,7 +49,7 @@ def choices() -> dict:
     params = load("revela.boards.pynq_z2.pynq_demo", build=placeholder,
                   generate=False).parameters
     return {k: v for k, v in params.items()
-            if k not in placeholder and k != "genlock"}
+            if k not in placeholder}
 
 
 def isp_ref() -> str:

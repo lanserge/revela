@@ -13,9 +13,9 @@ it reads the pipeline's published contract and never restates it.
 | receiver | `bayerlink_in`, the DDC slave, link reset, the `hdmi_rx` front end (dvi2rgb) | [bayerlink-fpga](https://github.com/bayerlink/bayerlink-fpga) |
 | jacks | `hdmi_in` (front end, its configuration here, pins) and `hdmi_out` (transmitter, pins): composites that own their cells, pins and constraints | this board |
 | ISP | `isp.json` (`revela_isp_core`), a composite of revela's blocks, generated and proved bit-exact | this repository |
-| the camera on a display | `revela.designs.bayerlink_display`: receiver, crossing, ISP entry, the ISP's node, tee, raster -- naming no board, no vendor and no ISP | this repository |
-| raster, tee, grabber | np2hw's scanout, tee and FIFOs; `isp_entry`, `tee_shim`, `isp_axis` in `revela/boards/common` | this repository |
-| the design | `pynq_demo.json`: `bayerlink_display` filled with this board's ISP and fed its clocks and resets by role, beside the jacks, the PS, the GPIO words and the bus; the block design is generated from it | this board, on revela's `zynq7` family library |
+| the camera on a display | `revela.designs.isp_demo`: receiver, crossing, ISP entry, the ISP's node, tee, raster -- naming no board, no vendor and no ISP | this repository |
+| raster, tee, grabber | `scanout`, `raster`, `isp_entry`, `tee_shim`, `isp_axis` in `revela/boards/common`; np2hw's tee and FIFOs | this repository |
+| the design | `pynq_demo.json`: `isp_demo` filled with this board's ISP and fed its clocks and resets by role, beside the jacks, the PS, the GPIO words and the bus; its Verilog is generated from it | this board, on revela's `zynq7` family library |
 
 ## Build
 
@@ -46,15 +46,15 @@ ships. In order:
    clock the board cuts it for, and writes its pack (the FuseSoC core,
    register map and docs) to `isp/` beside the build.
 2. `blockdesign.py` loads `pynq_demo` -- whose raster pixel clock is an
-   expression over its mode, read from np2hw's mode table -- checks the
+   expression over its mode, read from bayerlink's rasters -- checks the
    board can honour it, and writes the block design. `pynq_demo` places
-   `bayerlink_display` as its node `fabric`, fills its `pipeline` with
+   `isp_demo` as its node `fabric`, fills its `pipeline` with
    this board's ISP, and feeds it clocks and resets by role (`isp_clk`,
    `raster_clk`, `isp_rst` ...): which clock is which, genlocked or not,
    is the board's choice. The capture path is the board's too: it sits
    between the design's `rx_out` and `isp_in`. Loading builds everything
    the design holds:
-   - the ISP is a node of `bayerlink_display`, filled from its `pipeline`
+   - the ISP is a node of `isp_demo`, filled from its `pipeline`
      parameter, and is built whole as one cell -- its register file's
      top, wired by the ports its build published. The design's
      `sample_bits`, `isp_width` and `isp_out_bits` are assigned from the
@@ -66,8 +66,8 @@ ships. In order:
    - the leaf generators run with the design's own settings: the
      receiver (`bayerlink_fpga.receiver`: its `bayerlink_in.v`, sized
      on its cell, and the protocol's tables generated beside it), the DDC
-     slave (`bayerlink_fpga.ddc`), the raster and its crossing
-     (`revela/boards/common/scanout.py`);
+     slave (`bayerlink_fpga.ddc`), the raster's register file
+     (`revela/boards/common/scanout.py`), reset to the build's mode;
    - np2hw's fixed modules (`np2hw_skid`, `np2hw_tee`, `np2hw_cdc_fifo`)
      are Verilog files in the np2hw package, instantiated at their
      parameters and each added once, read from where it ships.
@@ -155,8 +155,8 @@ after "Routing Is Done", see the ledger: it is not your design).
 
 ## The loopback
 
-The display side closes the loop on one board: np2hw's scanout — a
-raster generator emitted from the one mode table, the header-parsing
+The display side closes the loop on one board: the scanout — a fixed
+raster whose mode and placement are registers, the header-parsing
 receiver's counterpart — drives Digilent's rgb2dvi on HDMI OUT, fed
 directly from the ISP stream. It arrives with the claims this bench
 paid for: a frame may be dropped but never displaced, a window that
@@ -170,9 +170,10 @@ for software to judge, and the display never depends on it.
 Nothing runs the loop: power-on defaults enable the picture, so a
 board with the bitstream loaded IS the camera's display -- software
 is a set of visitors (`bench/load.py` once at boot,
-`bench/status.py` when curious, `bench/grab.py` to capture,
-`bench/calibrate.py` to write values by hand; a sensor's profile
-otherwise arrives over the cable, from the source's packages).
+`bench/status.py` when curious, `bench/grab.py` to capture). The ISP's
+registers are not on the board's processor bus at all: they belong to
+the sensor's owner at the far end of the cable, and a sensor's profile
+arrives over it, from the source's packages.
 `clocking.md` tells the board's clocks-and-rates story: the cable in,
 and its two crossings.
 
@@ -203,19 +204,22 @@ Two owners, two routes:
 
 The register map records where each composite sits (`isp` is the
 `bayer_isp`), so the sensor's profile resolves to this build's absolute
-keys. Build the Pi's two packages as a pair, since the ISP package bakes
-this build's map:
+keys. The Pi runs the firmware (`revela/firmware`) as modules: the core,
+cut from this build's maps, the sensor's data, and AE, AWB and AF:
 
 ```sh
-python3 -m revela.host.bridge_module --regmap build/pynq_z2/hdl/revela_isp_core_regmap.json \
-    --out revela-isp.tar.gz
-python3 -m revela.host.sensor_module --sensor ov5647 --out sensor-ov5647.tar.gz
+python3 -m revela.firmware.package core \
+    --regmap build/pynq_z2/hdl/revela_isp_core_regmap.json \
+    --cable-map build/pynq_z2/generated/cable_map.json --out revela-core.tar.gz
+python3 -m revela.firmware.package sensor --sensor ov5647 --out sensor-ov5647.tar.gz
+python3 -m revela.firmware.package ae --out revela-ae.tar.gz   # and awb, af
 ```
 
-At link-up the ISP package checks the far end runs this build, then
-writes the sensor package's values at every `bayer_isp`. Without a Pi,
-`bench/calibrate.py` writes the same resolved values from the board
-itself (see its docstring).
+The Pi's panel brings the firmware up at the mode it streams (`init`,
+with the frame, the display raster and the 3A settings as numbers): the
+core checks the board runs this build, loads the design's settings and
+the sensor's profile at every `bayer_isp`, sets the ISP's window and
+the display raster. The bridge replays that on every link-up.
 
 ## Porting to another board
 

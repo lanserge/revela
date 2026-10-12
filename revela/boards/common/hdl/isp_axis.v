@@ -1,11 +1,12 @@
 // Copyright 2026 Serge Rabyking
 // SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
-// The ISP's RGB stream, dressed as AXI4-Stream video for a VDMA S2MM
-// writing the framebuffer. Channel 0 rides the LOW bits of the pipeline
-// word (revela's packing law); the framebuffer byte order comes from
-// rgb2dvi's bus: [23:16] R, [15:8] B, [7:0] G -- via the little-endian
-// framebuffer word, bytes G, B, R, pad. tuser marks start of frame,
-// tlast end of line: the VDMA's dialect.
+// The ISP's RGB stream, dressed as AXI4-Stream video, in one of two
+// words: FB_WORD=1, the framebuffer's, for a VDMA S2MM writing it --
+// bytes G, B, R, pad in the little-endian word; FB_WORD=0, the cable's
+// three bytes alone, for a raster driving the transmitter. Either way the
+// cable's byte order is rgb2dvi's bus, [23:16] R, [15:8] B, [7:0] G, and
+// channel 0 rides the LOW bits of the pipeline word (revela's packing
+// law). tuser marks start of frame, tlast end of line: the VDMA's dialect.
 //
 // DATA_BITS is the width the ISP actually TRACED, passed in by the block
 // design from what the generator published. It was written down here as
@@ -14,7 +15,8 @@
 // rather than an error -- the slices would still elaborate against a
 // wider word and quietly read the wrong bits.
 module isp_axis #(
-    parameter DATA_BITS = 24
+    parameter DATA_BITS = 24,
+    parameter FB_WORD = 1
 ) (
     (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 clk CLK", X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in_stream:m_axis, ASSOCIATED_RESET rst" *)
     input  wire        clk,
@@ -34,8 +36,8 @@ module isp_axis #(
     input  wire        in_last,
     output wire        m_axis_tvalid,
     input  wire        m_axis_tready,
-    output wire [31:0] m_axis_tdata,
-    output wire [3:0]  m_axis_tkeep,
+    output wire [(FB_WORD ? 32 : 24)-1:0] m_axis_tdata,
+    output wire [(FB_WORD ? 4 : 3)-1:0]   m_axis_tkeep,
     output wire        m_axis_tuser,
     output wire        m_axis_tlast
 );
@@ -73,14 +75,16 @@ module isp_axis #(
     // violation. Power-on state comes from the initial values (GSR),
     // which is exactly the one moment nothing can be in flight.
     reg        v_q = 1'b0;
-    reg [31:0] d_q = 32'h0;
+    reg [(FB_WORD ? 32 : 24)-1:0] d_q = 0;
+    // the framebuffer's word; the cable's is its low three bytes
+    wire [31:0] word = {8'h00, r8, b8, g8};
     reg        u_q = 1'b0, l_q = 1'b0;
 
     assign m_axis_tvalid = v_q;
     assign m_axis_tdata  = d_q;
     assign m_axis_tuser  = u_q;
     assign m_axis_tlast  = l_q;
-    assign m_axis_tkeep  = 4'b1111;
+    assign m_axis_tkeep  = {(FB_WORD ? 4 : 3){1'b1}};
     assign in_ready      = !rst && (!v_q || m_axis_tready);
 
     always @(posedge clk) begin
@@ -88,7 +92,7 @@ module isp_axis #(
             v_q <= 1'b0;
         if (!rst && in_valid && (!v_q || m_axis_tready)) begin
             v_q <= 1'b1;
-            d_q <= {8'h00, r8, b8, g8};
+            d_q <= word[(FB_WORD ? 32 : 24)-1:0];
             u_q <= in_sof;
             l_q <= in_eol;
         end

@@ -1,352 +1,66 @@
 # Copyright 2026 Serge Rabyking
 # SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
-"""Generate the display raster: np2hw's scanout, plus a constants wrapper.
+"""The raster's register file: its mode and its placement, on the bus.
 
-The raster stops being hand-written Verilog. np2hw emits it from the
-mode table -- the one owner of what a 1080p60 raster is -- and the
-claims that come with it are the laws this bench paid for: a frame may
-be dropped, never displaced; a window that does not fit is refused, not
-clipped; pixel and enable leave together.
+The raster itself is fixed Verilog (`hdl/raster.v`, behind `hdl/scanout.v`)
+whose mode and placement arrive on registers, set by whoever sets the
+camera's mode. What varies between builds is only what an unwritten
+bitstream shows, so that is all this generates: an AXI4-Lite register
+file, declared here, its reset values the build's mode from bayerlink's
+rasters, the whole active area, centred, and the fine phase steps one
+pixel of the raster's clock is.
 
-Placement is a run-time fact and arrives on registers. The wrapper
-around the core is where those registers live: an AXI4-Lite file on the
-BUS clock, handing its values to the raster -- which runs on its own
-MMCM, a clock of its own domain -- behind an arm/acknowledge handshake.
-
-Its settings no longer bake the placement. They set what an unwritten
-bitstream shows, which is the same picture the baked build showed, so
-nothing moves until software asks it to.
-
-Two leaves a design names and sets -- `scanout` (the raster behind its
-registers) and, beside a genlocked one, `out_cdc` (the crossing it reads
-through) -- each publishing every port; the design's build generates
-them. scanout.v holds the raster, its register file and the wrapper;
-out_cdc.v the crossing.
-
-Checked by sim/tb_scanout_regs.v, beside this file.
+The file is armed for a reader in another clock (np2hw's `arm`), and
+resets ARMED: the raster takes the build's mode once without anyone
+writing a word, and after that takes whatever software writes and arms.
 """
-import functools
-from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-
-# The framebuffer's word on the AXI-Stream side: xRGB, one pad
-# byte, as isp_axis packs it and the VDMA moves it. A different
-# fact from the cable's width, which the board owns.
-FB_WORD_BITS = 32
+# The mode, then the placement, then the arm: one field a word.
+MODE = ("h_total", "h_active", "hs_beg", "hs_end",
+        "v_total", "v_active", "vs_beg", "vs_end")
 
 
-def _build(mode: str, genlock: bool, fill: int) -> dict:
-    """Everything this file generates for one raster, built once and
-    shared by the two leaves that publish it."""
-    return _cached(mode, bool(genlock), int(fill))
+def layout_id(fields) -> int:
+    """A register file's layout as one word: the CRC-32 of its fields'
+    names and widths, in order."""
+    import zlib
+    return zlib.crc32(repr(list(fields)).encode()) & 0xFFFFFFFF
 
 
-@functools.lru_cache(maxsize=None)
-def _cached(mode: str, genlock: bool, fill: int) -> dict:
+def scanout_regs(mode: str, ps_per_pixel: int) -> dict:
+    """The raster's register file, reset to `mode` (``"1080p30"``) with
+    `ps_per_pixel` fine phase steps a pixel: a leaf a design names
+    (`revela.boards.common.scanout:scanout_regs`) and wires to `scanout`.
+    Every port is published."""
+    from bayerlink.rasters import raster
     from np2hw import axil_regfile
-    from np2hw.ports import Pin, header, published
-    from np2hw.stream import clock_attribute, reset_attribute
-    from np2hw.video_out import mode_timing, scanout
+    from np2hw.regmap import Reg
 
-    timing = mode_timing(mode)
-    # Where the picture sits is a RUN-TIME fact on registers, so the only
-    # placement this script decides is the one an unwritten bitstream
-    # shows: the mode's whole active area, centred. There is no flag for
-    # it, because a flag nobody passes is a second answer waiting to
-    # disagree with the registers.
-    win_w, win_h = timing["h_active"], timing["v_active"]
-    centre, x0, y0 = True, 0, 0
-
-    # WHAT IT TRANSMITS INTO is the board's fact, not this script's: the
-    # transmitter that happens to be on this card, and how wide the cable
-    # is -- the hdmi_out jack's. WHAT IT PAINTS outside the picture
-    # is neither -- it is a product choice, so it comes from the build.
-    from revela.boards.pynq_z2 import default
-    tx = {k: default("hdmi_out", k) for k in ("sink", "cable_data_bits")}
-    # ONE name for the cable's width, used by the core AND by the
-    # wrapper emitted below. The wrapper wrote 24 out as [23:0] in five
-    # places, so the board owned the number for np2hw's core and this
-    # file quietly owned it again for everything around the core -- a
-    # board with a wider transmitter would have got a matching core
-    # inside a 24-bit shell.
-    cable = int(tx["cable_data_bits"])
-    core = scanout(mode=mode, module_name="scanout",
-                   sink=tx["sink"], data_bits=cable,
-                   fill=fill, genlock=genlock)
-    # Which level of vsync means "in the sync pulse" is a fact of the
-    # mode, not a convention to remember: the raster gets it from the
-    # mode table and so does the gate that reads it.
-    vs_pos = int(timing.get("vs_pos", 1))
-
-    # Placement's register file, on the BUS clock. Reset values are
-    # this build's placement, so a bitstream nobody has written to
-    # shows what the baked wrapper used to show.
-    regs = axil_regfile(
-        [("win_x0", 16), ("win_y0", 16), ("win_w", 16), ("win_h", 16),
-         ("center", 1), ("arm", 1)],
-        module_name="scanout_regs", addr_bits=8, arm="arm",
-        defaults={"win_x0": x0, "win_y0": y0, "win_w": win_w,
-                  "win_h": win_h, "center": int(centre)})
+    r = raster(mode)
+    fields = ([(name, 16) for name in MODE]
+              + [("hs_pos", 1), ("vs_pos", 1), ("ps_per_px", 16),
+                 ("win_x0", 16), ("win_y0", 16), ("win_w", 16),
+                 ("win_h", 16), ("center", 1), ("arm", 1)])
+    defaults = {name: getattr(r, name) for name in MODE}
+    defaults.update(hs_pos=int(r.hsync_positive), vs_pos=int(r.vsync_positive),
+                    ps_per_px=int(ps_per_pixel),
+                    win_x0=0, win_y0=0, win_w=r.h_active, win_h=r.v_active,
+                    center=1, arm=1)
+    # The file's ID: its layout, read back before anything is written, so
+    # a map from another build is refused rather than written to the
+    # wrong fields.
+    regs_ = [Reg("id", 32, access="ro", value=layout_id(fields),
+                 description="this file's layout: CRC-32 of its fields")]
+    regs_ += [Reg(name, bits, reset=defaults[name]) for name, bits in fields]
+    regs = axil_regfile(regs_, module_name="scanout_regs", addr_bits=8,
+                        arm="arm")
+    return {"verilog": regs["verilog"], "module": "scanout_regs",
+            "interface": regs["interface"],
+            "facts": {"clocks": {"s_axil": ["aclk", "aresetn"]},
+                      # where software finds each field, and the word
+                      # that says the file is this layout
+                      "offsets": regs["offsets"],
+                      "id": layout_id(fields)}}
 
 
-    L = []
-    a = L.append
-    a("// generated by scanout.py -- np2hw's scanout behind its own")
-    a("// AXI4-Lite register file. Placement is a RUN-TIME fact and now")
-    a("// arrives as one: where the picture sits, how big it is, and")
-    a("// whether it centres itself are written, not built.")
-    a("//")
-    a("// The file runs on the BUS clock, never the raster's. AXI has no")
-    a("// timeout: a slave whose clock stops never answers and the")
-    a("// processor waits for it forever. That hung this board on")
-    a("// 2026-08-17, when the raster still ran on the link's recovered")
-    a("// clock, and needed the power pulled.")
-    a("//")
-    a("// So the values cross clocks, and a wide value crossing is the")
-    a("// classic way to sample a number that never existed -- half the")
-    a("// old bits and half the new. The ARM does that job without a")
-    a("// second bank: software writes the placement, then writes the arm;")
-    a("// while armed the file REFUSES further writes (SLVERR, answered")
-    a("// at once, never a stall that would hold the bus for a frame), so")
-    a("// the raster can take its copy at leisure and acknowledge.")
-    a("//")
-    a("// Reset values are this build's geometry, so an unconfigured")
-    a("// bitstream shows exactly what the baked one did.")
-    axil = "xilinx.com:interface:aximm:1.0"
-    pins = [
-        Pin("clk", "input", attribute=clock_attribute(
-            "clk", ["s_axis", "vid_io"], "rst"), before=(
-            "The raster's clock: the pixels in and the video out both ride",
-            "it, and so does its reset.")),
-        Pin("rst", "input", attribute=reset_attribute("rst")),
-        Pin("locked", "input"),
-        Pin("s_axi_aclk", "input", before=(
-            "The register file's own clock and reset: the board's, which",
-            "answer to the board and not to the cable."), attribute=(
-            '(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axi, '
-            'ASSOCIATED_RESET s_axi_aresetn" *)',
-            '(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 '
-            's_axi_aclk CLK" *)')),
-        Pin("s_axi_aresetn", "input", attribute=(
-            '(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)',
-            '(* X_INTERFACE_INFO = "xilinx.com:signal:reset:1.0 '
-            's_axi_aresetn RST" *)')),
-    ]
-    for nm, w, d in (("awaddr", 8, "input"), ("awvalid", 1, "input"),
-                     ("awready", 1, "output"), ("wdata", 32, "input"),
-                     ("wstrb", 4, "input"), ("wvalid", 1, "input"),
-                     ("wready", 1, "output"), ("bresp", 2, "output"),
-                     ("bvalid", 1, "output"), ("bready", 1, "input"),
-                     ("araddr", 8, "input"), ("arvalid", 1, "input"),
-                     ("arready", 1, "output"), ("rdata", 32, "output"),
-                     ("rresp", 2, "output"), ("rvalid", 1, "output"),
-                     ("rready", 1, "input")):
-        pins.append(Pin(f"s_axi_{nm}", d, w,
-                        bus=(axil, "s_axi", nm.upper())))
-    if genlock:
-        pins += [
-            Pin("param_follow", "input", before=(
-                "1: the raster follows the stream (the direct path);",
-                "0: free-run the mode (the store path reads a frame",
-                "buffer at its own pace -- following THAT rate would",
-                "be the raster chasing its own backpressure). The",
-                "board wires this to the same bit that picks the path.")),
-            Pin("ps_en", "output", before=(
-                "the MMCM's fine phase shifter: how the following",
-                "actually happens. PSCLK is this module's clk.")),
-            Pin("ps_incdec", "output"),
-            Pin("ps_done", "input"),
-        ]
-    axis = "xilinx.com:interface:axis:1.0"
-    vid = "xilinx.com:interface:vid_io:1.0"
-    pins += [
-        Pin("s_axis_tdata", "input", cable, bus=(axis, "s_axis", "TDATA")),
-        Pin("s_axis_tvalid", "input", bus=(axis, "s_axis", "TVALID")),
-        Pin("s_axis_tready", "output", bus=(axis, "s_axis", "TREADY")),
-        Pin("s_axis_tuser", "input", bus=(axis, "s_axis", "TUSER")),
-        Pin("s_axis_tlast", "input", bus=(axis, "s_axis", "TLAST")),
-        Pin("vid_active_video", "output",
-            bus=(vid, "vid_io", "ACTIVE_VIDEO")),
-        Pin("vid_data", "output", cable, bus=(vid, "vid_io", "DATA")),
-        Pin("vid_hsync", "output", bus=(vid, "vid_io", "HSYNC")),
-        Pin("vid_vsync", "output", bus=(vid, "vid_io", "VSYNC")),
-        Pin("status", "output", 15),
-    ]
-    L += header("scanout_top", pins)
-    a("    wire [15:0] full_status;")
-    a("    wire [15:0] act_x0, act_y0;")
-    a("")
-    a("    // What software has written, on the bus clock.")
-    a("    wire [15:0] reg_win_x0, reg_win_y0, reg_win_w, reg_win_h;")
-    a("    wire        reg_center;")
-    a("    wire        arm_req;")
-    a("    reg         arm_ack = 1'b0;")
-    a("    scanout_regs regs (")
-    a("        .aclk(s_axi_aclk), .aresetn(s_axi_aresetn),")
-    a("        .arm_req(arm_req), .arm_ack(arm_ack),")
-    for nm in ("awaddr", "awvalid", "awready", "wdata", "wstrb", "wvalid",
-               "wready", "bresp", "bvalid", "bready", "araddr", "arvalid",
-               "arready", "rdata", "rresp", "rvalid", "rready"):
-        a(f"        .s_axil_{nm}(s_axi_{nm}),")
-    a("        .param_win_x0(reg_win_x0), .param_win_y0(reg_win_y0),")
-    a("        .param_win_w(reg_win_w), .param_win_h(reg_win_h),")
-    a("        .param_center(reg_center), .param_arm());")
-    a("")
-    a("    // The raster's own copy, taken on the pixel clock. Only the")
-    a("    // arm and its acknowledgement cross; the values themselves do")
-    a("    // not, because while armed they cannot change -- so sampling")
-    a("    // them here cannot catch a number half-written.")
-    a("    //")
-    a("    // The copy is taken in VERTICAL BLANKING. Placement decides")
-    a("    // where every pixel of a frame lands, so taking it mid-frame")
-    a("    // would move the picture halfway down itself and tear the")
-    a("    // frame in two. Waiting costs at most one frame time and the")
-    a("    // change then lands whole. (Horizontal blanking will not do:")
-    a("    // it is between LINES, and a frame torn at a line boundary is")
-    a("    // still a torn frame.)")
-    a("    //")
-    a("    // If the pixel clock is absent the acknowledgement never")
-    a("    // comes and the file stays armed. That refuses placement")
-    a("    // writes, never the bus: reads and the arm word itself are")
-    a("    // still answered, so software times out and writes the arm")
-    a("    // back to zero to release itself.")
-    a("    (* ASYNC_REG = \"TRUE\" *) reg req_s0 = 1'b0, req_s1 = 1'b0;")
-    a(f"    reg [15:0] win_x0 = 16'd{x0}, win_y0 = 16'd{y0};")
-    a(f"    reg [15:0] win_w = 16'd{win_w}, win_h = 16'd{win_h};")
-    a(f"    reg        center = 1'b{int(centre)};")
-    a(f"    wire in_vblank = (vid_vsync == 1'b{vs_pos}) && !vid_active_video;")
-    a("    always @(posedge clk) begin")
-    a("        if (rst) begin")
-    a("            req_s0 <= 1'b0; req_s1 <= 1'b0; arm_ack <= 1'b0;")
-    a(f"            win_x0 <= 16'd{x0}; win_y0 <= 16'd{y0};")
-    a(f"            win_w <= 16'd{win_w}; win_h <= 16'd{win_h};")
-    a(f"            center <= 1'b{int(centre)};")
-    a("        end else begin")
-    a("            req_s0 <= arm_req; req_s1 <= req_s0;")
-    a("            if (req_s1 && !arm_ack && in_vblank) begin")
-    a("                win_x0 <= reg_win_x0; win_y0 <= reg_win_y0;")
-    a("                win_w  <= reg_win_w;  win_h  <= reg_win_h;")
-    a("                center <= reg_center;")
-    a("                arm_ack <= 1'b1;")
-    a("            end else if (!req_s1) arm_ack <= 1'b0;")
-    a("        end")
-    a("    end")
-    a("")
-    a("    scanout core (")
-    a("        .clk(clk), .rst(rst), .locked(locked),")
-    a("        .s_axis_tdata(s_axis_tdata), .s_axis_tvalid(s_axis_tvalid),")
-    a("        .s_axis_tready(s_axis_tready), .s_axis_tuser(s_axis_tuser),")
-    a("        .s_axis_tlast(s_axis_tlast),")
-    a("        .param_win_x0(win_x0), .param_win_y0(win_y0),")
-    a("        .param_win_w(win_w), .param_win_h(win_h),")
-    a("        .param_center(center),")
-    if genlock:
-        a("        .param_follow(param_follow),")
-        a("        .ps_en(ps_en), .ps_incdec(ps_incdec),")
-        a("        .ps_done(ps_done),")
-    a("        .act_x0(act_x0), .act_y0(act_y0),")
-    a("        .vid_active_video(vid_active_video), .vid_data(vid_data),")
-    a("        .vid_hsync(vid_hsync), .vid_vsync(vid_vsync),")
-    a("        .status(full_status));")
-    a("    // The board's status word is 15 bits wide; drop the top bit,")
-    a("    // which is the zero pad above the packing.")
-    a("    assign status = full_status[14:0];")
-    a("endmodule")
-
-    if genlock:
-        # The elastic the genlocked raster reads through: the ISP island
-        # and the raster no longer share a clock, and the raster's lead
-        # (G_LEAD lines of a 1920 window) is STORAGE this FIFO carries.
-        # 8192 slots = four lines and headroom.
-        C = []
-        c = C.append
-        c("// out_cdc: the island-to-raster crossing. AXIS on both faces,")
-        c("// np2hw's gray-pointer FIFO inside; tuser and tlast ride in")
-        c("// the payload word, one layout decision made here.")
-        cdc_pins = [
-            Pin("wclk", "input",
-                attribute=clock_attribute("wclk", "s_axis", "wrst")),
-            Pin("wrst", "input", attribute=reset_attribute("wrst")),
-            # 32, and NOT the cable's width: this port takes the
-            # framebuffer's word, xRGB with a pad byte. The low `cable`
-            # bits of it are what reaches the transmitter, which is why
-            # the slice below is explicit rather than a whole-word
-            # connection.
-            Pin("s_axis_tdata", "input", FB_WORD_BITS,
-                bus=(axis, "s_axis", "TDATA")),
-            Pin("s_axis_tvalid", "input", bus=(axis, "s_axis", "TVALID")),
-            Pin("s_axis_tready", "output", bus=(axis, "s_axis", "TREADY")),
-            Pin("s_axis_tuser", "input", bus=(axis, "s_axis", "TUSER")),
-            Pin("s_axis_tlast", "input", bus=(axis, "s_axis", "TLAST")),
-            Pin("rclk", "input",
-                attribute=clock_attribute("rclk", "m_axis", "rrst")),
-            Pin("rrst", "input", attribute=reset_attribute("rrst")),
-            Pin("m_axis_tdata", "output", cable,
-                bus=(axis, "m_axis", "TDATA")),
-            Pin("m_axis_tvalid", "output", bus=(axis, "m_axis", "TVALID")),
-            Pin("m_axis_tready", "input", bus=(axis, "m_axis", "TREADY")),
-            Pin("m_axis_tuser", "output", bus=(axis, "m_axis", "TUSER")),
-            Pin("m_axis_tlast", "output", bus=(axis, "m_axis", "TLAST")),
-        ]
-        C += header("out_cdc", cdc_pins)
-        c(f"    wire [{cable + 1}:0] head;")
-        c(f"    np2hw_cdc_fifo #(.W({cable + 2}), .A(13)) fifo (")
-        c("        .wclk(wclk), .wrst(wrst),")
-        c(f"        .in_data({{s_axis_tuser, s_axis_tlast, "
-          f"s_axis_tdata[{cable - 1}:0]}}),")
-        c("        .in_valid(s_axis_tvalid), .in_ready(s_axis_tready),")
-        c("        .rclk(rclk), .rrst(rrst),")
-        c("        .out_data(head), .out_valid(m_axis_tvalid),")
-        c("        .out_ready(m_axis_tready));")
-        c(f"    assign m_axis_tdata = head[{cable - 1}:0];")
-        c(f"    assign m_axis_tlast = head[{cable}];")
-        c(f"    assign m_axis_tuser = head[{cable + 1}];")
-        c("endmodule")
-        out_cdc_text = "\n".join(C) + "\n"
-    else:
-        cdc_pins, out_cdc_text = None, None
-
-    return {
-        "timing": timing, "window": (win_w, win_h), "centre": centre,
-        "scanout": core["verilog"] + regs["verilog"] + "\n".join(L) + "\n",
-        "scanout_ports": published(pins),
-        "out_cdc": out_cdc_text,
-        "out_cdc_ports": published(cdc_pins) if cdc_pins else None,
-    }
-
-
-def scanout(mode: str, genlock: int, fill: str) -> dict:
-    """The display raster: np2hw's scanout behind its placement registers.
-
-    A leaf a design names (`revela.boards.common.scanout:scanout`) with
-    the output mode, whether the raster genlocks to the stream, and what
-    it paints outside the picture (``"0x101010"``). The cable it drives
-    into is the hdmi_out jack's. Every port is published.
-    """
-    built = _build(mode, genlock, int(str(fill), 0))
-    return {"verilog": built["scanout"], "module": "scanout_top",
-            "file": "scanout.v",
-            "interface": {"ports": built["scanout_ports"]},
-            # its registers ride the board's clock and reset, not the
-            # raster's (np2hw.design.ancestry holds the board to it)
-            "facts": {"clocks": {"s_axi": ["s_axi_aclk", "s_axi_aresetn"]}}}
-
-
-scanout.leaf = True
-
-
-def out_cdc(mode: str, fill: str) -> dict:
-    """The island-to-raster crossing the genlocked raster reads through.
-
-    A leaf a design names (`revela.boards.common.scanout:out_cdc`) beside
-    a genlocked `scanout`, set alike. Every port is published.
-    """
-    built = _build(mode, True, int(str(fill), 0))
-    return {"verilog": built["out_cdc"], "module": "out_cdc",
-            # the crossing itself is np2hw's fixed FIFO, at its width
-            "requires": ("np2hw_cdc_fifo",),
-            "interface": {"ports": built["out_cdc_ports"]}}
-
-
-out_cdc.leaf = True
+scanout_regs.leaf = True

@@ -81,7 +81,7 @@
    }
   },
   "isp_axis": {
-   "description": "The ISP's RGB stream dressed as AXI4-Stream video.",
+   "description": "The ISP's RGB stream dressed as AXI4-Stream video: the framebuffer's word for a frame writer, or the cable's three bytes for a raster.",
    "inputs": [
     {
      "name": "clk"
@@ -102,7 +102,7 @@
    "outputs": [
     {
      "name": "m_axis",
-     "width": 32,
+     "width": "32 if FB_WORD else 24",
      "bus": "axis",
      "signals": [
       "tkeep",
@@ -120,6 +120,10 @@
    "parameters": {
     "DATA_BITS": {
      "description": "The ISP's traced output word, from its published contract."
+    },
+    "FB_WORD": {
+     "default": 1,
+     "description": "1: the framebuffer's word, xRGB with a pad byte above the cable's three, for a frame writer; 0: the cable's three bytes, for a raster."
     }
    }
   },
@@ -194,6 +198,159 @@
      "scoped_to": "np2hw_cdc_fifo"
     }
    ]
+  },
+  "scanout": {
+   "description": "The display raster, genlocked to the stream by its clock's fine phase shifter, taking its mode and placement from a register file on another clock.",
+   "inputs": [
+    {
+     "name": "clk",
+     "description": "The raster's clock: the pixels in and the video out both ride it."
+    },
+    {
+     "name": "rst"
+    },
+    {
+     "name": "locked",
+     "description": "The raster clock's lock."
+    },
+    {
+     "name": "reg_h_total",
+     "width": 16
+    },
+    {
+     "name": "reg_h_active",
+     "width": 16
+    },
+    {
+     "name": "reg_hs_beg",
+     "width": 16
+    },
+    {
+     "name": "reg_hs_end",
+     "width": 16
+    },
+    {
+     "name": "reg_v_total",
+     "width": 16
+    },
+    {
+     "name": "reg_v_active",
+     "width": 16
+    },
+    {
+     "name": "reg_vs_beg",
+     "width": 16
+    },
+    {
+     "name": "reg_vs_end",
+     "width": 16
+    },
+    {
+     "name": "reg_hs_pos"
+    },
+    {
+     "name": "reg_vs_pos"
+    },
+    {
+     "name": "reg_ps_per_px",
+     "width": 16
+    },
+    {
+     "name": "reg_win_x0",
+     "width": 16
+    },
+    {
+     "name": "reg_win_y0",
+     "width": 16
+    },
+    {
+     "name": "reg_win_w",
+     "width": 16
+    },
+    {
+     "name": "reg_win_h",
+     "width": 16
+    },
+    {
+     "name": "reg_center"
+    },
+    {
+     "name": "arm_req",
+     "description": "The register file holds its values for a copy."
+    },
+    {
+     "name": "param_follow",
+     "description": "1: follow the stream; 0: hold the mode unsteered, painting the fill."
+    },
+    {
+     "name": "ps_done",
+     "description": "The raster clock's fine phase step is made."
+    },
+    {
+     "name": "s_axis",
+     "width": "DW",
+     "bus": "axis",
+     "signals": [
+      "tuser",
+      "tlast"
+     ],
+     "description": "The picture, as an elastic stream: tuser starts a frame."
+    }
+   ],
+   "outputs": [
+    {
+     "name": "arm_ack",
+     "description": "The copy is taken."
+    },
+    {
+     "name": "ps_en",
+     "description": "One fine phase step of the raster clock."
+    },
+    {
+     "name": "ps_incdec",
+     "description": "Its direction: 1 delays the raster."
+    },
+    {
+     "name": "vid",
+     "width": "DW",
+     "bus": "video",
+     "description": "The raster, for the transmitter."
+    },
+    {
+     "name": "status",
+     "width": 15,
+     "description": "sof-per-frame [2:0], locked, armed, underflow, misalign, refused, alive [10:8], vsyncs [13:11], the genlock's own lock at 14."
+    }
+   ],
+   "vivado": {
+    "module": "scanout"
+   },
+   "sources": [
+    "hdl/scanout.v",
+    "hdl/raster.v"
+   ],
+   "parameters": {
+    "DW": {
+     "default": 24,
+     "description": "One pixel, on the stream and the transmitter."
+    },
+    "XB": {
+     "default": 12,
+     "description": "Bits of a line's total: the longest line the raster can scan."
+    },
+    "YB": {
+     "default": 11,
+     "description": "Bits of a frame's total."
+    },
+    "FILL": {
+     "default": 1052688,
+     "description": "What it paints outside the picture (0x101010)."
+    },
+    "G_LEAD": {
+     "default": 2,
+     "description": "How many lines early a frame's start should arrive: storage the elastic before the raster holds."
+    }
+   }
   }
  }
 }

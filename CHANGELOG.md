@@ -12,6 +12,36 @@ Pre-1.0, so the block API and the map format can still change. See
 
 ### Changed
 
+- **The firmware** (`revela/firmware`): portable C that will run on the
+  MCU beside an ISP, and runs on a Pi beside the board now. A platform
+  lends it a HAL (`revela_hal.h`: the ISP's registers, the sensor by what
+  it is asked, time, log); it offers actions (`revela_fw.h`: init and
+  configure at a configuration it is given -- frame, Bayer phase,
+  display raster, window, 3A settings -- a per-frame tick, named
+  parameters, status, and the same as a text console). It keeps no
+  table of modes: the caller passes numbers. The core is fixed C beside
+  a generated `core_map.h`; AE, AWB and AF are each their own module
+  (stubs until the statistics arrive); a sensor module is its facts and
+  profile as data. `revela.firmware.package` cuts each as a picam2hdmi
+  module, and `platform/pi` is the Pi's half. This replaces
+  `revela.host.bridge_module` and `revela.host.sensor_module`.
+
+- **The PYNQ-Z2 raster is fixed Verilog, its mode a register.**
+  `boards/common/hdl/raster.v` (behind `scanout.v`) replaces np2hw's
+  generated scanout: the same raster and genlock, with its mode -- totals,
+  syncs, polarities, the fine steps a pixel of its clock is -- and its
+  placement arriving on a register file, armed across the clock gap and
+  taken in vertical blanking. The file resets armed to the build's mode,
+  so an unwritten bitstream shows what it did. Its crossing is np2hw's
+  `stream_cdc`. `scanout.py` generates only the register file.
+- **The cable reaches the raster's registers.** The DDC slave's bus is
+  decoded: the ISP at 0, as before, and the raster's file beside it, off
+  the processor's bus. The build writes `cable_map.json` beside
+  `address_map.json`: the cable's space, the raster's fields and the word
+  that identifies their layout.
+- **The rasters are bayerlink's** (`bayerlink.rasters`), read through
+  `revela.boards.common.clocking:pixel_khz` in a design's expressions.
+
 - **The block framework moved to np2hw.** `revela.params` and
   `revela.stream` are `np2hw.blocks.params` and `np2hw.blocks.stream`;
   `Block`, `StreamPort`, `ContextBit`, `Generated` and the decorator are

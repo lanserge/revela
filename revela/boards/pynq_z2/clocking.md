@@ -84,7 +84,7 @@ board's; the source is the cable's.
 
 ## Case 2 — into the display clock: how the frame rate passes through
 
-*Implemented as np2hw's `scanout(genlock=True)` steering the display
+*Implemented by `revela/boards/common/hdl/raster.v` steering the display
 MMCM's fine phase shifter; wired in `pynq_demo.json`.*
 
 The output runs at the input's frame rate -- one frame out for every
@@ -126,7 +126,11 @@ nothing to give back.
 
 Three configuration facts guard this design, each learned the hard
 way: the MMCM's recipe is forced, not requested (a wizard's nearest
-convenient frequency can exceed the entire steering authority);
+convenient frequency can exceed the entire steering authority) --
+stated once in `pynq_demo.json`, 200 MHz / 10 x 37.125 for a 742.5 MHz
+VCO, with the output divider and the steps per pixel worked out from
+the mode (10 and 560 for 74.25 MHz, 5 and 280 for 148.5), and a rate
+it does not divide to exactly refused at build;
 per-output fine phase shift is explicitly enabled (the handshake
 answers even when the output is deaf, which turns a genlock into
 dead reckoning with a periodic snap); and the two on-board MMCMs

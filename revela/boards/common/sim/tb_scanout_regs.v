@@ -1,18 +1,18 @@
 // Copyright 2026 Serge Rabyking
 // SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
-// Placement became a run-time fact. These are the claims that came
-// with it, checked rather than asserted.
+// The raster's mode and placement are run-time facts. These are the
+// claims that came with them, checked rather than asserted.
 //
-// The register file runs on the bus clock and the raster runs on the
-// cable's, so the interesting cases are all about the gap between
-// them: a value written but not yet taken, a value taken in the wrong
-// part of a frame, and a bus talking to a domain whose clock has gone
-// away. That last one is why the file is on this side at all -- an
-// unplug takes the pixel clock with it, and an AXI slave with no clock
-// never answers.
+// The register file runs on the bus clock and the raster runs on its
+// own, so the interesting cases are all about the gap between them: a
+// value written but not yet taken, a value taken in the wrong part of a
+// frame, and a bus talking to a domain whose clock has gone away. That
+// last one is why the file is on this side at all -- an AXI slave with
+// no clock never answers.
 //
-// Run:  iverilog -g2012 -o /tmp/sr.vvp sim/tb_scanout_regs.v \
-//           $OUT/hdl/scanout.v && /tmp/sr.vvp
+// tests/test_scanout_sim.py runs it: the register file generated for
+// 1080p60, its addresses in scanout_regs_map.vh beside it, and the
+// raster's fixed Verilog.
 `timescale 1ns/1ps
 module tb;
   // The bus clock: the board's own, and it never stops.
@@ -27,8 +27,7 @@ module tb;
   always #3.367 pix_raw = ~pix_raw;          // ~148.5 MHz
   reg rst = 1, locked = 0;
 
-  localparam [7:0] A_X0 = 8'h00, A_Y0 = 8'h04, A_W = 8'h08,
-                   A_H  = 8'h0c, A_CEN = 8'h10, A_ARM = 8'h14;
+  `include "scanout_regs_map.vh"
   localparam OKAY = 2'b00, SLVERR = 2'b10;
 
   reg  [7:0]  awaddr = 0, araddr = 0;
@@ -43,20 +42,46 @@ module tb;
   wire [23:0] vid_data;
   wire ps_en, ps_incdec;
 
-  scanout_top dut (
+  wire [15:0] h_total, h_active, hs_beg, hs_end;
+  wire [15:0] v_total, v_active, vs_beg, vs_end, ps_per_px;
+  wire [15:0] win_x0, win_y0, win_w, win_h;
+  wire hs_pos, vs_pos, center, arm_req, arm_ack;
+
+  scanout_regs regs (
+      .aclk(aclk), .aresetn(aresetn),
+      .arm_req(arm_req), .arm_ack(arm_ack),
+      .s_axil_awaddr(awaddr), .s_axil_awvalid(awvalid),
+      .s_axil_awready(awready), .s_axil_wdata(wdata),
+      .s_axil_wstrb(wstrb), .s_axil_wvalid(wvalid), .s_axil_wready(wready),
+      .s_axil_bresp(bresp), .s_axil_bvalid(bvalid), .s_axil_bready(bready),
+      .s_axil_araddr(araddr), .s_axil_arvalid(arvalid),
+      .s_axil_arready(arready), .s_axil_rdata(rdata), .s_axil_rresp(rresp),
+      .s_axil_rvalid(rvalid), .s_axil_rready(rready),
+      .param_h_total(h_total), .param_h_active(h_active),
+      .param_hs_beg(hs_beg), .param_hs_end(hs_end),
+      .param_v_total(v_total), .param_v_active(v_active),
+      .param_vs_beg(vs_beg), .param_vs_end(vs_end),
+      .param_hs_pos(hs_pos), .param_vs_pos(vs_pos),
+      .param_ps_per_px(ps_per_px),
+      .param_win_x0(win_x0), .param_win_y0(win_y0),
+      .param_win_w(win_w), .param_win_h(win_h),
+      .param_center(center), .param_arm());
+
+  scanout dut (
       .clk(clk), .rst(rst), .locked(locked),
-      .s_axi_aclk(aclk), .s_axi_aresetn(aresetn),
-      .s_axi_awaddr(awaddr), .s_axi_awvalid(awvalid),
-      .s_axi_awready(awready), .s_axi_wdata(wdata),
-      .s_axi_wstrb(wstrb), .s_axi_wvalid(wvalid), .s_axi_wready(wready),
-      .s_axi_bresp(bresp), .s_axi_bvalid(bvalid), .s_axi_bready(bready),
-      .s_axi_araddr(araddr), .s_axi_arvalid(arvalid),
-      .s_axi_arready(arready), .s_axi_rdata(rdata), .s_axi_rresp(rresp),
-      .s_axi_rvalid(rvalid), .s_axi_rready(rready),
+      .reg_h_total(h_total), .reg_h_active(h_active),
+      .reg_hs_beg(hs_beg), .reg_hs_end(hs_end),
+      .reg_v_total(v_total), .reg_v_active(v_active),
+      .reg_vs_beg(vs_beg), .reg_vs_end(vs_end),
+      .reg_hs_pos(hs_pos), .reg_vs_pos(vs_pos),
+      .reg_ps_per_px(ps_per_px),
+      .reg_win_x0(win_x0), .reg_win_y0(win_y0),
+      .reg_win_w(win_w), .reg_win_h(win_h), .reg_center(center),
+      .arm_req(arm_req), .arm_ack(arm_ack),
       .param_follow(1'b0), .ps_en(ps_en), .ps_incdec(ps_incdec),
       .ps_done(1'b1),
-      // The stream is not what is under test: the raster free-runs and
-      // paints fill, which still gives real blanking to land in.
+      // The stream is not what is under test: the raster holds its mode
+      // and paints fill, which still gives real blanking to land in.
       .s_axis_tdata(24'd0), .s_axis_tvalid(1'b0),
       .s_axis_tready(s_axis_tready), .s_axis_tuser(1'b0),
       .s_axis_tlast(1'b0),
@@ -108,8 +133,17 @@ module tb;
   // time it changes, the raster must be in vertical blanking.
   reg [15:0] seen_w;
   initial seen_w = 16'd1920;
+  // the line the raster scans, hsync edge to hsync edge
+  integer line_len = 0, line_run = 0;
+  reg hs_d = 0;
   always @(posedge clk) begin
-    if (dut.win_w !== seen_w) begin
+    hs_d <= vid_hsync;
+    line_run <= line_run + 1;
+    if (vid_hsync && !hs_d) begin line_len <= line_run; line_run <= 1; end
+  end
+
+  always @(posedge clk) begin
+    if (dut.have && dut.win_w !== seen_w) begin
       if (!dut.in_vblank) begin
         $display("FAIL: placement changed outside vertical blanking");
         fails = fails + 1;
@@ -126,20 +160,28 @@ module tb;
     rst = 0; locked = 1;
     repeat (200) @(posedge clk);
 
-    // AN UNCONFIGURED BUILD SHOWS WHAT THE BAKED ONE SHOWED. The
-    // reset values are this build's placement, on both sides.
+    // AN UNWRITTEN BITSTREAM SHOWS THE MODE IT WAS BUILT WITH. The
+    // file resets armed, so the raster takes the build's mode and
+    // window without anyone writing a word.
+    check(dut.have === 1'b1 && dut.h_total === 12'd2200 &&
+          dut.v_total === 11'd1125 && dut.h_active === 12'd1920,
+          "reset takes the build's own mode");
     check(dut.win_w === 16'd1920 && dut.win_h === 16'd1080 &&
           dut.win_x0 === 16'd0 && dut.win_y0 === 16'd0 &&
           dut.center === 1'b1,
           "reset places the build's own window");
-    rd(A_W);
+    rd(A_WIN_W);
     check(last_read[15:0] === 16'd1920, "the file agrees, read back");
+    rd(A_ID);
+    check(last_read === LAYOUT_ID, "the file reads back its layout's ID");
+    wr(A_ID, 32'd0);
+    check(last_resp === SLVERR, "and refuses a write to it");
 
     // A WRITE ALONE DOES NOT MOVE THE PICTURE. The frame in flight
     // keeps the placement it started with until the arm says take.
-    wr(A_W, 32'd1280); check(last_resp === OKAY, "width write accepted");
-    wr(A_H, 32'd720);  check(last_resp === OKAY, "height write accepted");
-    wr(A_CEN, 32'd1);
+    wr(A_WIN_W, 32'd1280); check(last_resp === OKAY, "width write accepted");
+    wr(A_WIN_H, 32'd720);  check(last_resp === OKAY, "height write accepted");
+    wr(A_CENTER, 32'd1);
     repeat (400) @(posedge clk);
     check(dut.win_w === 16'd1920,
           "written but unarmed: the raster has not moved");
@@ -180,9 +222,9 @@ module tb;
     // this side: an AXI slave with no clock never answers, and the
     // processor waiting for it has hung.
     pix_en = 0;
-    wr(A_W, 32'd640);
+    wr(A_WIN_W, 32'd640);
     check(last_resp === OKAY, "clock gone: a write is still answered");
-    rd(A_W);
+    rd(A_WIN_W);
     check(last_read[15:0] === 16'd640, "clock gone: and a read is too");
     wr(A_ARM, 32'd1);
     check(last_resp === OKAY, "clock gone: the arm is still answered");
@@ -190,9 +232,9 @@ module tb;
     // ARMED MEANS FROZEN, and says so -- even with no reader running,
     // because the file cannot know that; it only knows nobody has
     // acknowledged.
-    wr(A_W, 32'd320);
+    wr(A_WIN_W, 32'd320);
     check(last_resp === SLVERR, "armed: a placement write is REFUSED");
-    rd(A_W);
+    rd(A_WIN_W);
     check(last_read[15:0] === 16'd640, "armed: and the value did not change");
 
     // THE ESCAPE HATCH. With no pixel clock the acknowledgement never
@@ -203,7 +245,7 @@ module tb;
     check(last_read[0] === 1'b1, "still armed, with no reader to ack");
     wr(A_ARM, 32'd0);
     check(last_resp === OKAY, "the arm can always be written back");
-    wr(A_W, 32'd800);
+    wr(A_WIN_W, 32'd800);
     check(last_resp === OKAY, "released: placement writes flow again");
 
     // Plug it back in and the pending placement lands.
@@ -231,7 +273,7 @@ module tb;
     pix_en = 0;                        // pulled with the ack still up
     repeat (4) @(posedge aclk);
     wr(A_ARM, 32'd1);
-    wr(A_X0, 32'd42);
+    wr(A_WIN_X0, 32'd42);
     check(last_resp === OKAY,
           "pulled mid-handshake: writes flow, nothing is locked out");
     pix_en = 1;
@@ -243,8 +285,25 @@ module tb;
     end
     check(dut.win_x0 === 16'd42, "and the handshake recovers by itself");
 
+    // A MODE CHANGE IS A WRITE LIKE ANY OTHER: the raster takes the new
+    // totals whole, in blanking, and scans them. 720p's line is 1650.
+    wr(A_H_TOTAL, 32'd1650); wr(A_H_ACTIVE, 32'd1280);
+    wr(A_HS_BEG, 32'd1390);  wr(A_HS_END, 32'd1430);
+    wr(A_V_TOTAL, 32'd750);  wr(A_V_ACTIVE, 32'd720);
+    wr(A_VS_BEG, 32'd725);   wr(A_VS_END, 32'd730);
+    wr(A_WIN_X0, 32'd0); wr(A_WIN_W, 32'd1280); wr(A_WIN_H, 32'd720);
+    wr(A_ARM, 32'd1);
+    waited = 0;
+    while (dut.h_total !== 12'd1650 && waited < 4_000_000) begin
+      @(posedge clk); waited = waited + 1;
+    end
+    check(dut.h_total === 12'd1650 && dut.v_total === 11'd750,
+          "armed: the raster took the new mode");
+    repeat (8000) @(posedge clk);         // a few of its lines
+    check(line_len == 1650, "and scans a 1650-pixel line");
+
     if (fails) $display("\n%0d FAILED", fails);
-    else $display("\nscanout placement: all checks passed");
+    else $display("\nscanout: all checks passed");
     $finish;
   end
 

@@ -7,7 +7,7 @@
 The design is revela.boards.pynq_z2.pynq_demo. Loading it builds the ISP
 inside it, and the ISP's widths reach everything around it as the design's
 own parameters, assigned from the ISP's facts; the raster's pixel clock is
-one of its parameters too, read from np2hw's mode table by an expression.
+one of its parameters too, read from bayerlink's rasters by an expression.
 The board says what is possible: whether it can host the capture path,
 and how fast each HDMI jack runs. A choice the board cannot honour is
 refused here, by name, rather than by a cascade of Tcl errors in Vivado.
@@ -21,7 +21,9 @@ checksum is built into the fabric as a constant GPIO word, so a script
 handed a layout from another build refuses it instead of misreading.
 And address_map.json: where each register slave sits, by its cell's name,
 from the windows the design's bus placed -- the host reads addresses
-there, because the hardware handoff cannot see through the bus.
+there, because the hardware handoff cannot see through the bus. And
+cable_map.json, the same for the bus the cable's source reaches: the
+ISP's window, and the raster's registers field by field with their ID.
 """
 from __future__ import annotations
 
@@ -35,6 +37,9 @@ from np2hw.toolchain import vivado
 from np2hw.design.composite import block_name, load, write_generated
 
 DESIGN = "revela.boards.pynq_z2.pynq_demo"
+# The two masters with register buses of their own: the processor's, and
+# the cable's -- the source that owns the sensor, over the DDC.
+HOST, CABLE = "gp0.m_axi", "fabric.ddc.M_AXI"
 
 
 def check_board(c: dict) -> None:
@@ -163,7 +168,27 @@ def main(argv=None) -> int:
     cells = vivado.cell_names(design)
     (out / "generated" / "address_map.json").write_text(json.dumps(
         {cells[path]: {"base": w["base"], "size": w["size"]}
-         for path, w in address_map(design).items()}, indent=1) + "\n")
+         for path, w in address_map(design, HOST).items()}, indent=1) + "\n")
+    # and the far end's: what the source owning the sensor reaches over
+    # the cable, each slave with its fields' offsets and its ID word
+    # where it publishes them (the ISP's travel in its own pack)
+    def far(path, window):
+        facts = design.instances[path].leaf.get("facts", {})
+        entry = {"base": window["base"], "size": window["size"]}
+        if "offsets" in facts:
+            entry.update(registers=facts["offsets"], id=facts["id"])
+        return entry
+    # the display's counters, which bound the rasters it can scan
+    raster = next(i for p, i in design.instances.items()
+                  if p.endswith(".scanout"))
+    counters = {k: int(raster.build[k]) for k in ("XB", "YB")}
+    (out / "generated" / "cable_map.json").write_text(json.dumps(
+        {path.rpartition(".")[2]: dict(far(path, w), **(
+            {"counter_bits": [counters["XB"], counters["YB"]]}
+            if "offsets" in design.instances[path].leaf.get("facts", {})
+            else {}))
+         for path, w in address_map(design, CABLE).items()},
+        indent=1) + "\n")
     # the fabric clocks the processor drives, which a host sets before it
     # programs the fabric: the design states them, and nothing needs the
     # hardware handoff to read them back
@@ -175,8 +200,7 @@ def main(argv=None) -> int:
     p = design.parameters
     print(f"generated {target} -- {len(design.instances)} cells, "
           f"{p['sample_bits']}-bit into the ISP, {p['isp_out_bits']}-bit "
-          f"out, {p['out_khz'] / 1000:g} MHz raster"
-          + (", genlocked" if design.parameters["genlock"] else "")
+          f"out, {p['out_khz'] / 1000:g} MHz raster, genlocked"
           + (", capture" if design.parameters["capture"] else "")
           + f"; GPIO layout 0x{layout_id:08X}")
     return 0

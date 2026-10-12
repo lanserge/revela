@@ -88,7 +88,7 @@ def test_the_demo_generates_and_checks_without_vivado(built):
     for name in ("paths.tcl", "rtl.tcl", "flow.tcl"):
         assert (built / "generated" / name).is_file(), name
     for name in ("bayerlink_formats.v", "ddc_slave.v", "revela_isp_core.v",
-                 "scanout.v", "out_cdc.v", "pynq_demo.v"):
+                 "scanout_regs.v", "pynq_demo.v"):
         assert (built / "hdl" / name).is_file(), name
     # Fixed modules are read from the package that ships them, never
     # copied, and each is a source once however many blocks instantiate it
@@ -168,7 +168,7 @@ def test_the_top_is_the_design(built):
     assert named and named <= ports, named - ports
     # the jack is constrained at the link it advertises, and the front end
     # set for it: a 74.25 MHz link, range 2 (its VCO at 742.5 MHz)
-    from np2hw.video_out import pixel_khz
+    from revela.boards.common.clocking import pixel_khz
     from revela.boards.pynq_z2 import choices
     khz = pixel_khz(choices()["link_mode"])
     clocks = (built / "hdl" / "rx_pin_clocks.xdc").read_text()
@@ -258,3 +258,31 @@ def test_every_bus_answers_whatever_the_cable_does():
     for build in ({}, {"capture": 1}):
         assert audit(load("revela.boards.pynq_z2.pynq_demo",
                           build=build)) == [], build
+
+
+
+@pytest.mark.parametrize("mode, divide, steps", [("1080p30", "10.000", 560),
+                                                  ("1080p60", "5.000", 280)])
+def test_the_raster_genlocks_at_the_rate_its_mode_runs(mode, divide, steps):
+    """One recipe, every mode it divides to: the raster's clock makes the
+    mode's pixel rate exactly, and the scanout counts the fine steps that
+    clock's pixel is -- both from the recipe, so they cannot disagree."""
+    from np2hw.design.composite import load
+    design = load("revela.boards.pynq_z2.pynq_demo",
+                  build={"link_mode": repr(mode)})
+    clock = design.instances["clk_raster"].config
+    assert clock["MMCM_CLKOUT0_DIVIDE_F"] == divide
+    assert clock["MMCM_CLKFBOUT_MULT_F"] == "37.125"
+    regs = design.instances["fabric.scanout_regs"].leaf["files"][
+        "scanout_regs.v"]
+    assert re.search(rf"reg_ps_per_px\s*<=\s*{steps};", regs), \
+        "the raster's steps, as its register resets"
+
+
+def test_a_rate_the_recipe_cannot_make_is_refused():
+    """480p's 27 MHz is not a whole division of the 742.5 MHz VCO: the
+    build says so rather than letting the wizard land somewhere near."""
+    from np2hw.design.composite import load
+    with pytest.raises(Exception, match="does not divide"):
+        load("revela.boards.pynq_z2.pynq_demo",
+             build={"mode": "'480p60'"}, generate=False)

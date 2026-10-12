@@ -1,14 +1,14 @@
 {
  "blocks": {
-  "bayerlink_display": {
-   "description": "Raw Bayer frames in over a display link as bayerlink, the revela ISP, a raster out: a camera on a display, on any board that brings an HDMI front end, a transmitter, the clocks and a register bus. It names no board, no vendor and no ISP: the board fills `pipeline`, supplies the clocks and resets by role, and decides what sits between the receiver and the crossing.",
+  "isp_demo": {
+   "description": "The ISP demo, less everything a board brings: raw Bayer frames decoded from the video a display link delivers (bayerlink), the revela ISP, a raster out -- a camera on a display, on any board that brings an HDMI front end, a transmitter, the clocks and a register bus. It names no board, no vendor and no ISP: the board fills `pipeline`, supplies the clocks and resets by role, and decides what sits between the receiver and the crossing.",
    "parameters": {
     "pipeline": {
      "description": "The ISP, by reference: a composite of revela's blocks with ports isp_in and isp_out, generated and proved as part of this design. The board chooses it."
     },
     "mode": {
      "default": "link_mode",
-     "description": "The output raster. By default the one the input arrives in, so the output runs at the input's rate: a 74.25 MHz raster genlocks to the stream, a 148.5 MHz one free-runs."
+     "description": "The output raster. By default the one the input arrives in, so the output runs at the input's rate, genlocked to it."
     },
     "link_mode": {
      "default": "'1080p30'",
@@ -27,12 +27,11 @@
      "description": "The longest packed camera line the receiver holds."
     },
     "fill": {
-     "default": "'0x101010'",
-     "description": "What the raster paints outside the picture."
+     "default": 1052688,
+     "description": "What the raster paints outside the picture: 0x101010, a grey that is visibly not video."
     },
-    "genlock": {
-     "default": 0,
-     "description": "1: the raster follows the stream's frame rate, stepping its clock's fine phase; the board decides, from the raster it builds."
+    "ps_per_pixel": {
+     "description": "The fine phase steps one pixel of the raster's clock is: the fact of the clock the board makes, from the board."
     },
     "lane_map": {
      "description": "Which video lane carries container byte 0, 1, 2: the front end's fact, from the board."
@@ -100,8 +99,7 @@
     },
     {
      "name": "raster_ps_done",
-     "description": "The display clock's fine phase step is done (genlocked rasters).",
-     "when": "genlock"
+     "description": "The display clock's fine phase step is done."
     },
     {
      "name": "en_grab",
@@ -126,14 +124,6 @@
     {
      "name": "bus_rst",
      "description": "The register buses' reset, active high."
-    },
-    {
-     "name": "regs_isp",
-     "description": "The ISP's registers, from the processor's bus. The DDC bridge shares them through an arbiter."
-    },
-    {
-     "name": "regs_scanout",
-     "description": "The raster's placement registers, from the processor's bus."
     },
     {
      "name": "scl_i",
@@ -163,13 +153,11 @@
     },
     {
      "name": "raster_ps_en",
-     "description": "A fine phase step requested of the display clock (genlocked rasters).",
-     "when": "genlock"
+     "description": "A fine phase step requested of the display clock."
     },
     {
      "name": "raster_ps_incdec",
-     "description": "Its direction.",
-     "when": "genlock"
+     "description": "Its direction."
     },
     {
      "name": "sda_pull",
@@ -254,9 +242,17 @@
       "link_mode": "link_mode"
      }
     },
-    "regs_arb": {
-     "block": "np2hw.hdl.bus:axil_arbiter",
-     "description": "The ISP's registers, reached from the processor's bus and from the DDC bridge, one transaction at a time."
+    "cable_bus": {
+     "block": "np2hw.bus:axil_decoder",
+     "description": "The registers the far end of the cable owns: the ISP's at 0, so its own map is the cable's, and the raster's mode and placement beside it. The whole 16-bit space the DDC slave addresses.",
+     "build": {
+      "sizes": [
+       "isp.s_axil.window",
+       "scanout_regs.s_axil.window"
+      ],
+      "base": 0,
+      "span": 65536
+     }
     },
     "isp_cdc": {
      "block": "np2hw.hdl.stream:stream_cdc",
@@ -287,7 +283,8 @@
     "isp_dir": {
      "block": "revela.boards.common.modules:isp_axis",
      "build": {
-      "DATA_BITS": "isp_out_bits"
+      "DATA_BITS": "isp_out_bits",
+      "FB_WORD": 0
      }
     },
     "isp_out": {
@@ -297,20 +294,25 @@
      }
     },
     "scanout": {
-     "block": "revela.boards.common.scanout:scanout",
+     "block": "revela.boards.common.modules:scanout",
+     "build": {
+      "FILL": "fill"
+     }
+    },
+    "scanout_regs": {
+     "block": "revela.boards.common.scanout:scanout_regs",
      "build": {
       "mode": "mode",
-      "genlock": "genlock",
-      "fill": "fill"
+      "ps_per_pixel": "ps_per_pixel"
      }
     },
     "out_cdc": {
-     "block": "revela.boards.common.scanout:out_cdc",
+     "block": "np2hw.hdl.stream:stream_cdc",
+     "description": "The ISP's picture into the raster's clock. Its depth is the raster's lead: with no frame store, the lines a frame's start arrives early are lines this holds.",
      "build": {
-      "mode": "mode",
-      "fill": "fill"
-     },
-     "when": "genlock"
+      "DATA_BITS": "isp_out_bits",
+      "A": 13
+     }
     }
    },
    "connections": [
@@ -329,10 +331,6 @@
     [
      "isp_tee.b",
      "isp_out.in"
-    ],
-    [
-     "isp_tee.a",
-     "isp_dir.in"
     ],
     [
      "rx_pclk",
@@ -411,10 +409,6 @@
      "grab"
     ],
     [
-     "isp_clk",
-     "isp_dir.clk"
-    ],
-    [
      "raster_clk",
      "scanout.clk"
     ],
@@ -422,15 +416,6 @@
      "raster_locked",
      "scanout.locked"
     ],
-    [
-     "scanout.vid_io",
-     "raster"
-    ],
-    {
-     "from": "isp_dir.m_axis",
-     "to": "scanout.s_axis",
-     "when": "not genlock"
-    },
     [
      "en_grab",
      "isp_tee.en_b"
@@ -478,10 +463,6 @@
     [
      "isp_rst",
      "isp_tee.rst"
-    ],
-    [
-     "isp_rst",
-     "isp_dir.rst"
     ],
     [
      "link_rst.rst_pix",
@@ -580,14 +561,6 @@
      "isp.s_axil_aresetn"
     ],
     [
-     "bus_clk",
-     "scanout.s_axi_aclk"
-    ],
-    [
-     "bus_resetn",
-     "scanout.s_axi_aresetn"
-    ],
-    [
      "scl_i",
      "ddc.scl_i"
     ],
@@ -608,83 +581,45 @@
      "ddc.rst"
     ],
     [
-     "bus_clk",
-     "regs_arb.aclk"
-    ],
-    [
-     "bus_resetn",
-     "regs_arb.aresetn"
-    ],
-    [
-     "regs_isp",
-     "regs_arb.s0_axi"
-    ],
-    [
      "ddc.M_AXI",
-     "regs_arb.s1_axi"
+     "cable_bus.s_axi"
     ],
     [
-     "regs_arb.m_axi",
+     "cable_bus.m00_axi",
      "isp.s_axil"
     ],
     [
-     "regs_scanout",
-     "scanout.s_axi"
+     "cable_bus.m01_axi",
+     "scanout_regs.s_axil"
+    ],
+    [
+     "bus_clk",
+     "cable_bus.aclk"
+    ],
+    [
+     "bus_resetn",
+     "cable_bus.aresetn"
     ],
     [
      "broom",
      "scanout.rst"
     ],
-    {
-     "from": "scanout.ps_en",
-     "to": "raster_ps_en",
-     "when": "genlock"
-    },
-    {
-     "from": "scanout.ps_incdec",
-     "to": "raster_ps_incdec",
-     "when": "genlock"
-    },
-    {
-     "from": "raster_ps_done",
-     "to": "scanout.ps_done",
-     "when": "genlock"
-    },
-    {
-     "from": "isp_clk",
-     "to": "out_cdc.wclk",
-     "when": "genlock"
-    },
-    {
-     "from": "raster_clk",
-     "to": "out_cdc.rclk",
-     "when": "genlock"
-    },
-    {
-     "from": "isp_dir.m_axis",
-     "to": "out_cdc.s_axis",
-     "when": "genlock"
-    },
-    {
-     "from": "out_cdc.m_axis",
-     "to": "scanout.s_axis",
-     "when": "genlock"
-    },
-    {
-     "from": "isp_tee.en_a",
-     "to": "scanout.param_follow",
-     "when": "genlock"
-    },
-    {
-     "from": "broom",
-     "to": "out_cdc.wrst",
-     "when": "genlock"
-    },
-    {
-     "from": "broom",
-     "to": "out_cdc.rrst",
-     "when": "genlock"
-    },
+    [
+     "scanout.ps_en",
+     "raster_ps_en"
+    ],
+    [
+     "scanout.ps_incdec",
+     "raster_ps_incdec"
+    ],
+    [
+     "raster_ps_done",
+     "scanout.ps_done"
+    ],
+    [
+     "isp_tee.en_a",
+     "scanout.param_follow"
+    ],
     [
      "blrx.out",
      "rx_out"
@@ -692,6 +627,126 @@
     [
      "isp_in",
      "isp_cdc.in"
+    ],
+    [
+     "isp_tee.a",
+     "out_cdc.in"
+    ],
+    [
+     "isp_clk",
+     "out_cdc.wclk"
+    ],
+    [
+     "raster_clk",
+     "out_cdc.rclk"
+    ],
+    [
+     "broom",
+     "out_cdc.wrst"
+    ],
+    [
+     "broom",
+     "out_cdc.rrst"
+    ],
+    [
+     "out_cdc.out",
+     "isp_dir.in"
+    ],
+    [
+     "raster_clk",
+     "isp_dir.clk"
+    ],
+    [
+     "broom",
+     "isp_dir.rst"
+    ],
+    [
+     "isp_dir.m_axis",
+     "scanout.s_axis"
+    ],
+    [
+     "scanout.vid",
+     "raster"
+    ],
+    [
+     "bus_clk",
+     "scanout_regs.aclk"
+    ],
+    [
+     "bus_resetn",
+     "scanout_regs.aresetn"
+    ],
+    [
+     "scanout_regs.arm_req",
+     "scanout.arm_req"
+    ],
+    [
+     "scanout.arm_ack",
+     "scanout_regs.arm_ack"
+    ],
+    [
+     "scanout_regs.param_h_total",
+     "scanout.reg_h_total"
+    ],
+    [
+     "scanout_regs.param_h_active",
+     "scanout.reg_h_active"
+    ],
+    [
+     "scanout_regs.param_hs_beg",
+     "scanout.reg_hs_beg"
+    ],
+    [
+     "scanout_regs.param_hs_end",
+     "scanout.reg_hs_end"
+    ],
+    [
+     "scanout_regs.param_v_total",
+     "scanout.reg_v_total"
+    ],
+    [
+     "scanout_regs.param_v_active",
+     "scanout.reg_v_active"
+    ],
+    [
+     "scanout_regs.param_vs_beg",
+     "scanout.reg_vs_beg"
+    ],
+    [
+     "scanout_regs.param_vs_end",
+     "scanout.reg_vs_end"
+    ],
+    [
+     "scanout_regs.param_hs_pos",
+     "scanout.reg_hs_pos"
+    ],
+    [
+     "scanout_regs.param_vs_pos",
+     "scanout.reg_vs_pos"
+    ],
+    [
+     "scanout_regs.param_ps_per_px",
+     "scanout.reg_ps_per_px"
+    ],
+    [
+     "scanout_regs.param_win_x0",
+     "scanout.reg_win_x0"
+    ],
+    [
+     "scanout_regs.param_win_y0",
+     "scanout.reg_win_y0"
+    ],
+    [
+     "scanout_regs.param_win_w",
+     "scanout.reg_win_w"
+    ],
+    [
+     "scanout_regs.param_win_h",
+     "scanout.reg_win_h"
+    ],
+    [
+     "scanout_regs.param_center",
+     "scanout.reg_center"
     ]
    ]
   }
