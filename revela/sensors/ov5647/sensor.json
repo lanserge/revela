@@ -3,7 +3,7 @@
   "name": "ov5647",
   "vendor": "OmniVision",
   "part_number": "OV5647",
-  "description": "1/4-inch 5 Mpixel CMOS sensor, 2592x1944, 10-bit, MIPI CSI-2. The sensor on the Raspberry Pi Camera Module v1, and this project's reference camera. Its modes are the ones this bench has run and read back; the full-resolution mode joins when a bench states it.",
+  "description": "1/4-inch 5 Mpixel CMOS sensor, 2592x1944, 10-bit, MIPI CSI-2. The sensor on the Raspberry Pi Camera Module v1, and this project's reference camera. Its modes are all four the part's driver offers on this bench, each read back from the running part.",
 
   "provenance": {
     "derived_from": [
@@ -19,8 +19,8 @@
       },
       {
         "kind": "measurement",
-        "reference": "This project's bench, 2026-10-14: the OV5647 read back over I2C (revela/sensors/readback.py) while it streamed each mode, 0x3000-0x5FFF.",
-        "notes": "Which registers make a mode: those the datasheet documents as read-write in the PLL, timing, band-step, BLC and MIPI blocks, plus three undocumented analog/sensor-control registers (0x3612, 0x3618, 0x3709) that differ between the modes and hold still within one. Left out: exposure and gain (the AE loop's), registers the datasheet documents as read-only, registers that moved by themselves between reads seconds apart, aliases (blocks that repeat a base block in every dump), and undocumented ISP-area registers a static scene cannot classify. Line and frame length (0x380C-0x380F) are stated at the mode's defaults -- width plus default horizontal blanking, height plus default vertical blanking -- since at run time they are the frame-length control's. Both modes read out GBRG under the flip and mirror settings recorded in 0x3820/0x3821."
+        "reference": "This project's bench, 2026-10-14: the OV5647 read back over I2C (revela/sensors/readback.py) while it streamed each mode, 0x3000-0x5FFF: the 1080 crop and 640x480 under the bridge, 1296x972 and 2592x1944 streamed directly from unicam.",
+        "notes": "Which registers make a mode: those the datasheet documents as read-write in the PLL, timing, band-step, BLC and MIPI blocks, plus four undocumented analog/sensor-control registers (0x3612, 0x3618, 0x3708, 0x3709) that differ between the modes and hold still within one. Left out: exposure and gain (the AE loop's), registers the datasheet documents as read-only, registers that moved by themselves between reads seconds apart, aliases (blocks that repeat a base block in every dump), and undocumented ISP-area registers a static scene cannot classify. Line and frame length (0x380C-0x380F) are stated at the mode's defaults -- width plus default horizontal blanking, height plus default vertical blanking -- since at run time they are the frame-length control's. All four modes read out GBRG under the flip and mirror settings recorded in 0x3820/0x3821."
       }
     ],
     "gpl_driver_transcribed": false,
@@ -117,6 +117,47 @@
       "frame_length_lines": 504,
       "pixel_rate_hz": 58333000,
       "register_sequence": "mode_binned_640x480"
+    },
+    {
+      "name": "binned_1296x972",
+      "width": 1296,
+      "height": 972,
+      "cfa_order": "GBRG",
+      "binning": {
+        "x": 2,
+        "y": 2
+      },
+      "crop": {
+        "x0": 0,
+        "y0": 0,
+        "x1": 2624,
+        "y1": 1956
+      },
+      "line_length_pck": 1896,
+      "frame_length_lines": 1435,
+      "pixel_rate_hz": 87500000,
+      "register_sequence": "mode_binned_1296x972"
+    },
+    {
+      "name": "full_2592x1944",
+      "width": 2592,
+      "height": 1944,
+      "cfa_order": "GBRG",
+      "binning": {
+        "x": 1,
+        "y": 1,
+        "mode": "none"
+      },
+      "crop": {
+        "x0": 0,
+        "y0": 0,
+        "x1": 2624,
+        "y1": 1956
+      },
+      "line_length_pck": 2844,
+      "frame_length_lines": 1968,
+      "pixel_rate_hz": 87500000,
+      "register_sequence": "mode_full_2592x1944"
     }
   ],
 
@@ -153,6 +194,11 @@
           "address": 13848,
           "value": 4,
           "comment": "undocumented (analog), read back"
+        },
+        {
+          "address": 14088,
+          "value": 100,
+          "comment": "undocumented (sensor control), read back"
         },
         {
           "address": 14089,
@@ -360,6 +406,11 @@
           "comment": "undocumented (analog), read back"
         },
         {
+          "address": 14088,
+          "value": 100,
+          "comment": "undocumented (sensor control), read back"
+        },
+        {
           "address": 14089,
           "value": 82,
           "comment": "undocumented (sensor control), read back"
@@ -527,6 +578,426 @@
         {
           "address": 18487,
           "value": 21,
+          "comment": "PCLK_PERIOD"
+        }
+      ]
+    },
+    "mode_binned_1296x972": {
+      "description": "Selects binned_1296x972: read back from the running part while it streamed this mode; line and frame length at the mode's defaults",
+      "writes": [
+        {
+          "address": 12340,
+          "value": 26,
+          "comment": "SC_CMMN_PLL_CTRL0"
+        },
+        {
+          "address": 12341,
+          "value": 33,
+          "comment": "SC_CMMN_PLL_CTRL1"
+        },
+        {
+          "address": 12342,
+          "value": 105,
+          "comment": "SC_CMMN_PLL_MULTIPLIER"
+        },
+        {
+          "address": 12343,
+          "value": 3,
+          "comment": "SC_CMMN_PLL_CTRL13"
+        },
+        {
+          "address": 13842,
+          "value": 89,
+          "comment": "undocumented (analog), read back"
+        },
+        {
+          "address": 13848,
+          "value": 0,
+          "comment": "undocumented (analog), read back"
+        },
+        {
+          "address": 14088,
+          "value": 33,
+          "comment": "undocumented (sensor control), read back"
+        },
+        {
+          "address": 14089,
+          "value": 18,
+          "comment": "undocumented (sensor control), read back"
+        },
+        {
+          "address": 14336,
+          "value": 0,
+          "comment": "TIMING_X_ADDR_START[11:8]"
+        },
+        {
+          "address": 14337,
+          "value": 0,
+          "comment": "TIMING_X_ADDR_START[7:0]"
+        },
+        {
+          "address": 14338,
+          "value": 0,
+          "comment": "TIMING_Y_ADDR_START[11:8]"
+        },
+        {
+          "address": 14339,
+          "value": 0,
+          "comment": "TIMING_Y_ADDR_START[7:0]"
+        },
+        {
+          "address": 14340,
+          "value": 10,
+          "comment": "TIMING_X_ADDR_END[11:8]"
+        },
+        {
+          "address": 14341,
+          "value": 63,
+          "comment": "TIMING_X_ADDR_END[7:0]"
+        },
+        {
+          "address": 14342,
+          "value": 7,
+          "comment": "TIMING_Y_ADDR_END[11:8]"
+        },
+        {
+          "address": 14343,
+          "value": 163,
+          "comment": "TIMING_Y_ADDR_END[7:0]"
+        },
+        {
+          "address": 14344,
+          "value": 5,
+          "comment": "TIMING_X_OUTPUT_SIZE[11:8]"
+        },
+        {
+          "address": 14345,
+          "value": 16,
+          "comment": "TIMING_X_OUTPUT_SIZE[7:0]"
+        },
+        {
+          "address": 14346,
+          "value": 3,
+          "comment": "TIMING_Y_OUTPUT_SIZE[11:8]"
+        },
+        {
+          "address": 14347,
+          "value": 204,
+          "comment": "TIMING_Y_OUTPUT_SIZE[7:0]"
+        },
+        {
+          "address": 14348,
+          "value": 7,
+          "comment": "TIMING_HTS[12:8], the mode's default line length"
+        },
+        {
+          "address": 14349,
+          "value": 104,
+          "comment": "TIMING_HTS[7:0]"
+        },
+        {
+          "address": 14350,
+          "value": 5,
+          "comment": "TIMING_VTS[9:8], the mode's default frame length"
+        },
+        {
+          "address": 14351,
+          "value": 155,
+          "comment": "TIMING_VTS[7:0]"
+        },
+        {
+          "address": 14352,
+          "value": 0,
+          "comment": "TIMING_ISP_X_WIN[11:8]"
+        },
+        {
+          "address": 14353,
+          "value": 12,
+          "comment": "TIMING_ISP_X_WIN[7:0]"
+        },
+        {
+          "address": 14354,
+          "value": 0,
+          "comment": "TIMING_ISP_Y_WIN[11:8]"
+        },
+        {
+          "address": 14355,
+          "value": 6,
+          "comment": "TIMING_ISP_Y_WIN[7:0]"
+        },
+        {
+          "address": 14356,
+          "value": 49,
+          "comment": "TIMING_X_INC"
+        },
+        {
+          "address": 14357,
+          "value": 49,
+          "comment": "TIMING_Y_INC"
+        },
+        {
+          "address": 14368,
+          "value": 65,
+          "comment": "TIMING_TC_REG20: vertical flip and binning"
+        },
+        {
+          "address": 14369,
+          "value": 3,
+          "comment": "TIMING_TC_REG21: mirror and horizontal binning"
+        },
+        {
+          "address": 14856,
+          "value": 1,
+          "comment": "B50_STEP[9:8]"
+        },
+        {
+          "address": 14857,
+          "value": 40,
+          "comment": "B50_STEP[7:0]"
+        },
+        {
+          "address": 14858,
+          "value": 0,
+          "comment": "B60_STEP[9:8]"
+        },
+        {
+          "address": 14859,
+          "value": 246,
+          "comment": "B60_STEP[7:0]"
+        },
+        {
+          "address": 14860,
+          "value": 228,
+          "comment": "AEC_CTRL0C"
+        },
+        {
+          "address": 14861,
+          "value": 8,
+          "comment": "B60_MAX"
+        },
+        {
+          "address": 14862,
+          "value": 6,
+          "comment": "B50_MAX"
+        },
+        {
+          "address": 16388,
+          "value": 4,
+          "comment": "BLC_CTRL04: blc_line_num"
+        },
+        {
+          "address": 18487,
+          "value": 22,
+          "comment": "PCLK_PERIOD"
+        }
+      ]
+    },
+    "mode_full_2592x1944": {
+      "description": "Selects full_2592x1944: read back from the running part while it streamed this mode; line and frame length at the mode's defaults",
+      "writes": [
+        {
+          "address": 12340,
+          "value": 26,
+          "comment": "SC_CMMN_PLL_CTRL0"
+        },
+        {
+          "address": 12341,
+          "value": 33,
+          "comment": "SC_CMMN_PLL_CTRL1"
+        },
+        {
+          "address": 12342,
+          "value": 105,
+          "comment": "SC_CMMN_PLL_MULTIPLIER"
+        },
+        {
+          "address": 12343,
+          "value": 3,
+          "comment": "SC_CMMN_PLL_CTRL13"
+        },
+        {
+          "address": 13842,
+          "value": 91,
+          "comment": "undocumented (analog), read back"
+        },
+        {
+          "address": 13848,
+          "value": 4,
+          "comment": "undocumented (analog), read back"
+        },
+        {
+          "address": 14088,
+          "value": 100,
+          "comment": "undocumented (sensor control), read back"
+        },
+        {
+          "address": 14089,
+          "value": 18,
+          "comment": "undocumented (sensor control), read back"
+        },
+        {
+          "address": 14336,
+          "value": 0,
+          "comment": "TIMING_X_ADDR_START[11:8]"
+        },
+        {
+          "address": 14337,
+          "value": 0,
+          "comment": "TIMING_X_ADDR_START[7:0]"
+        },
+        {
+          "address": 14338,
+          "value": 0,
+          "comment": "TIMING_Y_ADDR_START[11:8]"
+        },
+        {
+          "address": 14339,
+          "value": 0,
+          "comment": "TIMING_Y_ADDR_START[7:0]"
+        },
+        {
+          "address": 14340,
+          "value": 10,
+          "comment": "TIMING_X_ADDR_END[11:8]"
+        },
+        {
+          "address": 14341,
+          "value": 63,
+          "comment": "TIMING_X_ADDR_END[7:0]"
+        },
+        {
+          "address": 14342,
+          "value": 7,
+          "comment": "TIMING_Y_ADDR_END[11:8]"
+        },
+        {
+          "address": 14343,
+          "value": 163,
+          "comment": "TIMING_Y_ADDR_END[7:0]"
+        },
+        {
+          "address": 14344,
+          "value": 10,
+          "comment": "TIMING_X_OUTPUT_SIZE[11:8]"
+        },
+        {
+          "address": 14345,
+          "value": 32,
+          "comment": "TIMING_X_OUTPUT_SIZE[7:0]"
+        },
+        {
+          "address": 14346,
+          "value": 7,
+          "comment": "TIMING_Y_OUTPUT_SIZE[11:8]"
+        },
+        {
+          "address": 14347,
+          "value": 152,
+          "comment": "TIMING_Y_OUTPUT_SIZE[7:0]"
+        },
+        {
+          "address": 14348,
+          "value": 11,
+          "comment": "TIMING_HTS[12:8], the mode's default line length"
+        },
+        {
+          "address": 14349,
+          "value": 28,
+          "comment": "TIMING_HTS[7:0]"
+        },
+        {
+          "address": 14350,
+          "value": 7,
+          "comment": "TIMING_VTS[9:8], the mode's default frame length"
+        },
+        {
+          "address": 14351,
+          "value": 176,
+          "comment": "TIMING_VTS[7:0]"
+        },
+        {
+          "address": 14352,
+          "value": 0,
+          "comment": "TIMING_ISP_X_WIN[11:8]"
+        },
+        {
+          "address": 14353,
+          "value": 16,
+          "comment": "TIMING_ISP_X_WIN[7:0]"
+        },
+        {
+          "address": 14354,
+          "value": 0,
+          "comment": "TIMING_ISP_Y_WIN[11:8]"
+        },
+        {
+          "address": 14355,
+          "value": 6,
+          "comment": "TIMING_ISP_Y_WIN[7:0]"
+        },
+        {
+          "address": 14356,
+          "value": 17,
+          "comment": "TIMING_X_INC"
+        },
+        {
+          "address": 14357,
+          "value": 17,
+          "comment": "TIMING_Y_INC"
+        },
+        {
+          "address": 14368,
+          "value": 0,
+          "comment": "TIMING_TC_REG20: vertical flip and binning"
+        },
+        {
+          "address": 14369,
+          "value": 2,
+          "comment": "TIMING_TC_REG21: mirror and horizontal binning"
+        },
+        {
+          "address": 14856,
+          "value": 1,
+          "comment": "B50_STEP[9:8]"
+        },
+        {
+          "address": 14857,
+          "value": 40,
+          "comment": "B50_STEP[7:0]"
+        },
+        {
+          "address": 14858,
+          "value": 0,
+          "comment": "B60_STEP[9:8]"
+        },
+        {
+          "address": 14859,
+          "value": 246,
+          "comment": "B60_STEP[7:0]"
+        },
+        {
+          "address": 14860,
+          "value": 228,
+          "comment": "AEC_CTRL0C"
+        },
+        {
+          "address": 14861,
+          "value": 8,
+          "comment": "B60_MAX"
+        },
+        {
+          "address": 14862,
+          "value": 6,
+          "comment": "B50_MAX"
+        },
+        {
+          "address": 16388,
+          "value": 4,
+          "comment": "BLC_CTRL04: blc_line_num"
+        },
+        {
+          "address": 18487,
+          "value": 25,
           "comment": "PCLK_PERIOD"
         }
       ]

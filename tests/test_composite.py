@@ -35,7 +35,14 @@ def test_the_board_isp_core_is_built_at_its_geometry():
     pipeline = pipelines.load("revela.boards.pynq_z2.isp:revela_isp_core")
     form = compose.shape(pipeline)
     assert pipeline.name == "revela_isp_core"
-    assert (form.spec.bit_depth, form.width, form.height) == (12, 1920, 1080)
+    # built to hold every mode of the board's reference sensor whole: what
+    # a display shows of a wider frame is the output's business, and the
+    # input's crop is only a guard for a sensor wider than the build
+    from revela import sensors
+    modes = sensors.load("ov5647")["modes"]
+    assert form.spec.bit_depth == 12
+    assert form.width >= max(m["width"] for m in modes)
+    assert form.height >= max(m["height"] for m in modes)
     assert [s.path for s in compose.stages(pipeline)[1:]][-2:] == [
         "rgb_gamma", "logo"]
 

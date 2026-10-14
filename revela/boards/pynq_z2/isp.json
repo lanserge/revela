@@ -25,10 +25,10 @@
           "block": "revela.pipelines.bayer_isp",
           "build": {
             "bit_depth": 12,
-            "max_width": 1920,
-            "max_height": 1080
+            "max_width": 2592,
+            "max_height": 1944
           },
-          "description": "Raw Bayer in, linear RGB out: what any Bayer sensor on this board needs. Its input port states the stream it takes, built here for 12-bit frames up to 1920x1080."
+          "description": "Raw Bayer in, linear RGB out: what any Bayer sensor on this board needs. Its input port states the stream it takes, built here for 12-bit frames up to 2592x1944, the OV5647's whole array, so every mode of the reference sensor is processed whole; what a display shows of a wider frame is the output's business, not the input's."
         },
         "rgb_gamma": {
           "block": "revela.blocks.gamma:rgb_gamma",
