@@ -73,7 +73,11 @@
         },
         "logo": {
           "block": "revela.blocks.logo",
-          "description": "The mark, from block RAM, keyed over the corner of the picture."
+          "description": "The mark, from block RAM, keyed over the corner of the picture: at reset, the corner of the largest frame this ISP is built for; at run time, wherever the firmware places it for the frame it applies.",
+          "values": {
+            "x0": "@revela.blocks.logo:corner(isp.max_width)",
+            "y0": "@revela.blocks.logo:corner(isp.max_height)"
+          }
         }
       },
       "connections": [

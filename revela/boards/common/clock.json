@@ -9,20 +9,25 @@
         "in_khz": {"default": 0, "description": "The input's rate in kHz. 0: the node states its own."},
         "out_khz": {"default": 0, "description": "The output's rate in kHz, where the design derives it: the requested frequency is set from it. 0: the node states its own."},
         "divclk": {"default": 1, "description": "The recipe's input divider, where the design states a recipe."},
+        "unbuffered": {"default": 0, "description": "1: the outputs leave without global buffers, for a clock multiplexer to buffer instead -- a buffer in front of a multiplexer is a cascade the placer must make adjacent. The feedback then leaves and returns through clkfb_out and clkfb_in."},
+        "out2_khz": {"default": 0, "description": "A second output's rate, from the same VCO and phase-shifted with the first: its divider worked out from the recipe, which must make it exactly. 0: none."},
         "mult8": {"default": 0, "description": "The recipe's feedback multiplier, in eighths (297: 37.125): with in_khz, divclk and out_khz, an exact MMCM recipe, the output divider worked out from them (revela.boards.common.clocking). 0: the wizard chooses."}
       },
       "inputs": [
         {"name": "clk_in"},
+        {"name": "clkfb_in", "when": "unbuffered", "description": "The feedback, returned: clkfb_out wired straight back."},
         {"name": "psclk", "when": "fine_phase_shift", "description": "The clock the phase-shift handshake runs in."},
         {"name": "psen", "when": "fine_phase_shift", "description": "One step, in the direction psincdec gives."},
         {"name": "psincdec", "when": "fine_phase_shift"}
       ],
       "outputs": [
         {"name": "clk_out"},
+        {"name": "clkfb_out", "when": "unbuffered", "description": "The feedback, to return to clkfb_in."},
         {"name": "locked"},
         {"name": "psdone", "when": "fine_phase_shift", "description": "The step requested has been made."},
         {"name": "clkin_stopped", "when": "stop_flags", "description": "Its input clock has stopped."},
-        {"name": "clkfb_stopped", "when": "stop_flags", "description": "Its feedback clock has stopped."}
+        {"name": "clkfb_stopped", "when": "stop_flags", "description": "Its feedback clock has stopped."},
+        {"name": "clk_out2", "when": "out2_khz", "description": "The second output, at out2_khz."}
       ],
       "implementations": {
         "clk_wiz": {
@@ -30,6 +35,8 @@
           "vivado": {"ip": "xilinx.com:ip:clk_wiz"},
           "config": {
             "PRIM_SOURCE": "'No_buffer'",
+            "CLKOUT1_DRIVES": {"value": "'No_buffer'", "when": "unbuffered"},
+            "CLKOUT2_DRIVES": {"value": "'No_buffer'", "when": "unbuffered and out2_khz"},
             "USE_LOCKED": "'true'",
             "USE_RESET": "'false'",
             "USE_DYN_PHASE_SHIFT": "'true' if fine_phase_shift else 'false'",
@@ -42,9 +49,15 @@
             "MMCM_CLKFBOUT_MULT_F": {"value": "@revela.boards.common.clocking:multiplier(mult8)", "when": "mult8"},
             "MMCM_CLKOUT0_DIVIDE_F": {"value": "@revela.boards.common.clocking:output_divide(in_khz, divclk, mult8, out_khz)", "when": "mult8"},
             "CLK_OUT1_USE_FINE_PS_GUI": {"value": "'true'", "when": "fine_phase_shift"},
-            "MMCM_CLKOUT0_USE_FINE_PS": {"value": "'true'", "when": "fine_phase_shift"}
+            "MMCM_CLKOUT0_USE_FINE_PS": {"value": "'true'", "when": "fine_phase_shift"},
+            "CLKOUT2_USED": {"value": "'true'", "when": "out2_khz"},
+            "NUM_OUT_CLKS": {"value": "2", "when": "out2_khz"},
+            "CLKOUT2_REQUESTED_OUT_FREQ": {"value": "@np2hw.toolchain.vivado:mhz(out2_khz)", "when": "out2_khz"},
+            "MMCM_CLKOUT1_DIVIDE": {"value": "@revela.boards.common.clocking:whole_divide(in_khz, divclk, mult8, out2_khz)", "when": "out2_khz"},
+            "CLK_OUT2_USE_FINE_PS_GUI": {"value": "'true'", "when": "out2_khz and fine_phase_shift"},
+            "MMCM_CLKOUT1_USE_FINE_PS": {"value": "'true'", "when": "out2_khz and fine_phase_shift"}
           },
-          "ports": {"clk_in": "clk_in1", "clk_out": "clk_out1", "clkin_stopped": "input_clk_stopped", "clkfb_stopped": "clkfb_stopped"}
+          "ports": {"clk_in": "clk_in1", "clk_out": "clk_out1", "clkin_stopped": "input_clk_stopped", "clkfb_stopped": "clkfb_stopped", "clk_out2": "clk_out2", "clkfb_in": "clkfb_in", "clkfb_out": "clkfb_out"}
         }
       }
     }

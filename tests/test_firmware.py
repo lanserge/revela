@@ -35,15 +35,16 @@ static int isp_read(uint32_t a, uint32_t *v) {
     for (size_t i = 0; REVELA_IDS[i].path; i++)
         if (REVELA_IDS[i].addr == a) {
             *v = REVELA_IDS[i].value ^ (uint32_t)bad_id; return 0; }
+    if (a == REVELA_PLL_BASE + 4u) { *v = 1; return 0; }   /* locked */
     *v = (a == REVELA_COMMIT) ? (uint32_t)armed : 0; return 0; }
 static int isp_write(uint32_t a, uint32_t v) {
     if (armed && a < REVELA_RASTER_BASE && a != REVELA_COMMIT) {
         printf("X %u %u\n", (unsigned)a, (unsigned)v); return -1; }
     if (a == REVELA_COMMIT) armed = v && no_frames;  /* 0 releases it */
     printf("W %u %u\n", (unsigned)a, (unsigned)v); return 0; }
-static int mode(uint32_t w, uint32_t h, uint32_t b, uint32_t l, uint32_t f) {
-    printf("S mode %u %u %u %u %u\n", (unsigned)w, (unsigned)h, (unsigned)b,
-           (unsigned)l, (unsigned)f); return 0; }
+static int mode(uint32_t w, uint32_t h, uint32_t b) {
+    printf("S mode %u %u %u\n", (unsigned)w, (unsigned)h, (unsigned)b);
+    return 0; }
 static int expo(uint32_t n) { printf("S exposure %u\n", (unsigned)n); return 0; }
 static int again(uint32_t n) { printf("S gain %u\n", (unsigned)n); return 0; }
 static void nap(uint32_t us) { (void)us; }
@@ -67,8 +68,7 @@ int main(int argc, char **argv) {
 '''
 
 FRAME_1080P30 = ("frame.width=1920 frame.height=1080 frame.bits=12 "
-                 "frame.bayer_phase=1 frame.line_ns=29630 "
-                 "frame.frame_lines=1125")
+                 "frame.bayer_phase=1")
 
 
 def _display(name="1080p30"):
@@ -82,6 +82,7 @@ def _display(name="1080p30"):
 def _maps():
     from np2hw import pipeline as pipelines
     from np2hw.pipeline import compose
+    from revela.boards.common.clocking import tmds_recipe
     from revela.boards.common.scanout import scanout_regs
     regmap = compose.register_map(pipelines.load(
         "revela.boards.pynq_z2.isp:revela_isp_core"))
@@ -90,7 +91,13 @@ def _maps():
              "scanout_regs": {"base": 0x8000, "size": 0x1000,
                               "registers": regs["facts"]["offsets"],
                               "id": regs["facts"]["id"],
-                              "counter_bits": [12, 11]}}
+                              "counter_bits": [12, 11],
+                              "clocks": [
+                                  {"khz": khz, "ps_per_px": ps,
+                                   "pll": tmds_recipe(khz)}
+                                  for khz, ps in ((27000, 1400), (74250, 560),
+                                                  (148500, 280))]},
+             "tmds_pll": {"base": 0x9000, "size": 0x800}}
     return regmap, cable
 
 
@@ -145,9 +152,9 @@ def _addr(regmap):
 
 def test_init_loads_the_build_then_applies_the_configuration(tmp_path):
     """The design's settings, then the sensor's profile at its anchors,
-    one commit; the ISP's window, its commit; the display raster and the
-    picture, armed. Every value to the register the maps state, in that
-    order, and nothing else."""
+    one commit; then the display raster and the picture, armed. The ISP's
+    geometry is its stream's, so nothing else is written. Every value to
+    the register the maps state, in that order."""
     from np2hw.design import profile
     design = {"rgb_gamma.knots_1": 60}
     exe, regmap, cable = _build(tmp_path, design)
@@ -163,13 +170,22 @@ def test_init_loads_the_build_then_applies_the_configuration(tmp_path):
         return addr, value & ((1 << bits) - 1)
     want = [raw(k, v) for k, v in design.items()]
     want += [raw(k, v) for k, v in profile.flatten(fitted, regmap).items()]
-    want += [(a["pipe.window_x0"][0], 0), (a["pipe.window_y0"][0], 0),
-             (a["pipe.window_x1"][0], 1920), (a["pipe.window_y1"][0], 1080),
+    want.append((commit, 1))
+    # the mark, in the corner of the frame the ISP puts out: its own batch
+    from revela.blocks.logo import INSET
+    want += [(a["logo.x0"][0], 1920 - INSET), (a["logo.y0"][0], 1080 - INSET),
              (commit, 1)]
     r = cable["scanout_regs"]
     reg = {k: r["base"] + v for k, v in r["registers"].items()}
     from bayerlink.rasters import raster
     d = raster("1080p30")
+    pll = cable["tmds_pll"]["base"]
+    # the serializer's recipe lands BEFORE the clock moves (SADDR, no
+    # load): the wizard reloads by itself on a lost lock, from whatever its
+    # registers hold then; the load proper comes after
+    want += [(pll + 0x200, 1 | 10 << 8), (pll + 0x208, 2)] * 2
+    want += [(pll + 0x25C, 2), (reg["clk_sel"], 1)]
+    want += [(pll + 0x25C, 3), (reg["ps_per_px"], 560)]
     want += [(reg[f], getattr(d, f)) for f in (
         "h_total", "h_active", "hs_beg", "hs_end", "v_total", "v_active",
         "vs_beg", "vs_end")]
@@ -179,7 +195,7 @@ def test_init_loads_the_build_then_applies_the_configuration(tmp_path):
     assert writes == want
     # the sensor's mode went to the platform, and AE started it from the
     # sensor's own facts
-    assert "S mode 1920 1080 12 29630 1125" in out
+    assert "S mode 1920 1080 12" in out
     assert any(l.startswith("S gain ") for l in out)
 
 
@@ -204,10 +220,10 @@ def test_a_configuration_that_cannot_be_applied_writes_nothing(tmp_path):
 
 def test_the_configuration_reads_back_as_init_takes_it(tmp_path):
     exe, _, _ = _build(tmp_path)
-    _, out = _run(exe, f"init {FRAME_1080P30} {_display('1080p60')} "
+    _, out = _run(exe, f"init {FRAME_1080P30} {_display('720p60')} "
                        "window.center=1", "config")
     config = next(l for l in out if l.startswith("R ok frame."))
-    assert "display.pixel_khz=148500" in config
+    assert "display.h_total=1650" in config
     assert "frame.bayer_phase=1" in config
 
 
@@ -249,13 +265,12 @@ def test_each_part_packages_for_its_slot(tmp_path):
 
 
 def test_a_commit_the_isp_has_not_taken_yet_is_not_a_refusal(tmp_path):
-    """While a mode changes or a link comes up the ISP may have no frame to
-    take a commit at, and refuses writes until it does. The settings and
-    the window go in ONE batch under one commit, so nothing is refused;
-    the firmware says the batch is pending and goes on to the display. A
-    new configuration releases the untaken batch -- the ISP takes a commit
-    only at the end of a frame of its current window, which after a mode
-    change may never come -- and commits its own, the window with it."""
+    """While a link comes up the ISP may have no frame to take a commit
+    at, and refuses writes until it does. The firmware says the batch is
+    pending and goes on to the display; and a mode change -- the ISP
+    follows its stream's header -- writes the ISP only what the frame
+    decides, the mark's place, after releasing the pending batch, so the
+    new batch carries it and no write is refused."""
     exe, _, cable = _build(tmp_path)
     good = f"init {FRAME_1080P30} {_display()} window.center=1"
     writes, out = _run(exe, "--no-frames", good)
@@ -263,25 +278,61 @@ def test_a_commit_the_isp_has_not_taken_yet_is_not_a_refusal(tmp_path):
     assert not any(l.startswith("X ") for l in out), "a write was refused"
     assert any("pending, until the ISP's next frame" in l for l in out)
     r = cable["scanout_regs"]
-    assert writes[-1] == (r["base"] + r["registers"]["arm"], 1)
+    raster = r["base"]
+    assert writes[-1] == (raster + r["registers"]["arm"], 1)
     again, out = _run(exe, "--no-frames", good,
                       "configure frame.width=640 frame.height=480")
     replies = [l for l in out if l.startswith("R ")]
     assert replies[-1] == "R ok", out[-4:]
     assert not any(l.startswith("X ") for l in out), "a write was refused"
-    assert any("untaken batch released" in l for l in out)
+    after = again[len(writes):]
+    from revela.blocks.logo import INSET
+    a = _addr(_maps()[0])
+    commit = a["pipe.commit"][0]
+    isp = [w for w in after if w[0] < raster]
+    assert isp == [(commit, 0), (a["logo.x0"][0], 640 - INSET),
+                   (a["logo.y0"][0], 480 - INSET), (commit, 1)], isp
 
 
 def test_ae_starts_inside_the_frame_it_is_given(tmp_path):
-    """The sensor's default integration was cut for its default frame; a
-    shorter frame -- a faster mode -- clamps it, by the sensor's own
-    margin and by the caller's limit, or the frame would stretch."""
+    """The sensor's default integration was cut for its default frame; the
+    caller's limit -- the longest integration the frame holds, as whoever
+    knows the frame says -- clamps it, or the frame would stretch."""
     exe, _, _ = _build(tmp_path)
-    frame = FRAME_1080P30.replace("frame.frame_lines=1125",
-                                  "frame.frame_lines=504")
-    _, out = _run(exe, f"init {frame} {_display()} window.center=1 aaa.ae=1")
-    lines = [int(l.split()[2]) for l in out if l.startswith("S exposure")]
-    assert lines and lines[0] <= 504 - 4
     _, out = _run(exe, f"init {FRAME_1080P30} {_display()} window.center=1 "
                        "aaa.ae=1 aaa.exposure_max=496")
     assert "S exposure 496" in out
+
+
+def test_a_raster_at_a_clock_the_display_does_not_make_is_refused(tmp_path):
+    """The board's display makes the clocks of its table: a raster at
+    another is refused before anything is written, the status lists them,
+    and a raster at one of them selects its row and its fine steps."""
+    exe, _, _ = _build(tmp_path)
+    writes, out = _run(exe, f"init {FRAME_1080P30} {_display('vga')} "
+                            "window.center=1", "status")
+    assert writes == []
+    assert any("makes no 25175 kHz clock" in l for l in out)
+    assert any("tv_khz=27000,74250,148500" in l for l in out)
+    # 480p's clock is a row: its raster selects it
+    writes, out = _run(exe, f"init {FRAME_1080P30} {_display('480p60')} "
+                            "window.center=1")
+    r = _maps()[1]["scanout_regs"]
+    assert (r["base"] + r["registers"]["clk_sel"], 0) in writes
+    assert (r["base"] + r["registers"]["ps_per_px"], 1400) in writes
+
+
+def test_a_1080p60_raster_selects_the_third_row_and_its_pll_recipe(tmp_path):
+    """148.5 MHz is row 2: the select says 2, the serializer MMCM is given
+    multiplier 5 and divider 1 -- five times the pixel clock -- and the
+    fine steps are that row's."""
+    exe, _, cable = _build(tmp_path)
+    writes, out = _run(exe, f"init {FRAME_1080P30} {_display('1080p60')} "
+                            "window.center=1")
+    assert "R ok" in out, out
+    r, pll = cable["scanout_regs"], cable["tmds_pll"]["base"]
+    reg = {k: r["base"] + v for k, v in r["registers"].items()}
+    assert (reg["clk_sel"], 2) in writes
+    assert writes.count((pll + 0x200, 1 | 5 << 8)) == 2
+    assert writes.count((pll + 0x208, 1)) == 2
+    assert (reg["ps_per_px"], 280) in writes

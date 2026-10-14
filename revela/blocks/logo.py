@@ -12,8 +12,9 @@ indirection.
 The arithmetic, exactly as the hardware does it
 -----------------------------------------------
 
-    inside = (y >= y0) and (y < y0 + SIZE) and (x >= x0) and (x < x0 + SIZE)
-    entry  = shape[((y - y0) & (SIZE-1)) * SIZE + ((x - x0) & (SIZE-1))]
+    dy, dx = y - y0, x - x0           # y0, x0: the placement registers
+    inside = (0 <= dy < SIZE) and (0 <= dx < SIZE)
+    entry  = shape[(dy & (SIZE-1)) * SIZE + (dx & (SIZE-1))]
     out    = ink[entry] if (inside and entry != 0) else pixel
 
 The window test is four comparisons; the address is a shift and an OR,
@@ -41,10 +42,14 @@ register per pixel is what this block exists to avoid.
 Position
 --------
 
-The corner, with a margin, derived from the frame the stream declares.
-Nothing to configure and nothing to keep in step: a stream that changes
-size moves the mark with it. Explicit placement is a register pair, and
-belongs with the rest of the live parameters.
+A register pair, ``x0`` and ``y0``: the mark's top-left corner. Where it
+goes is a choice -- the corner, a margin, out of the way of something --
+and the frame is a run-time fact, so placement is set at run time, by
+whatever sets the mode: the firmware puts it in the frame's corner as it
+applies one. The corner rule itself is here, once: ``corner(extent)``, the
+mark's offset in a frame of that extent, which a design calls for its
+reset values (the build's own frame) and the firmware's map carries as
+``INSET`` for the frame it is given.
 
 Ordering
 --------
@@ -61,10 +66,21 @@ import numpy as np
 from np2hw import Rom, coords
 
 from np2hw.blocks import StreamPort
+from np2hw.blocks.params import Param
 from revela.blocks import ispblock
 
 SIZE = 128                     # power of two: the address is wiring
 MARGIN = 32
+INSET = SIZE + MARGIN          # the mark's corner, from the frame's
+
+
+def corner(extent: int) -> int:
+    """Where the mark starts along a frame `extent` long: in from its end
+    by the mark and its margin."""
+    return int(extent) - INSET
+
+
+corner.expression = True
 
 _ASSET = np.load(Path(__file__).with_name("assets") / "revela_mark.npz")
 _INDEX = _ASSET["index"].astype(np.int64)
@@ -92,31 +108,36 @@ def _ink(bit_depth: int) -> tuple:
 
 
 @ispblock(
-    version=(1, 0),
+    version=(1, 1),
     description="Composite the project's mark into the corner of the frame.",
     inputs=(StreamPort("in",
                        "Display-encoded RGB -- after the tone curve, because "
                        "the mark's colours are display values already."),),
     outputs=(StreamPort("out", "The same RGB, with the mark composited."),),
+    params=[
+        Param(name="x0", bits=16, default=0,
+              description="The mark's left edge, in pixels from the line "
+                          "start: the corner is corner(width)"),
+        Param(name="y0", bits=16, default=0,
+              description="The mark's top edge, in lines from the frame "
+                          "start: the corner is corner(height)"),
+    ],
 )
 def logo(pixel, p, ctx, bit_depth: int):
-    """THE model. Position, one table read, one palette read, a select.
+    """THE model. Position, one table read, one palette read, a select --
+    the position from its registers.
 
     Plain NumPy both ways: on arrays ``coords`` is ``np.indices`` and the
     table reads are fancy indexing; traced, the coordinates become the
     counters every core already keeps and the tables become memories read
     through a register.
     """
-    height, width = pixel.shape[0], pixel.shape[1]
-    if height < SIZE + MARGIN or width < SIZE + MARGIN:
-        raise ValueError(
-            f"the mark is {SIZE}x{SIZE} with a {MARGIN}px margin and this "
-            f"stream is {width}x{height}: too small to carry it")
-    y0, x0 = height - SIZE - MARGIN, width - SIZE - MARGIN
-
     y, x = coords(pixel)
-    inside = (y >= y0) & (y < y0 + SIZE) & (x >= x0) & (x < x0 + SIZE)
-    entry = SHAPE[((y - y0) & (SIZE - 1)) * SIZE + ((x - x0) & (SIZE - 1))]
+    # the pixel's place in the mark: inside when both offsets are in
+    # 0..SIZE-1, and their low bits address the table
+    dy, dx = y - p.y0, x - p.x0
+    inside = (dy >= 0) & (dy < SIZE) & (dx >= 0) & (dx < SIZE)
+    entry = SHAPE[(dy & (SIZE - 1)) * SIZE + (dx & (SIZE - 1))]
     paint = inside & (entry > 0)
 
     ink = _ink(bit_depth)

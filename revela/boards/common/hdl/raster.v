@@ -105,34 +105,47 @@ module raster #(
     // the host wrote.
     wire [16:0] h_act = {{(17-XB){1'b0}}, h_active};
     wire [16:0] v_act = {{(17-YB){1'b0}}, v_active};
-    wire [16:0] c_x0 = (h_act > win_w) ? ((h_act - win_w) >> 1) : 17'd0;
-    wire [16:0] c_y0 = (v_act > win_h) ? ((v_act - win_h) >> 1) : 17'd0;
-    wire [16:0] w_x0_n = center ? c_x0 : {1'b0, win_x0};
-    wire [16:0] w_y0_n = center ? c_y0 : {1'b0, win_y0};
-    wire [17:0] x_end_n = w_x0_n + win_w;
-    wire [17:0] y_end_n = w_y0_n + win_h;
-    wire fits_n = (win_w != 0) && (win_h != 0)
-               && (x_end_n <= h_act) && (y_end_n <= v_act);
+    wire [16:0] c_x0_n = (h_act > win_w) ? ((h_act - win_w) >> 1) : 17'd0;
+    wire [16:0] c_y0_n = (v_act > win_h) ? ((v_act - win_h) >> 1) : 17'd0;
 
     // Every one of those is FRAME-CONSTANT, so it is worked out once and
     // compared against, not worked out again beneath every pixel: the
     // first build that put placement on registers missed setup by 124 ps
     // with that arithmetic under the pixel path. The mode's own derived
-    // numbers are frame-constant too, and get the same treatment.
+    // numbers are frame-constant too, and get the same treatment. And a
+    // step a cycle -- centring, origin, end, fit -- since as one cycle
+    // they missed a 148.5 MHz clock.
+    reg [16:0] c_x0 = 17'd0, c_y0 = 17'd0;
     reg [16:0] w_x0 = 17'd0, w_y0 = 17'd0;
     reg [17:0] x_end = 18'd0, y_end = 18'd0;
     reg fits = 1'b0;
     reg [PB-1:0] frame_px = 0;          // pixels in a frame
     reg [XB:0]   two_lines = 0;         // pixels in two lines
     reg [OB-1:0] owed_cap = 0;          // the most debt one arrival sets
+    reg [17:0] x_last = 18'd0, y_last = 18'd0;   // the window's last pixel
+    reg [XB-1:0] h_last = 0;            // the line's last pixel
+    reg [YB-1:0] v_last = 0;            // the frame's last line
     always @(posedge clk) begin
-        w_x0  <= w_x0_n;  w_y0  <= w_y0_n;
-        x_end <= x_end_n; y_end <= y_end_n;
-        fits  <= fits_n;
+        c_x0  <= c_x0_n;  c_y0  <= c_y0_n;
+        w_x0  <= center ? c_x0 : {1'b0, win_x0};
+        w_y0  <= center ? c_y0 : {1'b0, win_y0};
+        x_end <= w_x0 + win_w; y_end <= w_y0 + win_h;
+        x_last <= x_end - 1'b1; y_last <= y_end - 1'b1;
+        fits  <= (win_w != 0) && (win_h != 0)
+              && (x_end <= h_act) && (y_end <= v_act);
+        h_last <= h_total - 1'b1; v_last <= v_total - 1'b1;
         frame_px  <= h_total * v_total;
         two_lines <= {h_total, 1'b0};
         owed_cap  <= {h_total, 1'b0} * ps_per_px;
     end
+    // the counters start once those have settled after reset, so they
+    // are worked out from the mode the raster starts on, not the one
+    // before it: four stages deep, held a cycle longer
+    reg [2:0] hold = 3'd5;
+    always @(posedge clk)
+        if (rst || !locked) hold <= 3'd5;
+        else if (hold != 0) hold <= hold - 1'b1;
+    wire held = hold != 0;
     // the readback follows the copy the raster is USING
     assign act_x0 = w_x0[15:0];
     assign act_y0 = w_y0[15:0];
@@ -143,9 +156,9 @@ module raster #(
                && (x >= w_x0) && (x < x_end)
                && (y >= w_y0) && (y < y_end);
     wire first_px = in_win && (x == w_x0[XB-1:0]) && (y == w_y0[YB-1:0]);
-    wire last_px  = in_win && (x == (x_end - 1)) && (y == (y_end - 1));
-    wire line_end  = (x >= h_total - 1'b1);
-    wire frame_end = line_end && (y >= v_total - 1'b1);
+    wire last_px  = in_win && (x == x_last) && (y == y_last);
+    wire line_end  = (x >= h_last);
+    wire frame_end = line_end && (y >= v_last);
 
     reg [15:0] in_period;               // line ticks since the last arrival
     reg head_sof_d;                     // one arrival edge per input frame
@@ -180,22 +193,32 @@ module raster #(
     wire sof_arr = head_sof && !head_sof_d;
     wire [YB:0] wy0 = w_y0[YB:0];
     wire [YB:0] vtot = {1'b0, v_total};
-    wire [YB:0] arr_tgt = (wy0 >= G_LEAD) ? (wy0 - G_LEAD)
-                                          : (vtot + wy0 - G_LEAD);
-    // signed-shortest-way phase error, in whole lines
-    wire [YB:0] arr_dy = ({1'b0, y} >= arr_tgt) ? ({1'b0, y} - arr_tgt)
-                                                : ({1'b0, y} + vtot - arr_tgt);
-    wire arr_late = (arr_dy != 0) && (arr_dy < (vtot >> 1));
-    wire [YB:0] arr_err = arr_late ? arr_dy
-                        : (arr_dy == 0) ? {(YB+1){1'b0}}
-                        : (vtot - arr_dy);
+    // the target is frame-constant, so registered like the window it
+    // follows
+    reg [YB:0] arr_tgt = 0;
+    always @(posedge clk)
+        arr_tgt <= (wy0 >= G_LEAD) ? (wy0 - G_LEAD) : (vtot + wy0 - G_LEAD);
+    // signed-shortest-way phase error, in whole lines -- registered, in
+    // two steps: it only decides jam-or-steer, where a line's lag at a
+    // line boundary changes nothing, and under the arrival's decision it
+    // missed a 148.5 MHz clock by 4.7 ns. The fine measurement below captures the
+    // arrival's own x and y, not this.
+    reg [YB:0] arr_dy = 0, arr_err = 0;
+    always @(posedge clk) begin
+        arr_dy <= ({1'b0, y} >= arr_tgt) ? ({1'b0, y} - arr_tgt)
+                                         : ({1'b0, y} + vtot - arr_tgt);
+        arr_err <= (arr_dy < (vtot >> 1)) ? arr_dy : (vtot - arr_dy);
+    end
     // the same error in PIXELS, what the phase shifter can steer, in a
     // REGISTERED pipeline, one multiply a cycle: the single-cycle cone
     // missed timing by 2.3 ns. Once a frame, so the latency is free.
     reg [XB-1:0] arr_x;
     reg [YB-1:0] arr_y;
-    reg [2:0] calc;                     // one-hot measurement pipeline
-    reg [PB:0] pos_r, tgt_r, err_r;
+    reg [6:0] calc;                     // one-hot measurement pipeline
+    reg [PB:0] pos_r, tgt_r, diff_r, dist_r, back_r, err_r;
+    reg ahead_r;
+    reg [OB-1:0] steps_r;
+    reg capped_r, small_r;
     reg late_r;
     wire [PB:0] fpx = {1'b0, frame_px};
     wire [PB:0] half = fpx >> 1;
@@ -207,7 +230,7 @@ module raster #(
     wire [31:0] selftest_px = {4{x[7:0]}};
     always @(posedge clk) begin
         alive <= alive + 1;
-        if (rst || !locked) begin
+        if (rst || !locked || held) begin
             x <= 0; y <= 0; armed <= 0; ever_armed <= 0;
             in_period <= 0; head_sof_d <= 0;
             owed <= 0; owed_ret <= 0; calc <= 0;
@@ -264,43 +287,60 @@ module raster #(
                             y <= arr_tgt[YB-1:0];
                             jam_cool <= 6'd63;
                         end
-                        owed <= 0; calc <= 3'b000;
+                        owed <= 0; calc <= 7'b0000000;
                     end else begin
                         // within steering: capture the arrival, measure
-                        // over the next three cycles
+                        // over the next seven cycles
                         arr_x <= x; arr_y <= y;
-                        calc <= 3'b001;
+                        calc <= 7'b0000001;
                     end
                 end
             end
             if (calc[0]) begin
                 pos_r <= arr_y * h_total + arr_x;
                 tgt_r <= arr_tgt * h_total;
-                calc <= 3'b010;
+                calc <= 7'b0000010;
             end
+            // the arrival's distance past the target: the difference,
+            // then the frame wrapped in; then the shorter way round, which
+            // way and how far, then the choice. A cycle each: as one they
+            // missed a 148.5 MHz clock by 1.4 ns.
             if (calc[1]) begin
-                if (pos_r >= tgt_r) begin
-                    late_r <= (pos_r - tgt_r) < half;
-                    err_r <= ((pos_r - tgt_r) < half) ? (pos_r - tgt_r)
-                                                      : (fpx - (pos_r - tgt_r));
-                end else begin
-                    late_r <= (pos_r + fpx - tgt_r) < half;
-                    err_r <= ((pos_r + fpx - tgt_r) < half) ? (pos_r + fpx - tgt_r)
-                                                           : (tgt_r - pos_r);
-                end
-                calc <= 3'b100;
+                diff_r <= pos_r - tgt_r;
+                ahead_r <= pos_r < tgt_r;
+                calc <= 7'b0000100;
             end
             if (calc[2]) begin
-                if (err_r > 1) begin
+                dist_r <= ahead_r ? diff_r + fpx : diff_r;
+                calc <= 7'b0001000;
+            end
+            if (calc[3]) begin
+                late_r <= dist_r < half;
+                back_r <= fpx - dist_r;
+                calc <= 7'b0010000;
+            end
+            if (calc[4]) begin
+                err_r <= late_r ? dist_r : back_r;
+                calc <= 7'b0100000;
+            end
+            // the debt in steps, and whether it is capped, in one cycle;
+            // the choice in the next
+            if (calc[5]) begin
+                steps_r <= err_r[XB:0] * ps_per_px;
+                capped_r <= err_r > two_lines;
+                small_r <= err_r <= 1;
+                calc <= 7'b1000000;
+            end
+            if (calc[6]) begin
+                if (!small_r) begin
                     // past two lines the debt is capped, so the multiply
                     // only ever sees an error that fits two lines
-                    owed <= (err_r > two_lines) ? owed_cap
-                                                : err_r[XB:0] * ps_per_px;
+                    owed <= capped_r ? owed_cap : steps_r;
                     owed_ret <= late_r;
                 end else begin
                     owed <= 0;
                 end
-                calc <= 3'b000;
+                calc <= 7'b0000000;
             end
             // source gone: stop steering and say so. The raster needs no
             // restoring -- it never moved.

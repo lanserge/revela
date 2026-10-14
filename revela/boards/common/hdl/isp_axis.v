@@ -79,22 +79,42 @@ module isp_axis #(
     // the framebuffer's word; the cable's is its low three bytes
     wire [31:0] word = {8'h00, r8, b8, g8};
     reg        u_q = 1'b0, l_q = 1'b0;
+    // ...and a spare beat behind it, so in_ready is a register too: a
+    // ready passed straight back hands the sink's depth to the source --
+    // a raster's ready, worked out from its counters, was the FIFO's
+    // read-pointer logic's, and missed a 148.5 MHz clock. The spare is
+    // fenced like the output: reset stops new beats, never drops one.
+    reg        v_s = 1'b0, u_s = 1'b0, l_s = 1'b0;
+    reg [(FB_WORD ? 32 : 24)-1:0] d_s = 0;
 
     assign m_axis_tvalid = v_q;
     assign m_axis_tdata  = d_q;
     assign m_axis_tuser  = u_q;
     assign m_axis_tlast  = l_q;
     assign m_axis_tkeep  = {(FB_WORD ? 4 : 3){1'b1}};
-    assign in_ready      = !rst && (!v_q || m_axis_tready);
+    assign in_ready      = !rst && !v_s;
 
+    wire take = in_valid && in_ready;
     always @(posedge clk) begin
-        if (v_q && m_axis_tready)
-            v_q <= 1'b0;
-        if (!rst && in_valid && (!v_q || m_axis_tready)) begin
-            v_q <= 1'b1;
-            d_q <= word[(FB_WORD ? 32 : 24)-1:0];
-            u_q <= in_sof;
-            l_q <= in_eol;
+        if (v_q && m_axis_tready) begin
+            if (v_s) begin
+                d_q <= d_s; u_q <= u_s; l_q <= l_s; v_s <= 1'b0;
+            end else
+                v_q <= 1'b0;
+        end
+        if (take) begin
+            if (!v_q || m_axis_tready) begin
+                // the output is free, or freed now with no spare behind
+                v_q <= 1'b1;
+                d_q <= word[(FB_WORD ? 32 : 24)-1:0];
+                u_q <= in_sof;
+                l_q <= in_eol;
+            end else begin
+                v_s <= 1'b1;
+                d_s <= word[(FB_WORD ? 32 : 24)-1:0];
+                u_s <= in_sof;
+                l_s <= in_eol;
+            end
         end
     end
 endmodule

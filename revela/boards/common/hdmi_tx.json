@@ -4,11 +4,13 @@
       "description": "An HDMI/DVI transmitter: parallel video in, a TMDS link out. Every implementation offers these ports; how it is configured on a board, and which pins it lands on, is that board's.",
       "parameters": {
         "implementation": {"default": "'rgb2dvi'", "description": "Which implementation fills this block."},
-        "pixel_khz": {"description": "The pixel clock it transmits at."}
+        "pixel_khz": {"description": "The pixel clock it transmits at."},
+        "serial_clock": {"default": 0, "description": "1: its bit clock, five times the pixel clock, is given (sclk) rather than made inside -- one clock manager for the raster and its serializer, at any pixel clock that manager can make."}
       },
       "inputs": [
         {"name": "rgb", "bus": "video", "width": 24, "description": "The raster's video, 8 bits a channel."},
         {"name": "pclk", "description": "The pixel clock."},
+        {"name": "sclk", "when": "serial_clock", "description": "Five times pclk, in phase with it."},
         {"name": "rst", "description": "Asynchronous, active high."}
       ],
       "outputs": [
@@ -19,15 +21,15 @@
           "description": "Digilent's rgb2dvi on a 7-series part: TMDS encoded and serialised in the fabric, its serial clock made by its own PLL. Needs Digilent's vivado-library in the IP catalogue.",
           "vivado": {"ip": "digilentinc.com:ip:rgb2dvi"},
           "config": {
-            "kGenerateSerialClk": "'true'",
+            "kGenerateSerialClk": "'false' if serial_clock else 'true'",
             "kClkPrimitive": "'PLL'",
             "kRstActiveHigh": "'true'",
-            "kClkRange": "1 if pixel_khz >= 120000 else 2"
+            "kClkRange": "1 if serial_clock or pixel_khz >= 120000 else 2 if pixel_khz >= 60000 else 3"
           },
           "ports": {
             "rgb": "RGB", "rgb_active_video": "vid_pVDE", "rgb_data": "vid_pData",
             "rgb_hsync": "vid_pHSync", "rgb_vsync": "vid_pVSync",
-            "pclk": "PixelClk", "rst": "aRst"
+            "pclk": "PixelClk", "sclk": "SerialClk", "rst": "aRst"
           }
         }
       }

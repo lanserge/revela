@@ -240,14 +240,15 @@ def test_the_build_writes_its_netlist(built):
         assert len(net["drivers"]) <= 1
         assert len(set(net["widths"].values())) <= 1 or net.get("ranged")
     # a bundle is its members' nets: the raster reaches the transmitter
-    # signal by signal, though the two name their bundles differently
+    # signal by signal, through the crossing into its pixel clock, though
+    # the three name their bundles differently
     nets = [set(net["pins"]) for net in netlist["nets"]]
-    for src, dst in (("vid_active_video", "rgb_active_video"),
-                     ("vid_data", "rgb_data"), ("vid_hsync", "rgb_hsync"),
-                     ("vid_vsync", "rgb_vsync")):
-        assert {f"fabric.scanout.{src}", f"hdmi_out.hdmi_tx.{dst}"} in [
-            n & {f"fabric.scanout.{src}", f"hdmi_out.hdmi_tx.{dst}"}
-            for n in nets], (src, dst)
+    for sig, dst in (("active_video", "rgb_active_video"),
+                     ("data", "rgb_data"), ("hsync", "rgb_hsync"),
+                     ("vsync", "rgb_vsync")):
+        for a, b in ((f"fabric.scanout.vid_{sig}", f"tx_cdc.vid_in_{sig}"),
+                     (f"tx_cdc.vid_out_{sig}", f"hdmi_out.hdmi_tx.{dst}")):
+            assert {a, b} in [n & {a, b} for n in nets], (a, b)
 
 
 def test_every_bus_answers_whatever_the_cable_does():
@@ -261,28 +262,57 @@ def test_every_bus_answers_whatever_the_cable_does():
 
 
 
-@pytest.mark.parametrize("mode, divide, steps", [("1080p30", "10.000", 560),
-                                                  ("1080p60", "5.000", 280)])
-def test_the_raster_genlocks_at_the_rate_its_mode_runs(mode, divide, steps):
-    """One recipe, every mode it divides to: the raster's clock makes the
-    mode's pixel rate exactly, and the scanout counts the fine steps that
-    clock's pixel is -- both from the recipe, so they cannot disagree."""
+@pytest.mark.parametrize("mode, row, steps", [("480p60", 0, 1400),
+                                               ("1080p30", 1, 560),
+                                               ("1080p60", 2, 280)])
+def test_the_display_clock_resets_to_its_modes_row(mode, row, steps):
+    """Two clock managers make the board's three display clocks -- row 0
+    27 MHz from 675 MHz, rows 1 and 2 74.25 and 148.5 MHz from 742.5 MHz
+    -- and the raster's register file resets the select to the default
+    mode's row, with the fine steps that row's pixel is."""
     from np2hw.design.composite import load
     design = load("revela.boards.pynq_z2.pynq_demo",
-                  build={"link_mode": repr(mode)})
-    clock = design.instances["clk_raster"].config
-    assert clock["MMCM_CLKOUT0_DIVIDE_F"] == divide
-    assert clock["MMCM_CLKFBOUT_MULT_F"] == "37.125"
+                  build={"mode": repr(mode)})
+    assert design.instances["clk_raster27"].config[
+        "MMCM_CLKOUT0_DIVIDE_F"] == "25.000"
+    raster = design.instances["clk_raster"].config
+    assert raster["MMCM_CLKOUT0_DIVIDE_F"] == "10.000"
+    assert int(raster["MMCM_CLKOUT1_DIVIDE"]) == 5
     regs = design.instances["fabric.scanout_regs"].leaf["files"][
         "scanout_regs.v"]
-    assert re.search(rf"reg_ps_per_px\s*<=\s*{steps};", regs), \
-        "the raster's steps, as its register resets"
+    assert re.search(rf"reg_clk_sel\s*<=\s*{row};", regs)
+    assert re.search(rf"reg_ps_per_px\s*<=\s*{steps};", regs)
+
+
+def test_a_mode_whose_clock_the_board_does_not_make_is_refused():
+    """VGA's 25.175 MHz is not a row of this board's clock table."""
+    from np2hw.design.composite import load
+    with pytest.raises(Exception, match="not in the clock table|does not "
+                                        "divide"):
+        load("revela.boards.pynq_z2.pynq_demo",
+             build={"mode": "'vga'"}, generate=False)
 
 
 def test_a_rate_the_recipe_cannot_make_is_refused():
-    """480p's 27 MHz is not a whole division of the 742.5 MHz VCO: the
-    build says so rather than letting the wizard land somewhere near."""
-    from np2hw.design.composite import load
-    with pytest.raises(Exception, match="does not divide"):
-        load("revela.boards.pynq_z2.pynq_demo",
-             build={"mode": "'480p60'"}, generate=False)
+    """27 MHz is not a whole division of the 742.5 MHz VCO: the recipe
+    helper says so rather than letting the wizard land somewhere near --
+    which is why 480p has a clock manager of its own."""
+    from revela.boards.common.clocking import output_divide
+    with pytest.raises(ValueError, match="does not divide"):
+        output_divide(200000, 10, 297, 27000)
+
+
+def test_the_cable_map_publishes_the_display_clocks(built):
+    """The far end learns the display's clocks from the build, row by row
+    of the clock select, each with the fine steps its pixel is."""
+    cable = json.loads((built / "generated" / "cable_map.json").read_text())
+    assert cable["scanout_regs"]["clocks"] == [
+        {"khz": 27000, "ps_per_px": 1400,
+         "pll": {"divclk": 1, "mult": 25, "out0": 5}},
+        {"khz": 74250, "ps_per_px": 560,
+         "pll": {"divclk": 1, "mult": 10, "out0": 2}},
+        {"khz": 148500, "ps_per_px": 280,
+         "pll": {"divclk": 1, "mult": 5, "out0": 1}}]
+    # the serializer MMCM's registers are on the cable's bus too
+    assert "tmds_pll" in cable
+    assert "clk_sel" in cable["scanout_regs"]["registers"]

@@ -178,13 +178,39 @@ def main(argv=None) -> int:
         if "offsets" in facts:
             entry.update(registers=facts["offsets"], id=facts["id"])
         return entry
+    def display_clocks():
+        # each row's clock, from the clock manager configured to make it:
+        # a fine step is a 56th of a VCO period, so a pixel is 56 times
+        # its output's divider in steps; and the serializer MMCM's recipe
+        # for that clock
+        from revela.boards.common.clocking import (STEPS_PER_VCO_PERIOD,
+                                                   tmds_recipe)
+        made = {}
+        for i in design.instances.values():
+            c = i.config
+            if "MMCM_CLKOUT0_DIVIDE_F" not in c:
+                continue
+            outs = [("CLKOUT1_REQUESTED_OUT_FREQ", "MMCM_CLKOUT0_DIVIDE_F")]
+            if "MMCM_CLKOUT1_DIVIDE" in c:
+                outs.append(("CLKOUT2_REQUESTED_OUT_FREQ",
+                             "MMCM_CLKOUT1_DIVIDE"))
+            for freq, divide in outs:
+                made[round(float(c[freq]) * 1000)] = round(
+                    STEPS_PER_VCO_PERIOD * float(c[divide]))
+        return [{"khz": int(k), "ps_per_px": made[int(k)],
+                 "pll": tmds_recipe(int(k))}
+                for k in design.parameters["tv_khz_rows"]]
     # the display's counters, which bound the rasters it can scan
     raster = next(i for p, i in design.instances.items()
                   if p.endswith(".scanout"))
     counters = {k: int(raster.build[k]) for k in ("XB", "YB")}
     (out / "generated" / "cable_map.json").write_text(json.dumps(
         {path.rpartition(".")[2]: dict(far(path, w), **(
-            {"counter_bits": [counters["XB"], counters["YB"]]}
+            {"counter_bits": [counters["XB"], counters["YB"]],
+             # the display's clocks, row by row of its clock select, with
+             # the fine steps each row's pixel is: a raster at any other
+             # clock is refused
+             "clocks": display_clocks()}
             if "offsets" in design.instances[path].leaf.get("facts", {})
             else {}))
          for path, w in address_map(design, CABLE).items()},

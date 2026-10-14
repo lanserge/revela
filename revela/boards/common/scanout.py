@@ -27,22 +27,24 @@ def layout_id(fields) -> int:
     return zlib.crc32(repr(list(fields)).encode()) & 0xFFFFFFFF
 
 
-def scanout_regs(mode: str, ps_per_pixel: int) -> dict:
+def scanout_regs(mode: str, ps_per_pixel: int, clk_sel: int = 0) -> dict:
     """The raster's register file, reset to `mode` (``"1080p30"``) with
-    `ps_per_pixel` fine phase steps a pixel: a leaf a design names
-    (`revela.boards.common.scanout:scanout_regs`) and wires to `scanout`.
-    Every port is published."""
+    `ps_per_pixel` fine phase steps a pixel and the display clock at row
+    `clk_sel` of the build's clock table: a leaf a design names
+    (`revela.boards.common.scanout:scanout_regs`) and wires to `scanout`
+    and the clock select. Every port is published."""
     from bayerlink.rasters import raster
     from np2hw import axil_regfile
     from np2hw.regmap import Reg
 
     r = raster(mode)
     fields = ([(name, 16) for name in MODE]
-              + [("hs_pos", 1), ("vs_pos", 1), ("ps_per_px", 16),
+              + [("clk_sel", 2), ("hs_pos", 1), ("vs_pos", 1), ("ps_per_px", 16),
                  ("win_x0", 16), ("win_y0", 16), ("win_w", 16),
                  ("win_h", 16), ("center", 1), ("arm", 1)])
     defaults = {name: getattr(r, name) for name in MODE}
-    defaults.update(hs_pos=int(r.hsync_positive), vs_pos=int(r.vsync_positive),
+    defaults.update(clk_sel=int(clk_sel),
+                    hs_pos=int(r.hsync_positive), vs_pos=int(r.vsync_positive),
                     ps_per_px=int(ps_per_pixel),
                     win_x0=0, win_y0=0, win_w=r.h_active, win_h=r.v_active,
                     center=1, arm=1)

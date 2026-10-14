@@ -34,10 +34,9 @@ HERE = Path(__file__).resolve().parent
 HEADERS = ("revela_hal.h", "revela_fw.h", "revela_algo.h", "revela_sensor.h")
 LOOPS = ("ae", "awb", "af")
 RASTER = "scanout_regs"         # the cable map's display raster file
-RASTER_FIELDS = ("h_total", "h_active", "hs_beg", "hs_end", "v_total",
+RASTER_FIELDS = ("clk_sel", "ps_per_px", "h_total", "h_active", "hs_beg", "hs_end", "v_total",
                  "v_active", "vs_beg", "vs_end", "hs_pos", "vs_pos",
                  "win_x0", "win_y0", "win_w", "win_h", "center", "arm")
-ISP_WINDOW = ("window_x0", "window_y0", "window_x1", "window_y1")
 
 
 def api(header: str, name: str) -> int:
@@ -120,9 +119,6 @@ def core_map_h(regmap: dict, cable_map: dict,
              f'0x{raster["id"]:08X}u }},')
     L += ["    { 0, 0, 0 },", "};", ""]
     L.append(f"#define REVELA_COMMIT 0x{where[commit][0]:04X}u")
-    for reg in ISP_WINDOW:
-        L.append(f"#define REVELA_WIN_{reg[-2:].upper()} "
-                 f"0x{where['pipe.' + reg][0]:04X}u")
     if "pipe.bayer_phase" in where:
         L.append(f"#define REVELA_BAYER_PHASE "
                  f"0x{where['pipe.bayer_phase'][0]:04X}u")
@@ -130,12 +126,36 @@ def core_map_h(regmap: dict, cable_map: dict,
         L.append("/* no Bayer phase register: this build's phase rides "
                  "its stream */")
     L.append(f"#define REVELA_ISP_WIDTH {int(regmap['geometry']['width'])}u")
+    L.append(f"#define REVELA_ISP_HEIGHT {int(regmap['geometry']['height'])}u")
+    # the mark, where the build carries one: its placement registers, and
+    # the corner rule's inset, which is the block's
+    marks = [b["path"] for b in regmap["blocks"] if b["block"] == "logo"]
+    if len(marks) > 1:
+        raise ValueError(f"this build carries {len(marks)} marks ({marks}); "
+                         "the firmware places one")
+    if marks:
+        from revela.blocks.logo import INSET
+        L.append(f"#define REVELA_LOGO_X0 0x{where[marks[0] + '.x0'][0]:04X}u")
+        L.append(f"#define REVELA_LOGO_Y0 0x{where[marks[0] + '.y0'][0]:04X}u")
+        L.append(f"#define REVELA_LOGO_INSET {INSET}u")
     L.append(f"#define REVELA_RASTER_BASE 0x{raster['base']:04X}u")
     for f in RASTER_FIELDS:
         L.append(f"#define REVELA_R_{f.upper()} "
                  f"0x{raster['base'] + raster['registers'][f]:04X}u")
     xb, yb = raster["counter_bits"]
-    L += [f"#define REVELA_RASTER_XB {int(xb)}u",
+    clocks = raster["clocks"]
+    L += ["/* the display's clocks, row by row of its clock select: each with",
+          " * the fine steps its pixel is and its serializer MMCM's recipe */",
+          "static const struct { uint32_t khz, ps_per_px, divclk, mult, out0; }",
+          "REVELA_CLOCKS[] = {"]
+    L += [f"    {{ {int(c['khz'])}u, {int(c['ps_per_px'])}u, "
+          f"{int(c['pll']['divclk'])}u, {int(c['pll']['mult'])}u, "
+          f"{int(c['pll']['out0'])}u }}," for c in clocks]
+    L += ["};", f"#define REVELA_N_CLOCKS {len(clocks)}u"]
+    if "tmds_pll" in cable_map:
+        L.append(f"#define REVELA_PLL_BASE 0x{cable_map['tmds_pll']['base']:04X}u")
+    L += [
+          f"#define REVELA_RASTER_XB {int(xb)}u",
           f"#define REVELA_RASTER_YB {int(yb)}u", "", "#endif"]
     return "\n".join(L) + "\n"
 

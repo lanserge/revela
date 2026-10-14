@@ -351,6 +351,164 @@
      "description": "How many lines early a frame's start should arrive: storage the elastic before the raster holds."
     }
    }
+  },
+  "clock_select": {
+   "description": "The display's pixel clock, one of three chosen at run time through cascaded glitch-free global multiplexers; the chosen row's lock and step-done passed on, the lock held low a while after a switch.",
+   "inputs": [
+    {
+     "name": "sel",
+     "width": 2,
+     "description": "The build's clock table row: 0, 1 or 2."
+    },
+    {
+     "name": "clk_0"
+    },
+    {
+     "name": "locked_0"
+    },
+    {
+     "name": "psdone_0"
+    },
+    {
+     "name": "clk_1"
+    },
+    {
+     "name": "locked_1"
+    },
+    {
+     "name": "psdone_1"
+    },
+    {
+     "name": "clk_2"
+    },
+    {
+     "name": "locked_2"
+    },
+    {
+     "name": "psdone_2"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "clk",
+     "description": "The display's pixel clock."
+    },
+    {
+     "name": "locked"
+    },
+    {
+     "name": "psdone"
+    }
+   ],
+   "vivado": {
+    "module": "clock_select"
+   },
+   "sources": [
+    "hdl/clock_select.v"
+   ],
+   "parameters": {
+    "HOLD": {
+     "default": 1024,
+     "description": "Display clocks the raster is held in reset after a switch."
+    }
+   }
+  },
+  "tmds_clocking": {
+   "description": "A TMDS serializer's clocks from the PLL beside it: the x5 output through a BUFIO for the bit clock and a BUFR dividing by five for the serializer's pixel clock, cleared on lock gained, the PLL's feedback through a deskew BUFR -- rgb2dvi's arrangement, the PLL outside so the firmware can reprogram it.",
+   "inputs": [
+    {
+     "name": "pclk",
+     "description": "The PLL's input: the display's pixel clock."
+    },
+    {
+     "name": "pclk_locked",
+     "description": "That clock is steady."
+    },
+    {
+     "name": "x5",
+     "description": "The PLL's x5 output, unbuffered."
+    },
+    {
+     "name": "fb_out",
+     "description": "The PLL's feedback out."
+    },
+    {
+     "name": "locked",
+     "description": "The PLL's lock."
+    }
+   ],
+   "outputs": [
+    {
+     "name": "fb_in",
+     "description": "The feedback, back to the PLL through the deskew buffer."
+    },
+    {
+     "name": "sclk",
+     "description": "The bit clock."
+    },
+    {
+     "name": "pclk_io",
+     "description": "The serializer's pixel clock."
+    },
+    {
+     "name": "rst",
+     "description": "The transmitter's reset: high until both clocks lock."
+    }
+   ],
+   "vivado": {
+    "module": "tmds_clocking"
+   },
+   "sources": [
+    "hdl/tmds_clocking.v"
+   ],
+   "parameters": {}
+  },
+  "video_cdc": {
+   "description": "A raster into a transmitter's own pixel clock -- the same frequency, an unknown phase -- through a sixteen-entry ring the reader follows a few entries behind the writer.",
+   "inputs": [
+    {
+     "name": "wclk",
+     "description": "The raster's clock."
+    },
+    {
+     "name": "vid_in",
+     "width": "DW",
+     "bus": "video",
+     "description": "The raster."
+    },
+    {
+     "name": "rclk",
+     "description": "The transmitter's pixel clock: the raster clock's frequency, any phase."
+    },
+    {
+     "name": "rrst",
+     "description": "The transmitter's reset, asynchronous: the reader is placed behind the writer as it ends."
+    }
+   ],
+   "outputs": [
+    {
+     "name": "vid_out",
+     "width": "DW",
+     "bus": "video",
+     "description": "The raster, in the transmitter's clock."
+    }
+   ],
+   "vivado": {
+    "module": "video_cdc"
+   },
+   "sources": [
+    "hdl/video_cdc.v"
+   ],
+   "parameters": {
+    "DW": {
+     "default": 24,
+     "description": "The video word."
+    },
+    "LAG": {
+     "default": 4,
+     "description": "Entries the reader starts behind the writer."
+    }
+   }
   }
  }
 }

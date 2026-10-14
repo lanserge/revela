@@ -14,6 +14,7 @@ refused here, before Vivado rounds it to something near.
 # The VCO's range at the -1 speed grade, and the fine phase shifter's
 # resolution: one step is 1/56 of a VCO period (UG472).
 VCO_KHZ = (600_000, 1_200_000)
+# A PLL's VCO range at the same grade (DS187).
 STEPS_PER_VCO_PERIOD = 56
 
 
@@ -53,6 +54,15 @@ def output_divide(in_khz: int, divclk: int, mult8: int, out_khz: int) -> str:
 output_divide.expression = True
 
 
+def whole_divide(in_khz: int, divclk: int, mult8: int, out_khz: int) -> int:
+    """The recipe's divider for `out_khz`, as a whole number: for an
+    output whose divider takes no fraction."""
+    return _divide(in_khz, divclk, mult8, out_khz)
+
+
+whole_divide.expression = True
+
+
 def fine_steps(in_khz: int, divclk: int, mult8: int, out_khz: int) -> int:
     """Fine phase steps in one period of the output: what a raster
     steering this clock counts per pixel."""
@@ -71,3 +81,27 @@ def pixel_khz(mode: str) -> int:
 
 
 pixel_khz.expression = True
+
+
+def row(table, khz: int) -> int:
+    """Which row of a clock table makes `khz`: for a design's expression
+    to reset a clock select to its default."""
+    rows = [int(k) for k in table]
+    if int(khz) not in rows:
+        raise ValueError(f"{khz} kHz is not in the clock table {rows}")
+    return rows.index(int(khz))
+
+
+row.expression = True
+
+
+def tmds_recipe(khz: int) -> dict:
+    """The serializer MMCM's recipe for a pixel clock of `khz`: the
+    smallest feedback multiplier that is a multiple of five and puts the
+    VCO in its range, the x5 output's divider a fifth of it -- so the
+    output is five times the input at every clock. Refused where no
+    multiplier does."""
+    for mult in range(5, 65, 5):
+        if VCO_KHZ[0] <= khz * mult <= VCO_KHZ[1]:
+            return {"divclk": 1, "mult": mult, "out0": mult // 5}
+    raise ValueError(f"no serializer PLL recipe makes 5 x {khz} kHz")

@@ -17,6 +17,10 @@
     "cable_data_bits": {
      "default": 24,
      "description": "The cable's bits a pixel: 8 a channel."
+    },
+    "serial_clock": {
+     "default": 0,
+     "description": "1: the transmitter's bit clock is given (serial_clk), made with the pixel clock by one clock manager, rather than by the transmitter's own PLL."
     }
    },
    "inputs": [
@@ -26,6 +30,11 @@
     },
     {
      "name": "pixel_clk"
+    },
+    {
+     "name": "serial_clk",
+     "when": "serial_clock",
+     "description": "Five times pixel_clk, in phase with it."
     },
     {
      "name": "reset"
@@ -44,7 +53,8 @@
     "hdmi_tx": {
      "block": "revela.boards.common.hdmi_tx",
      "build": {
-      "pixel_khz": "out_khz"
+      "pixel_khz": "out_khz",
+      "serial_clock": "serial_clock"
      }
     }
    },
@@ -57,6 +67,11 @@
      "pixel_clk",
      "hdmi_tx.pclk"
     ],
+    {
+     "from": "serial_clk",
+     "to": "hdmi_tx.sclk",
+     "when": "serial_clock"
+    },
     [
      "reset",
      "hdmi_tx.rst"

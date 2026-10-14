@@ -1,0 +1,44 @@
+{
+  "blocks": {
+    "tmds_pll": {
+      "description": "A TMDS serializer's clock manager: the display's pixel clock in, five times it out, reprogrammable at run time over its registers -- each load resets and relocks it, so it has no reset of its own -- a recipe per display clock, the feedback multiplier always five times the output divider, so the x5 relation holds at every clock. Its outputs are unbuffered: the bit clock it makes is regional (tmds_clocking).",
+      "facts": {"clocks": {"ctrl": ["ctrl_clk", "ctrl_resetn"]}},
+      "parameters": {
+        "implementation": {"default": "'clk_wiz'", "description": "Which implementation fills this block."},
+        "in_khz": {"description": "The pixel clock it is configured for at reset: the default display clock's."}
+      },
+      "inputs": [
+        {"name": "ctrl", "bus": "axilite", "width": 11, "description": "The recipe registers: divider and multiplier at 0x200, the x5 output's divider at 0x208, load at 0x25C, lock at 0x004."},
+        {"name": "ctrl_clk"},
+        {"name": "ctrl_resetn", "description": "Active low."},
+        {"name": "clk_in", "description": "The display's pixel clock."},
+        {"name": "clkfb_in", "description": "The feedback, returned."}
+      ],
+      "outputs": [
+        {"name": "clk_x5", "description": "Five times clk_in, unbuffered."},
+        {"name": "clkfb_out", "description": "The feedback, to return through a deskew buffer."},
+        {"name": "locked"}
+      ],
+      "implementations": {
+        "clk_wiz": {
+          "description": "AMD's clocking wizard as an MMCM with dynamic reconfiguration over AXI4-Lite, which keeps the lock and filter tables for each recipe it is given. An MMCM, not a PLL: only an MMCM's outputs reach a BUFIO, over the region's high-performance clock lines.",
+          "vivado": {"ip": "xilinx.com:ip:clk_wiz"},
+          "config": {
+            "PRIMITIVE": "'MMCM'",
+            "USE_DYN_RECONFIG": "'true'",
+            "PRIM_SOURCE": "'No_buffer'",
+            "CLKOUT1_DRIVES": "'No_buffer'",
+            "USE_LOCKED": "'true'",
+            "USE_RESET": "'false'",
+            "PRIM_IN_FREQ": "@np2hw.toolchain.vivado:mhz(in_khz)",
+            "CLKOUT1_REQUESTED_OUT_FREQ": "@np2hw.toolchain.vivado:mhz(in_khz * 5)"
+          },
+          "ports": {"ctrl": "s_axi_lite", "ctrl_clk": "s_axi_aclk", "ctrl_resetn": "s_axi_aresetn",
+                    "clk_in": "clk_in1", "clk_x5": "clk_out1", "clkfb_in": "clkfb_in",
+                    "clkfb_out": "clkfb_out", "locked": "locked"},
+          "pin_names": {"ctrl": "s_axi_{signal}"}
+        }
+      }
+    }
+  }
+}

@@ -12,6 +12,7 @@ it has must be declared, with the direction and the width its expression
 gives.
 """
 import shutil
+from pathlib import Path
 
 import pytest
 
@@ -22,6 +23,8 @@ pytestmark = pytest.mark.skipif(shutil.which("verilator") is None,
                                 reason="needs verilator")
 
 DESIGN = "revela.boards.pynq_z2.pynq_demo:pynq_demo"
+PRIMITIVES = (Path(__file__).resolve().parents[1] / "revela" / "boards"
+              / "common" / "sim" / "vendor_primitives.v")
 
 # Values no module defaults to, so a width that ignores its parameter shows.
 VALUES = {"SAMPLE_BITS": 13, "DATA_BITS": 27, "WIDTH": 640, "DW": 24,
@@ -67,6 +70,9 @@ def test_a_hand_written_leaf_has_exactly_the_ports_it_declares(ref, found):
               if k in obj.get("parameters", {})}
     module = obj["vivado"]["module"]
     sources = [composite.source_file(found.folder, f) for f in obj["sources"]]
+    # the vendor primitives a module instantiates, as stand-ins: Vivado
+    # has the real ones
+    sources.append(PRIMITIVES)
     got = elaborated_ports(sources, module, params)
     want = _declared(obj, params)
     assert want == got, {

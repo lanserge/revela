@@ -24,11 +24,10 @@ struct revela_hal {
     int (*isp_write)(uint32_t addr, uint32_t value);
 
     /* The sensor, by what it is asked to do, never by its registers: a
-     * platform's sensor driver owns those. sensor_mode sets the frame
-     * (size, depth, line time, frame length); NULL ops are ones the
-     * platform cannot offer. */
-    int (*sensor_mode)(uint32_t width, uint32_t height, uint32_t bits,
-                       uint32_t line_ns, uint32_t frame_lines);
+     * platform's sensor driver owns those. sensor_mode sets the frame's
+     * size and depth, and the mode's own timing with it; NULL ops are
+     * ones the platform cannot offer. */
+    int (*sensor_mode)(uint32_t width, uint32_t height, uint32_t bits);
     int (*sensor_exposure)(uint32_t lines);
     int (*sensor_analog_gain)(uint32_t code);
     int (*sensor_digital_gain)(uint32_t code);

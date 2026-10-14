@@ -33,6 +33,14 @@
     "ps_per_pixel": {
      "description": "The fine phase steps one pixel of the raster's clock is: the fact of the clock the board makes, from the board."
     },
+    "clk_sel": {
+     "default": 0,
+     "description": "The display clock's row in the board's clock table, at reset: the board's, for the default mode."
+    },
+    "board_window": {
+     "default": 0,
+     "description": "A window on the cable's bus for a register file of the board's own -- its display clock's PLL, say -- in bytes. 0: none."
+    },
     "lane_map": {
      "description": "Which video lane carries container byte 0, 1, 2: the front end's fact, from the board."
     },
@@ -220,6 +228,15 @@
     },
     {
      "name": "torn_b"
+    },
+    {
+     "name": "raster_clk_sel",
+     "description": "The display clock's row, as software sets it: to the board's clock select."
+    },
+    {
+     "name": "cable_board",
+     "description": "The cable's bus, at the board's window: for a register file of the board's own.",
+     "when": "board_window"
     }
    ],
    "nodes": {
@@ -248,7 +265,8 @@
      "build": {
       "sizes": [
        "isp.s_axil.window",
-       "scanout_regs.s_axil.window"
+       "scanout_regs.s_axil.window",
+       "board_window"
       ],
       "base": 0,
       "span": 65536
@@ -303,7 +321,8 @@
      "block": "revela.boards.common.scanout:scanout_regs",
      "build": {
       "mode": "mode",
-      "ps_per_pixel": "ps_per_pixel"
+      "ps_per_pixel": "ps_per_pixel",
+      "clk_sel": "clk_sel"
      }
     },
     "out_cdc": {
@@ -747,7 +766,16 @@
     [
      "scanout_regs.param_center",
      "scanout.reg_center"
-    ]
+    ],
+    [
+     "scanout_regs.param_clk_sel",
+     "raster_clk_sel"
+    ],
+    {
+     "from": "cable_bus.m02_axi",
+     "to": "cable_board",
+     "when": "board_window"
+    }
    ]
   }
  }

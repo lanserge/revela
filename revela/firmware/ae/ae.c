@@ -23,15 +23,13 @@ static int ae_init(const struct revela_algo_env *e) {
 
 static void ae_configure(const struct revela_3a *aaa,
                          const struct revela_frame *frame) {
+    (void)frame;
     if (!aaa->ae || !env->sensor) return;
     uint32_t gain = env->sensor->gain_unity_code;
     uint32_t lines = env->sensor->integration_default_lines;
-    /* the longest integration that fits THIS frame: past it the sensor
-     * stretches the frame, and a line-locked link loses its lock */
-    uint32_t margin = env->sensor->exposure_max_margin;
-    if (frame->frame_lines > margin && lines > frame->frame_lines - margin)
-        lines = frame->frame_lines - margin;
     if (aaa->gain_max && gain > aaa->gain_max) gain = aaa->gain_max;
+    /* the longest integration that fits the frame, as whoever knows the
+     * frame's length says: past it the sensor stretches the frame */
     if (aaa->exposure_max && lines > aaa->exposure_max)
         lines = aaa->exposure_max;
     int ok = 0;

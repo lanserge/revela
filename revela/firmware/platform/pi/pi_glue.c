@@ -39,9 +39,8 @@ static int isp_write(uint32_t addr, uint32_t value) {
     return addr > 0xFFFF ? -1 : bridge_ddc_write((uint16_t)addr, value);
 }
 
-static int sensor_mode(uint32_t width, uint32_t height, uint32_t bits,
-                       uint32_t line_ns, uint32_t frame_lines) {
-    (void)bits; (void)line_ns; (void)frame_lines;
+static int sensor_mode(uint32_t width, uint32_t height, uint32_t bits) {
+    (void)bits;
     if (have_mode && width == mode.width && height == mode.height) return 0;
     printf("revela: the Pi's sensor is %ux%u; a %ux%u frame is asked of "
            "the bridge (--mode), which restarts on it\n",

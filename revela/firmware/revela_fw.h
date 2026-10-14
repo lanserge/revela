@@ -22,10 +22,8 @@ struct revela_frame {
     uint32_t bits;              /* sample depth */
     uint32_t bayer_phase;       /* the CFA phase at the frame's origin:
                                    bit 0 a column swap, bit 1 a row swap */
-    uint32_t line_ns;           /* one line's time, readout to readout */
-    uint32_t frame_lines;       /* lines in a frame, blanking included:
-                                   with line_ns, the frame rate */
-};
+};                              /* its timing is the sensor's own mode's:
+                                   nothing downstream is told a rate */
 
 /* A display raster: totals, sync windows, polarities, pixel clock.
  * Positions count from the first active pixel (line). */

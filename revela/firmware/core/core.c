@@ -124,6 +124,13 @@ static int isp_commit(void) {
 
 /* ---- the parts of a configuration ------------------------------- */
 
+/* Which row of the display's clock table makes `khz`, or -1. */
+static int clock_row(uint32_t khz) {
+    for (uint32_t i = 0; i < REVELA_N_CLOCKS; i++)
+        if (REVELA_CLOCKS[i].khz == khz) return (int)i;
+    return -1;
+}
+
 /* Everything a configuration can be refused for is checked here, before
  * a single register is written. */
 static int check(const struct revela_config *c) {
@@ -139,6 +146,9 @@ static int check(const struct revela_config *c) {
           d->vs_beg < d->vs_end && d->vs_end <= d->v_total && d->pixel_khz))
         return refuse("the display raster is not a raster: active, then "
                       "the sync, inside the totals, and a pixel clock");
+    if (clock_row(d->pixel_khz) < 0)
+        return refuse("the display makes no %u kHz clock: see its clocks "
+                      "in the status", (unsigned)d->pixel_khz);
     if (d->h_total >= (1u << REVELA_RASTER_XB) ||
         d->v_total >= (1u << REVELA_RASTER_YB))
         return refuse("a %ux%u raster is longer than the display's "
@@ -225,38 +235,116 @@ static void release(void) {
     }
 }
 
-/* The ISP's window -- the whole frame, as much of it as the build holds
- * -- and the batch it joins, committed together. A commit still pending
- * afterwards is not a failure: the datapath takes the batch at a frame
- * boundary, and while a mode changes or a link comes up there may be no
- * frame yet; the values are in the registers and land with the first. */
-static int apply_isp(const struct revela_config *c) {
-    uint32_t w = c->frame.width < REVELA_ISP_WIDTH ? c->frame.width
-                                                   : REVELA_ISP_WIDTH;
-    int bad = 0;
-    bad |= wr(REVELA_WIN_X0, 0) < 0;
-    bad |= wr(REVELA_WIN_Y0, 0) < 0;
-    bad |= wr(REVELA_WIN_X1, w) < 0;
-    bad |= wr(REVELA_WIN_Y1, c->frame.height) < 0;
-#ifdef REVELA_BAYER_PHASE
-    bad |= wr(REVELA_BAYER_PHASE, c->frame.bayer_phase) < 0;
-#endif
-    if (bad) return refuse("the ISP did not take its window");
-    say("revela: the ISP's settings and window committed, %s",
+/* Commit what is written, and say whether the ISP has taken it. Pending
+ * is not a failure: the datapath takes a batch at a frame boundary, and
+ * while a mode changes or a link comes up there may be no frame yet; the
+ * values are in the registers and land with the first. */
+static void commit_batch(const char *what) {
+    say("revela: %s committed, %s", what,
         take(REVELA_COMMIT) == 0 ? "applied"
                                  : "pending, until the ISP's next frame");
+}
+
+/* The ISP follows each frame's own header: its geometry, its depth, and
+ * -- where the build carries the phase in the stream -- its Bayer phase.
+ * A build that takes the phase as a register gets it here. So does the
+ * mark's place: the corner of the picture the ISP puts out -- the frame,
+ * as much of it as the ISP holds. One batch carries both. */
+static int apply_isp(const struct revela_config *c) {
+    int batch = 0;
+    int changed = !configured
+        || c->frame.width != cur.frame.width
+        || c->frame.height != cur.frame.height
+        || c->frame.bayer_phase != cur.frame.bayer_phase;
+    if (!changed) return 0;
+    /* an untaken batch -- a link still coming up, a mode the ISP has no
+     * frame of yet -- refuses these writes: release it, and this batch
+     * carries its values with the new ones */
+    release();
+#ifdef REVELA_BAYER_PHASE
+    if (wr(REVELA_BAYER_PHASE, c->frame.bayer_phase) < 0)
+        return refuse("the ISP did not take its Bayer phase");
+    batch = 1;
+#endif
+#ifdef REVELA_LOGO_X0
+    uint32_t w = c->frame.width < REVELA_ISP_WIDTH ? c->frame.width
+                                                   : REVELA_ISP_WIDTH;
+    uint32_t h = c->frame.height < REVELA_ISP_HEIGHT ? c->frame.height
+                                                     : REVELA_ISP_HEIGHT;
+    /* a picture too small for the mark gets none: placed past its end */
+    uint32_t x0 = w > REVELA_LOGO_INSET ? w - REVELA_LOGO_INSET : w;
+    uint32_t y0 = h > REVELA_LOGO_INSET ? h - REVELA_LOGO_INSET : h;
+    if (wr(REVELA_LOGO_X0, x0) < 0 || wr(REVELA_LOGO_Y0, y0) < 0)
+        return refuse("the ISP did not take the mark's place");
+    batch = 1;
+#endif
+    if (batch) commit_batch("the frame's settings");
     return 0;
 }
+
+#ifdef REVELA_PLL_BASE
+/* The serializer MMCM's recipe for a clock row, in two halves around the
+ * clock select's switch. The wizard reconfigures the MMCM BY ITSELF the
+ * moment it loses lock, with whatever recipe its registers then hold, and
+ * takes no load at all until it locks again -- so the new recipe is in
+ * its registers BEFORE the clock moves: a switch that costs the lock
+ * relocks on the new recipe, not the old one, which may never lock at the
+ * new clock. Its divider and multiplier, its x5 output's divider, and
+ * SADDR (use these registers, not the build's defaults), without load.
+ * The configuration writes are made twice: the register file latches
+ * each write's value into its recipe on the NEXT write to the same
+ * address. */
+static int pll_stage(int row) {
+    const uint32_t base = REVELA_PLL_BASE;
+    uint32_t fb = REVELA_CLOCKS[row].divclk | (REVELA_CLOCKS[row].mult << 8);
+    for (int i = 0; i < 2; i++) {
+        if (wr(base + 0x200, fb) < 0) return -1;
+        if (wr(base + 0x208, REVELA_CLOCKS[row].out0) < 0) return -1;
+    }
+    return wr(base + 0x25C, 0x2);
+}
+
+/* ...and after the switch, load -- for a switch that kept the lock, which
+ * started nothing -- and wait for the lock at five times the new clock. */
+static int pll_load(void) {
+    const uint32_t base = REVELA_PLL_BASE;
+    if (wr(base + 0x25C, 0x3) < 0) return -1;
+    uint32_t st = 0;
+    for (int i = 0; i < TAKE_POLLS && !(st & 1); i++) {
+        if (H->sleep_us) H->sleep_us(TAKE_POLL_US);
+        if (H->isp_read(base + 0x004, &st) < 0) st = 0;
+    }
+    return (st & 1) ? 0 : -1;
+}
+
+/* What the serializer MMCM holds, for a refusal to say: its recipe
+ * registers as read back, and its status. */
+static void pll_readback(uint32_t *fb, uint32_t *out0, uint32_t *st) {
+    const uint32_t base = REVELA_PLL_BASE;
+    if (H->isp_read(base + 0x200, fb) < 0) *fb = 0xFFFFFFFFu;
+    if (H->isp_read(base + 0x208, out0) < 0) *out0 = 0xFFFFFFFFu;
+    if (H->isp_read(base + 0x004, st) < 0) *st = 0xFFFFFFFFu;
+}
+#endif
 
 /* The display raster and where the picture sits in it, armed together
  * and taken by the display in its next vertical blanking. */
 static int apply_display(const struct revela_config *c) {
     const struct revela_raster *d = &c->display;
     const struct revela_window *w = &c->window;
+    /* the picture: the ISP's output -- the frame, cropped to the width
+     * the ISP holds -- as much of it as the display's active area shows */
     uint32_t pw = w->width, ph = w->height;
-    if (!pw) pw = c->frame.width < d->h_active ? c->frame.width : d->h_active;
+    uint32_t iw = c->frame.width < REVELA_ISP_WIDTH ? c->frame.width
+                                                    : REVELA_ISP_WIDTH;
+    if (!pw) pw = iw < d->h_active ? iw : d->h_active;
     if (!ph) ph = c->frame.height < d->v_active ? c->frame.height : d->v_active;
+    /* the clock first: the select switches at once, and the raster
+     * restarts on the new clock and takes the rest in its next blanking */
+    int row = clock_row(d->pixel_khz);
     const uint32_t v[][2] = {
+        {REVELA_R_CLK_SEL, (uint32_t)row},
+        {REVELA_R_PS_PER_PX, REVELA_CLOCKS[row].ps_per_px},
         {REVELA_R_H_TOTAL, d->h_total}, {REVELA_R_H_ACTIVE, d->h_active},
         {REVELA_R_HS_BEG, d->hs_beg},   {REVELA_R_HS_END, d->hs_end},
         {REVELA_R_V_TOTAL, d->v_total}, {REVELA_R_V_ACTIVE, d->v_active},
@@ -267,7 +355,25 @@ static int apply_display(const struct revela_config *c) {
         {REVELA_R_WIN_W, pw}, {REVELA_R_WIN_H, ph},
         {REVELA_R_CENTER, w->center},
     };
-    for (size_t i = 0; i < sizeof v / sizeof v[0]; i++)
+    /* the serializer's new recipe; the clock select; the serializer
+     * loaded on the new clock; then the raster's numbers, armed */
+#ifdef REVELA_PLL_BASE
+    if (pll_stage(row) < 0)
+        return refuse("the serializer MMCM did not answer; not armed");
+#endif
+    if (wr(v[0][0], v[0][1]) < 0)
+        return refuse("the display did not answer; not armed");
+#ifdef REVELA_PLL_BASE
+    if (pll_load() < 0) {
+        uint32_t fb, out0, st;
+        pll_readback(&fb, &out0, &st);
+        return refuse("the serializer MMCM did not lock at five times "
+                      "%u kHz (reads 0x200=%08x 0x208=%08x status=%08x)",
+                      (unsigned)REVELA_CLOCKS[row].khz, (unsigned)fb,
+                      (unsigned)out0, (unsigned)st);
+    }
+#endif
+    for (size_t i = 1; i < sizeof v / sizeof v[0]; i++)
         if (wr(v[i][0], v[i][1]) < 0)
             return refuse("the display did not answer; not armed");
     if (take(REVELA_R_ARM) < 0)
@@ -278,12 +384,10 @@ static int apply_display(const struct revela_config *c) {
 static int apply_sensor(const struct revela_config *c) {
     if (!H->sensor_mode) return 0;      /* the platform sets it elsewhere */
     const struct revela_frame *f = &c->frame;
-    if (H->sensor_mode(f->width, f->height, f->bits, f->line_ns,
-                       f->frame_lines) < 0)
-        return refuse("the sensor did not take %ux%u, %u-bit, %u ns lines, "
-                      "%u-line frames", (unsigned)f->width,
-                      (unsigned)f->height, (unsigned)f->bits,
-                      (unsigned)f->line_ns, (unsigned)f->frame_lines);
+    if (H->sensor_mode(f->width, f->height, f->bits) < 0)
+        return refuse("the sensor did not take %ux%u, %u-bit",
+                      (unsigned)f->width, (unsigned)f->height,
+                      (unsigned)f->bits);
     return 0;
 }
 
@@ -363,6 +467,7 @@ int revela_fw_init(const struct revela_config *c) {
     map_ok = 1;
     release();
     if (load_settings() < 0) return refuse("the ISP's settings did not load");
+    commit_batch("the ISP's settings");
     loops_up();
     return apply(c, 1);
 }
@@ -371,7 +476,6 @@ int revela_fw_configure(const struct revela_config *c) {
     if (!H || !map_ok)
         return refuse("configure before init: nothing is proven yet");
     if (check(c) < 0) return -1;
-    release();
     int sensor_changed = memcmp(&c->frame, &cur.frame, sizeof c->frame) != 0;
     return apply(c, sensor_changed);
 }
@@ -379,8 +483,14 @@ int revela_fw_configure(const struct revela_config *c) {
 int revela_fw_status(char *line, uint32_t cap) {
     const struct revela_frame *f = &cur.frame;
     const struct revela_raster *d = &cur.display;
-    int n = snprintf(line, cap, "ok build=%s frame=%ux%ux%u display=%ux%u/"
-                     "%ukHz", map_ok ? "proven" : "unproven",
+    int n = snprintf(line, cap, "ok build=%s tv_khz=", map_ok ? "proven"
+                                                          : "unproven");
+    for (uint32_t i = 0; i < REVELA_N_CLOCKS && n > 0 && (uint32_t)n < cap;
+         i++)
+        n += snprintf(line + n, cap - n, i ? ",%u" : "%u",
+                      (unsigned)REVELA_CLOCKS[i].khz);
+    if (n > 0 && (uint32_t)n < cap)
+        n += snprintf(line + n, cap - n, " frame=%ux%ux%u display=%ux%u/%ukHz",
                      (unsigned)f->width, (unsigned)f->height,
                      (unsigned)f->bits, (unsigned)d->h_active,
                      (unsigned)d->v_active, (unsigned)d->pixel_khz);
@@ -388,6 +498,14 @@ int revela_fw_status(char *line, uint32_t cap) {
         n += snprintf(line + n, cap - n, " %s=%s", loops[i].name ?
                       loops[i].name : (i == 0 ? "ae" : i == 1 ? "awb" : "af"),
                       !loops[i].up ? "absent" : loop_on(i) ? "on" : "off");
+#ifdef REVELA_PLL_BASE
+    /* the serializer's clock, as it is now: locked, or not */
+    uint32_t st;
+    if (n > 0 && (uint32_t)n < cap)
+        n += snprintf(line + n, cap - n, " tx_lock=%s",
+                      H->isp_read(REVELA_PLL_BASE + 0x004, &st) < 0 ? "?"
+                      : (st & 1) ? "1" : "0");
+#endif
     if (n > 0 && (uint32_t)n < cap && last_err[0])
         snprintf(line + n, cap - n, " last=\"%s\"", last_err);
     return 0;
@@ -402,8 +520,6 @@ static const struct { const char *key; size_t at, size; } FIELDS[] = {
     FIELD(frame, height, struct revela_frame),
     FIELD(frame, bits, struct revela_frame),
     FIELD(frame, bayer_phase, struct revela_frame),
-    FIELD(frame, line_ns, struct revela_frame),
-    FIELD(frame, frame_lines, struct revela_frame),
     FIELD(display, pixel_khz, struct revela_raster),
     FIELD(display, h_total, struct revela_raster),
     FIELD(display, v_total, struct revela_raster),

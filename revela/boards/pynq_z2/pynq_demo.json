@@ -45,11 +45,27 @@
     },
     "raster_divclk": {
      "default": 10,
-     "description": "The raster clock's recipe: 200 MHz / 10 x 37.125, a 742.5 MHz VCO, divides exactly to 74.25 (1080p30) and 148.5 (1080p60); its output divider follows from the mode."
+     "description": "Rows 1 and 2's recipe: 200 MHz / 10 x 37.125, a 742.5 MHz VCO, divides to 74.25 and 148.5 MHz."
     },
     "raster_mult8": {
      "default": 297,
      "description": "Its feedback multiplier, in eighths: 37.125."
+    },
+    "tv_khz_rows": {
+     "default": [
+      27000,
+      74250,
+      148500
+     ],
+     "description": "The display clocks this board makes, row by row of its clock select: 480p's, the 720p/1080p family's, and 1080p50/60's. Rows 1 and 2 share one clock manager's VCO."
+    },
+    "raster27_divclk": {
+     "default": 8,
+     "description": "Row 0's recipe: 200 MHz / 8 x 27, a 675 MHz VCO, divides to 27 MHz."
+    },
+    "raster27_mult8": {
+     "default": 216,
+     "description": "Its feedback multiplier, in eighths: 27."
     },
     "sample_bits": {
      "default": "fabric.sample_bits",
@@ -107,26 +123,58 @@
       "fill": "fill",
       "lane_map": "hdmi_in.lane_map",
       "vsync_active_high": "hdmi_in.vsync_active_high",
-      "ps_per_pixel": "@revela.boards.common.clocking:fine_steps(fclk1_khz, raster_divclk, raster_mult8, out_khz)"
+      "ps_per_pixel": "@revela.boards.common.clocking:fine_steps(fclk1_khz, raster27_divclk, raster27_mult8, out_khz) if out_khz == tv_khz_rows[0] else @revela.boards.common.clocking:fine_steps(fclk1_khz, raster_divclk, raster_mult8, out_khz)",
+      "clk_sel": "@revela.boards.common.clocking:row(tv_khz_rows, out_khz)",
+      "board_window": 2048
      }
     },
     "hdmi_out": {
      "block": "revela.boards.pynq_z2.hdmi_out",
      "build": {
-      "out_khz": "out_khz"
+      "out_khz": "out_khz",
+      "serial_clock": 1
      }
     },
     "clk_raster": {
      "block": "revela.boards.common.clock",
-     "description": "The raster's clock, steered by the scanout's genlock through its fine phase shifter.",
+     "description": "The display clock's rows 1 and 2: 74.25 MHz and 148.5 MHz from one VCO, steered by the genlock.",
      "build": {
       "in_khz": "fclk1_khz",
-      "out_khz": "out_khz",
+      "out_khz": "tv_khz_rows[1]",
       "divclk": "raster_divclk",
       "mult8": "raster_mult8",
       "fine_phase_shift": 1,
-      "stop_flags": 1
+      "stop_flags": 1,
+      "out2_khz": "tv_khz_rows[2]",
+      "unbuffered": 1
      }
+    },
+    "clk_raster27": {
+     "block": "revela.boards.common.clock",
+     "description": "The display clock's row 0: 27 MHz, steered by the genlock while chosen.",
+     "build": {
+      "in_khz": "fclk1_khz",
+      "out_khz": "tv_khz_rows[0]",
+      "divclk": "raster27_divclk",
+      "mult8": "raster27_mult8",
+      "fine_phase_shift": 1,
+      "unbuffered": 1
+     }
+    },
+    "clk_sel": {
+     "block": "revela.boards.common.modules:clock_select",
+     "description": "The display clock, row 0 or row 1, as the raster's register file says."
+    },
+    "tmds_pll": {
+     "block": "revela.boards.common.tmds_pll",
+     "description": "The serializer's PLL: five times the chosen pixel clock, reprogrammed by the firmware with each display clock's recipe.",
+     "build": {
+      "in_khz": "out_khz"
+     }
+    },
+    "tmds_clk": {
+     "block": "revela.boards.common.modules:tmds_clocking",
+     "description": "The serializer's bit and pixel clocks, regional, from the PLL beside it."
     },
     "irq_cat": {
      "block": "np2hw.glue:concat",
@@ -483,6 +531,10 @@
       "NUM_SI": "2 if capture else 1",
       "NUM_MI": 1
      }
+    },
+    "tx_cdc": {
+     "block": "revela.boards.common.modules:video_cdc",
+     "description": "The raster into the serializer's pixel clock: a regional divider of the bit clock, the raster's frequency at a phase chance sets on each relock."
     }
    },
    "connections": [
@@ -512,6 +564,22 @@
     ],
     [
      "fabric.raster",
+     "tx_cdc.vid_in"
+    ],
+    [
+     "clk_sel.clk",
+     "tx_cdc.wclk"
+    ],
+    [
+     "tmds_clk.pclk_io",
+     "tx_cdc.rclk"
+    ],
+    [
+     "tmds_clk.rst",
+     "tx_cdc.rrst"
+    ],
+    [
+     "tx_cdc.vid_out",
      "hdmi_out.rgb"
     ],
     [
@@ -653,56 +721,16 @@
      "hdmi_in.sda_pull"
     ],
     [
-     "lock_inv.y",
-     "hdmi_out.reset"
-    ],
-    [
      "ps7.FCLK_CLK1",
      "clk_raster.clk_in"
-    ],
-    [
-     "clk_raster.clk_out",
-     "clk_raster.psclk"
     ],
     [
      "ps7.FCLK_CLK0",
      "fabric.isp_clk"
     ],
     [
-     "clk_raster.clk_out",
-     "fabric.raster_clk"
-    ],
-    [
-     "clk_raster.locked",
-     "fabric.raster_locked"
-    ],
-    [
-     "clk_raster.clk_out",
-     "hdmi_out.pixel_clk"
-    ],
-    [
-     "fabric.raster_ps_en",
-     "clk_raster.psen"
-    ],
-    [
-     "fabric.raster_ps_incdec",
-     "clk_raster.psincdec"
-    ],
-    [
-     "clk_raster.psdone",
-     "fabric.raster_ps_done"
-    ],
-    [
-     "clk_raster.locked",
-     "status.raster_locked"
-    ],
-    [
      "ps7.FCLK_CLK0",
      "vdma.frames_clk"
-    ],
-    [
-     "clk_raster.locked",
-     "lock_inv.a"
     ],
     {
      "from": "fabric.rx_out",
@@ -1012,6 +1040,154 @@
     [
      "ps7.FIXED_IO",
      "FIXED_IO"
+    ],
+    [
+     "ps7.FCLK_CLK1",
+     "clk_raster27.clk_in"
+    ],
+    [
+     "fabric.raster_clk_sel",
+     "clk_sel.sel"
+    ],
+    [
+     "clk_raster27.clk_out",
+     "clk_sel.clk_0"
+    ],
+    [
+     "clk_raster27.locked",
+     "clk_sel.locked_0"
+    ],
+    [
+     "clk_raster27.psdone",
+     "clk_sel.psdone_0"
+    ],
+    [
+     "clk_raster.clk_out",
+     "clk_sel.clk_1"
+    ],
+    [
+     "clk_raster.locked",
+     "clk_sel.locked_1"
+    ],
+    [
+     "clk_raster.psdone",
+     "clk_sel.psdone_1"
+    ],
+    [
+     "clk_sel.clk",
+     "clk_raster27.psclk"
+    ],
+    [
+     "clk_sel.clk",
+     "clk_raster.psclk"
+    ],
+    [
+     "clk_sel.clk",
+     "fabric.raster_clk"
+    ],
+    [
+     "clk_sel.locked",
+     "fabric.raster_locked"
+    ],
+    [
+     "clk_sel.locked",
+     "status.raster_locked"
+    ],
+    [
+     "clk_sel.locked",
+     "lock_inv.a"
+    ],
+    [
+     "clk_sel.psdone",
+     "fabric.raster_ps_done"
+    ],
+    [
+     "clk_raster.clk_out2",
+     "clk_sel.clk_2"
+    ],
+    [
+     "clk_raster.locked",
+     "clk_sel.locked_2"
+    ],
+    [
+     "clk_raster.psdone",
+     "clk_sel.psdone_2"
+    ],
+    [
+     "fabric.raster_ps_en",
+     "clk_raster27.psen"
+    ],
+    [
+     "fabric.raster_ps_en",
+     "clk_raster.psen"
+    ],
+    [
+     "fabric.raster_ps_incdec",
+     "clk_raster27.psincdec"
+    ],
+    [
+     "fabric.raster_ps_incdec",
+     "clk_raster.psincdec"
+    ],
+    [
+     "clk_sel.clk",
+     "tmds_pll.clk_in"
+    ],
+    [
+     "fabric.cable_board",
+     "tmds_pll.ctrl"
+    ],
+    [
+     "ps7.FCLK_CLK0",
+     "tmds_pll.ctrl_clk"
+    ],
+    [
+     "rst_bus.rst_n",
+     "tmds_pll.ctrl_resetn"
+    ],
+    [
+     "tmds_pll.clk_x5",
+     "tmds_clk.x5"
+    ],
+    [
+     "tmds_pll.clkfb_out",
+     "tmds_clk.fb_out"
+    ],
+    [
+     "tmds_clk.fb_in",
+     "tmds_pll.clkfb_in"
+    ],
+    [
+     "tmds_pll.locked",
+     "tmds_clk.locked"
+    ],
+    [
+     "clk_sel.clk",
+     "tmds_clk.pclk"
+    ],
+    [
+     "clk_sel.locked",
+     "tmds_clk.pclk_locked"
+    ],
+    [
+     "tmds_clk.sclk",
+     "hdmi_out.serial_clk"
+    ],
+    [
+     "tmds_clk.pclk_io",
+     "hdmi_out.pixel_clk"
+    ],
+    [
+     "tmds_clk.rst",
+     "hdmi_out.reset"
+    ],
+    [
+     "clk_raster.clkfb_out",
+     "clk_raster.clkfb_in"
+    ],
+    [
+     "clk_raster27.clkfb_out",
+     "clk_raster27.clkfb_in"
     ]
    ],
    "pins": [
