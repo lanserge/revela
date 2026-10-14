@@ -381,13 +381,47 @@ static int apply_display(const struct revela_config *c) {
     return 0;
 }
 
+/* The sensor module, where one is loaded and speaks this firmware's api. */
+static const struct revela_sensor *sensor(void) {
+    const struct revela_sensor *s = revela_sensor ? revela_sensor() : NULL;
+    return (s && s->api == REVELA_SENSOR_API) ? s : NULL;
+}
+
+/* A mode of the sensor module's: by name, or -- a frame stated by size --
+ * the one of that size and depth. NULL where none is. */
+static const struct revela_sensor_mode *find_mode(const struct revela_frame *f) {
+    const struct revela_sensor *s = sensor();
+    for (uint32_t i = 0; s && i < s->n_modes; i++) {
+        const struct revela_sensor_mode *m = &s->modes[i];
+        if (f->mode[0] ? !strcmp(m->name, f->mode)
+                       : (m->width == f->width && m->height == f->height
+                          && m->bits == f->bits))
+            return m;
+    }
+    return NULL;
+}
+
+/* Select the frame's mode on the sensor: a platform with a driver of its
+ * own is told the mode to hold; one that only moves bytes has its
+ * registers written, the mode's writes in order. */
 static int apply_sensor(const struct revela_config *c) {
-    if (!H->sensor_mode) return 0;      /* the platform sets it elsewhere */
-    const struct revela_frame *f = &c->frame;
-    if (H->sensor_mode(f->width, f->height, f->bits) < 0)
-        return refuse("the sensor did not take %ux%u, %u-bit",
-                      (unsigned)f->width, (unsigned)f->height,
-                      (unsigned)f->bits);
+    if (!H->sensor_mode && !H->sensor_write) return 0;  /* set elsewhere */
+    const struct revela_sensor_mode *m = find_mode(&c->frame);
+    if (!m)
+        return refuse("the sensor module has no %s%s%ux%u %u-bit mode",
+                      c->frame.mode[0] ? c->frame.mode : "",
+                      c->frame.mode[0] ? ", nor a " : "",
+                      (unsigned)c->frame.width, (unsigned)c->frame.height,
+                      (unsigned)c->frame.bits);
+    if (H->sensor_mode) {
+        if (H->sensor_mode(m) < 0)
+            return refuse("the sensor did not take mode %s", m->name);
+        return 0;
+    }
+    for (uint32_t i = 0; i < m->n_writes; i++)
+        if (H->sensor_write(m->writes[i].reg, m->writes[i].value) < 0)
+            return refuse("the sensor did not take mode %s (register "
+                          "0x%04x)", m->name, (unsigned)m->writes[i].reg);
     return 0;
 }
 
@@ -554,6 +588,23 @@ static int parse(const char *text, struct revela_config *c, char *err,
         char *eq = strchr(tok, '=');
         if (!eq) { snprintf(err, cap, "err %s: not key=value", tok); return -1; }
         *eq = 0;
+        if (!strcmp(tok, "mode")) {
+            struct revela_frame f;
+            memset(&f, 0, sizeof f);
+            snprintf(f.mode, sizeof f.mode, "%s", eq + 1);
+            const struct revela_sensor_mode *m = find_mode(&f);
+            if (!m) {
+                snprintf(err, cap, "err mode %s: the sensor module has no "
+                         "such mode (modes lists them)", eq + 1);
+                return -1;
+            }
+            snprintf(c->frame.mode, sizeof c->frame.mode, "%s", m->name);
+            c->frame.width = m->width;
+            c->frame.height = m->height;
+            c->frame.bits = m->bits;
+            c->frame.bayer_phase = m->bayer_phase;
+            continue;
+        }
         size_t i = 0;
         while (i < sizeof FIELDS / sizeof FIELDS[0] && strcmp(FIELDS[i].key, tok))
             i++;
@@ -601,6 +652,8 @@ int revela_fw_command(const char *line, char *reply, uint32_t cap) {
     if (!strcmp(line, "config")) {
         /* the current configuration as init would take it back */
         int n = snprintf(reply, cap, "ok");
+        if (cur.frame.mode[0])
+            n += snprintf(reply + n, cap - n, " mode=%s", cur.frame.mode);
         for (size_t i = 0; i < sizeof FIELDS / sizeof FIELDS[0] && n > 0 &&
              (uint32_t)n < cap; i++) {
             const uint8_t *p = (const uint8_t *)&cur + FIELDS[i].at;
@@ -612,8 +665,25 @@ int revela_fw_command(const char *line, char *reply, uint32_t cap) {
         }
         return 0;
     }
+    if (!strcmp(line, "modes")) {
+        /* the sensor module's modes: name=WxHxBITS, then its Bayer phase,
+         * pixel rate, and default line and frame length */
+        const struct revela_sensor *s = sensor();
+        int n = snprintf(reply, cap, "ok");
+        for (uint32_t i = 0; s && i < s->n_modes && n > 0 &&
+             (uint32_t)n < cap; i++) {
+            const struct revela_sensor_mode *m = &s->modes[i];
+            n += snprintf(reply + n, cap - n, " %s=%ux%ux%u,%u,%u,%u,%u",
+                          m->name, (unsigned)m->width, (unsigned)m->height,
+                          (unsigned)m->bits, (unsigned)m->bayer_phase,
+                          (unsigned)m->pixel_rate_hz,
+                          (unsigned)m->line_length_pck,
+                          (unsigned)m->frame_length_lines);
+        }
+        return 0;
+    }
     snprintf(reply, cap, "err unknown command; the firmware speaks: init "
              "<field>=<value>..., configure <field>=<value>..., set <param> "
-             "<value>, get <param>, status, config");
+             "<value>, get <param>, status, config, modes");
     return -1;
 }

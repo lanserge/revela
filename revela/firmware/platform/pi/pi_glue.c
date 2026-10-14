@@ -39,13 +39,15 @@ static int isp_write(uint32_t addr, uint32_t value) {
     return addr > 0xFFFF ? -1 : bridge_ddc_write((uint16_t)addr, value);
 }
 
-static int sensor_mode(uint32_t width, uint32_t height, uint32_t bits) {
-    (void)bits;
-    if (have_mode && width == mode.width && height == mode.height) return 0;
-    printf("revela: the Pi's sensor is %ux%u; a %ux%u frame is asked of "
-           "the bridge (--mode), which restarts on it\n",
-           (unsigned)mode.width, (unsigned)mode.height, (unsigned)width,
-           (unsigned)height);
+/* The Pi's sensor has a Linux driver, which the bridge opened in one mode:
+ * the mode asked must be that one; another is the bridge's to restart on. */
+static int sensor_mode(const struct revela_sensor_mode *m) {
+    if (have_mode && m->width == mode.width && m->height == mode.height)
+        return 0;
+    printf("revela: the Pi's sensor streams %ux%u; mode %s (%ux%u) is "
+           "asked of the bridge (--mode), which restarts on it\n",
+           (unsigned)mode.width, (unsigned)mode.height, m->name,
+           (unsigned)m->width, (unsigned)m->height);
     return -1;
 }
 

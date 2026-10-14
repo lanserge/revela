@@ -42,21 +42,29 @@ static int isp_write(uint32_t a, uint32_t v) {
         printf("X %u %u\n", (unsigned)a, (unsigned)v); return -1; }
     if (a == REVELA_COMMIT) armed = v && no_frames;  /* 0 releases it */
     printf("W %u %u\n", (unsigned)a, (unsigned)v); return 0; }
-static int mode(uint32_t w, uint32_t h, uint32_t b) {
-    printf("S mode %u %u %u\n", (unsigned)w, (unsigned)h, (unsigned)b);
+static int mode(const struct revela_sensor_mode *m) {
+    printf("S mode %s %u %u %u\n", m->name, (unsigned)m->width,
+           (unsigned)m->height, (unsigned)m->bits);
     return 0; }
+/* --bytes: a platform with no sensor driver, which only moves bytes */
+static int poke(uint16_t reg, uint8_t value) {
+    printf("S write %u %u\n", (unsigned)reg, (unsigned)value); return 0; }
 static int expo(uint32_t n) { printf("S exposure %u\n", (unsigned)n); return 0; }
 static int again(uint32_t n) { printf("S gain %u\n", (unsigned)n); return 0; }
 static void nap(uint32_t us) { (void)us; }
 static void say(const char *l) { printf("L %s\n", l); }
-static const struct revela_hal hal = {
+static struct revela_hal hal = {
     .isp_read = isp_read, .isp_write = isp_write, .sensor_mode = mode,
     .sensor_exposure = expo, .sensor_analog_gain = again,
     .sleep_us = nap, .log = say };
 int main(int argc, char **argv) {
     char reply[2048];
+    for (int i = 1; i < argc; i++)
+        if (!strcmp(argv[i], "--bytes")) {
+            hal.sensor_mode = NULL; hal.sensor_write = poke; }
     revela_fw_attach(&hal);
     for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--bytes")) continue;
         if (!strcmp(argv[i], "--bad-id")) { bad_id = 1; continue; }
         if (!strcmp(argv[i], "--no-frames")) { no_frames = 1; continue; }
         revela_fw_command(argv[i], reply, sizeof reply);
@@ -67,8 +75,9 @@ int main(int argc, char **argv) {
     return 0; }
 '''
 
-FRAME_1080P30 = ("frame.width=1920 frame.height=1080 frame.bits=12 "
-                 "frame.bayer_phase=1")
+# a frame stated by its size: the sensor module's mode of that size
+FRAME_1080P30 = ("frame.width=1920 frame.height=1080 frame.bits=10 "
+                 "frame.bayer_phase=2")
 
 
 def _display(name="1080p30"):
@@ -195,7 +204,7 @@ def test_init_loads_the_build_then_applies_the_configuration(tmp_path):
     assert writes == want
     # the sensor's mode went to the platform, and AE started it from the
     # sensor's own facts
-    assert "S mode 1920 1080 12" in out
+    assert "S mode cropped_1080p 1920 1080 10" in out
     assert any(l.startswith("S gain ") for l in out)
 
 
@@ -224,7 +233,51 @@ def test_the_configuration_reads_back_as_init_takes_it(tmp_path):
                        "window.center=1", "config")
     config = next(l for l in out if l.startswith("R ok frame."))
     assert "display.h_total=1650" in config
-    assert "frame.bayer_phase=1" in config
+    assert "frame.bayer_phase=2" in config
+
+
+def test_a_mode_chosen_by_name_brings_its_frame(tmp_path):
+    """The sensor module's mode, by name: the frame it delivers comes with
+    it, the platform is told the mode, and the configuration reads back
+    with the name first, so a replay selects it again."""
+    exe, _, _ = _build(tmp_path)
+    _, out = _run(exe, f"init mode=binned_640x480 {_display('480p60')} "
+                       "window.center=1", "config", "modes")
+    assert "R ok" in out, out
+    assert "S mode binned_640x480 640 480 10" in out
+    config = next(l for l in out if l.startswith("R ok mode="))
+    assert config.startswith("R ok mode=binned_640x480 ")
+    assert "frame.width=640 frame.height=480 frame.bits=10" in config
+    assert "frame.bayer_phase=2" in config
+    modes = next(l for l in out if "cropped_1080p=" in l)
+    assert ("cropped_1080p=1920x1080x10,2,87500000,2416,1104" in modes
+            and "binned_640x480=640x480x10,2,58333000,1852,504" in modes)
+
+
+def test_a_platform_with_no_driver_has_the_modes_registers_written(
+        tmp_path):
+    """Where the platform only moves bytes, selecting a mode is writing its
+    registers: exactly the sensor description's sequence, in order."""
+    exe, _, _ = _build(tmp_path)
+    _, out = _run(exe, "--bytes", f"init mode=binned_640x480 "
+                                  f"{_display('480p60')} window.center=1")
+    assert "R ok" in out, out
+    from revela import sensors
+    d = sensors.load("ov5647")
+    want = [f"S write {w['address']} {w['value']}"
+            for w in d["register_sequences"]["mode_binned_640x480"]["writes"]]
+    assert [l for l in out if l.startswith("S write")] == want
+    assert not any(l.startswith("S mode") for l in out)
+
+
+def test_a_mode_the_sensor_does_not_have_is_refused(tmp_path):
+    exe, _, _ = _build(tmp_path)
+    writes, out = _run(exe, f"init mode=full_5mp {_display()}",
+                       f"init frame.width=1280 frame.height=720 "
+                       f"frame.bits=10 {_display('720p60')}")
+    replies = [l for l in out if l.startswith("R ")]
+    assert replies[0].startswith("R err mode full_5mp"), replies
+    assert "no 1280x720 10-bit mode" in replies[1], replies
 
 
 def test_3a_loops_run_only_where_present_and_on(tmp_path):
@@ -336,3 +389,30 @@ def test_a_1080p60_raster_selects_the_third_row_and_its_pll_recipe(tmp_path):
     assert writes.count((pll + 0x200, 1 | 5 << 8)) == 2
     assert writes.count((pll + 0x208, 1)) == 2
     assert (reg["ps_per_px"], 280) in writes
+
+
+def test_a_struct_that_moves_changes_the_contract(tmp_path, monkeypatch):
+    """A contract is its header's number and the layout of everything that
+    header includes: the core provides exactly what the loops and sensor
+    module require, and a struct changed in an included header -- under a
+    number nobody bumped -- is a different contract, so a module built on
+    the old layout is refused rather than run."""
+    import json
+    regmap, cable = _maps()
+    core = json.loads(package.core_package(regmap, cable, {}, "0.1")
+                      ["manifest.json"])
+    loop = json.loads(package.loop_package("ae", "0.1")["manifest.json"])
+    sensor = json.loads(package.sensor_package("ov5647", None, "0.1")
+                        ["manifest.json"])
+    assert set(loop["requires"]) <= set(core["provides"])
+    assert set(sensor["requires"]) <= set(core["provides"])
+    before = package.api("revela_algo.h", "REVELA_ALGO_API")
+    for h in FW.glob("*.h"):
+        shutil.copy(h, tmp_path / h.name)
+    fw = tmp_path / "revela_fw.h"
+    fw.write_text(fw.read_text().replace("uint32_t bits;",
+                                         "uint32_t bits, pad;", 1))
+    monkeypatch.setattr(package, "HERE", tmp_path)
+    after = package.api("revela_algo.h", "REVELA_ALGO_API")
+    assert before.split("-")[0] == after.split("-")[0]
+    assert before != after

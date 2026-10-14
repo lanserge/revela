@@ -202,3 +202,24 @@ def test_schema_rejects_a_future_schema_version():
 def test_unknown_sensor_reports_what_is_available():
     with pytest.raises(FileNotFoundError, match="imx219"):
         sensors.load("no_such_sensor")
+
+
+def test_a_readback_diff_names_what_selects_one_mode_from_another():
+    """Two dumps differ where a mode is chosen; what moves on its own
+    (exposure, statistics) is left out by range."""
+    from revela.sensors.readback import diff_modes
+    a = {0x3808: 0x02, 0x3809: 0x80, 0x3501: 0x1F, 0x4000: 0x09}
+    b = {0x3808: 0x07, 0x3809: 0x80, 0x3501: 0x44, 0x4000: 0x09}
+    assert diff_modes(a, b) == {0x3501: (0x1F, 0x44), 0x3808: (0x02, 0x07)}
+    assert diff_modes(a, b, volatile=[(0x3500, 0x350D)]) == {
+        0x3808: (0x02, 0x07)}
+
+
+def test_every_mode_names_a_sequence_that_exists():
+    from revela import sensors
+    for name in sensors.available():
+        d = sensors.load(name)
+        for mode in d["modes"]:
+            seq = mode.get("register_sequence")
+            if seq:
+                assert seq in d.get("register_sequences", {}), (name, seq)

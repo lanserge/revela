@@ -16,6 +16,7 @@
 #define REVELA_HAL_H
 
 #include <stdint.h>
+#include "revela_sensor.h"
 
 struct revela_hal {
     /* The ISP's registers -- and the display raster's beside them -- at
@@ -23,11 +24,13 @@ struct revela_hal {
     int (*isp_read)(uint32_t addr, uint32_t *value);
     int (*isp_write)(uint32_t addr, uint32_t value);
 
-    /* The sensor, by what it is asked to do, never by its registers: a
-     * platform's sensor driver owns those. sensor_mode sets the frame's
-     * size and depth, and the mode's own timing with it; NULL ops are
-     * ones the platform cannot offer. */
-    int (*sensor_mode)(uint32_t width, uint32_t height, uint32_t bits);
+    /* The sensor. A mode is the sensor module's, writes and all: a
+     * platform that only moves bytes offers sensor_write, and the firmware
+     * selects a mode by writing its registers; a platform whose sensor has
+     * a driver of its own offers sensor_mode instead, and is told which
+     * mode to hold. NULL ops are ones the platform cannot offer. */
+    int (*sensor_write)(uint16_t reg, uint8_t value);
+    int (*sensor_mode)(const struct revela_sensor_mode *mode);
     int (*sensor_exposure)(uint32_t lines);
     int (*sensor_analog_gain)(uint32_t code);
     int (*sensor_digital_gain)(uint32_t code);

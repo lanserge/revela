@@ -18,6 +18,8 @@
 
 /* The sensor's frame as it is read out. */
 struct revela_frame {
+    char mode[32];              /* the sensor module's mode it comes from,
+                                   by name; empty: the mode of this size */
     uint32_t width, height;     /* samples, lines */
     uint32_t bits;              /* sample depth */
     uint32_t bayer_phase;       /* the CFA phase at the frame's origin:

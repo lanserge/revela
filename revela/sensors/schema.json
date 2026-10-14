@@ -206,7 +206,7 @@
     },
 
     "modes": {
-      "description": "Readout modes. Only width (line buffer sizing) and bit depth are build-time; everything else is selected at runtime.",
+      "description": "Readout modes: the sensor's own statement of each, so a system with no sensor driver -- an MCU, an ASIC, mipi_in -- selects one from this file alone. Only width (line buffer sizing) and bit depth are build-time; everything else is selected at runtime.",
       "type": "array",
       "minItems": 1,
       "items": {
@@ -240,6 +240,11 @@
           "line_length_pck": { "type": "integer", "minimum": 1 },
           "frame_length_lines": { "type": "integer", "minimum": 1 },
           "pixel_rate_hz": { "type": "integer", "minimum": 1 },
+          "cfa_order": {
+            "description": "The CFA order this mode reads out, as the running part delivers it: a mode's crop origin and its flip and mirror settings can shift it from the array's native order (cfa.order). Absent: the native order.",
+            "type": "string",
+            "enum": ["RGGB", "GRBG", "GBRG", "BGGR"]
+          },
           "register_sequence": {
             "description": "Name of the entry in register_sequences that selects this mode.",
             "type": "string"
@@ -249,7 +254,7 @@
     },
 
     "register_sequences": {
-      "description": "Named I2C register write sequences. Consumed by software at runtime, and -- in the ONE case where sensor data becomes gateware -- compiled into a ROM plus a state machine for headless targets with no CPU. Every value must be datasheet-derived; see provenance.",
+      "description": "Named I2C register write sequences. Consumed by software at runtime, and -- in the ONE case where sensor data becomes gateware -- compiled into a ROM plus a state machine for headless targets with no CPU. Every value must be datasheet-derived or read back from the running part; see provenance.",
       "type": "object",
       "additionalProperties": {
         "type": "object",
