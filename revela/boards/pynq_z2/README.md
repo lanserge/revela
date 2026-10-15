@@ -113,7 +113,7 @@ directory to build in and give it this script as the command.
 Measured here on xc7z020-1 with Vivado 2025.2: **WNS +0.246 ns** for the
 default build and +0.106 ns with the capture path, the processor's clock
 at 142.857 MHz and the link's at the rate `link_mode` advertises (74.25
-MHz for 1080p30). The worst paths are in the processor's clock domain, in
+MHz for 1080p30, the build these figures are from). The worst paths are in the processor's clock domain, in
 AMD's VDMA and the ISP's tone curve; the receiver and the register bus are
 not among them. A different Vivado, speed grade or seed will land
 elsewhere, and the lever that matters is placement --

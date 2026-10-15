@@ -167,14 +167,16 @@ def test_the_top_is_the_design(built):
             r"get_ports \{?([\w\[\]]+)\}?\]", xdc.read_text())}
     assert named and named <= ports, named - ports
     # the jack is constrained at the link it advertises, and the front end
-    # set for it: a 74.25 MHz link, range 2 (its VCO at 742.5 MHz)
+    # set for it: its MMCM's VCO, five times the link times the range,
+    # inside the 600-1200 MHz specification
     from revela.boards.common.clocking import pixel_khz
     from revela.boards.pynq_z2 import choices
     khz = pixel_khz(choices()["link_mode"])
     clocks = (built / "hdl" / "rx_pin_clocks.xdc").read_text()
     assert f"create_clock -period {1e6 / khz:.3f} -name TMDS_clk " \
         "[get_ports TMDS_clk_p]" in clocks
-    assert khz == 74250 and ip_config(built, "dvi_rx")["kClkRange"] == "2"
+    vco = 5 * khz * int(ip_config(built, "dvi_rx")["kClkRange"])
+    assert 600_000 <= vco <= 1_200_000, vco
     assert not any("create_clock" in line and "TMDS" in line
                    for xdc in pynq_z2.HERE.glob("*.xdc")
                    for line in xdc.read_text().splitlines()

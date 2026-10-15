@@ -245,17 +245,39 @@ static void commit_batch(const char *what) {
                                  : "pending, until the ISP's next frame");
 }
 
+/* The picture: as much of the frame as the ISP holds, and of that the
+ * window's size where one is stated, else as much as the display's active
+ * area shows. */
+static void picture(const struct revela_config *c, uint32_t *fw, uint32_t *fh,
+                    uint32_t *pw, uint32_t *ph) {
+    *fw = c->frame.width < REVELA_ISP_WIDTH ? c->frame.width : REVELA_ISP_WIDTH;
+    *fh = c->frame.height < REVELA_ISP_HEIGHT ? c->frame.height
+                                              : REVELA_ISP_HEIGHT;
+    *pw = c->window.width ? c->window.width
+        : *fw < c->display.h_active ? *fw : c->display.h_active;
+    *ph = c->window.height ? c->window.height
+        : *fh < c->display.v_active ? *fh : c->display.v_active;
+    if (*pw > *fw) *pw = *fw;
+    if (*ph > *fh) *ph = *fh;
+}
+
 /* The ISP follows each frame's own header: its geometry, its depth, and
  * -- where the build carries the phase in the stream -- its Bayer phase.
  * A build that takes the phase as a register gets it here. So does the
- * mark's place: the corner of the picture the ISP puts out -- the frame,
- * as much of it as the ISP holds. One batch carries both. */
+ * picture: the crop keeps the middle of the frame, the picture's size,
+ * and everything after it, the display included, is sized by what it
+ * keeps; and the mark goes in that picture's corner. One batch carries
+ * them all. */
 static int apply_isp(const struct revela_config *c) {
     int batch = 0;
     int changed = !configured
         || c->frame.width != cur.frame.width
         || c->frame.height != cur.frame.height
-        || c->frame.bayer_phase != cur.frame.bayer_phase;
+        || c->frame.bayer_phase != cur.frame.bayer_phase
+        || c->display.h_active != cur.display.h_active
+        || c->display.v_active != cur.display.v_active
+        || c->window.width != cur.window.width
+        || c->window.height != cur.window.height;
     if (!changed) return 0;
     /* an untaken batch -- a link still coming up, a mode the ISP has no
      * frame of yet -- refuses these writes: release it, and this batch
@@ -266,11 +288,19 @@ static int apply_isp(const struct revela_config *c) {
         return refuse("the ISP did not take its Bayer phase");
     batch = 1;
 #endif
+    uint32_t fw, fh, w, h;
+    picture(c, &fw, &fh, &w, &h);
+#ifdef REVELA_CROP_X0
+    if (wr(REVELA_CROP_X0, (fw - w) / 2) < 0
+        || wr(REVELA_CROP_Y0, (fh - h) / 2) < 0
+        || wr(REVELA_CROP_W, w) < 0 || wr(REVELA_CROP_H, h) < 0)
+        return refuse("the ISP did not take its crop");
+    batch = 1;
+#else
+    /* no crop: the picture is the frame */
+    w = fw; h = fh;
+#endif
 #ifdef REVELA_LOGO_X0
-    uint32_t w = c->frame.width < REVELA_ISP_WIDTH ? c->frame.width
-                                                   : REVELA_ISP_WIDTH;
-    uint32_t h = c->frame.height < REVELA_ISP_HEIGHT ? c->frame.height
-                                                     : REVELA_ISP_HEIGHT;
     /* a picture too small for the mark gets none: placed past its end */
     uint32_t x0 = w > REVELA_LOGO_INSET ? w - REVELA_LOGO_INSET : w;
     uint32_t y0 = h > REVELA_LOGO_INSET ? h - REVELA_LOGO_INSET : h;
@@ -332,13 +362,8 @@ static void pll_readback(uint32_t *fb, uint32_t *out0, uint32_t *st) {
 static int apply_display(const struct revela_config *c) {
     const struct revela_raster *d = &c->display;
     const struct revela_window *w = &c->window;
-    /* the picture: the ISP's output -- the frame, cropped to the width
-     * the ISP holds -- as much of it as the display's active area shows */
-    uint32_t pw = w->width, ph = w->height;
-    uint32_t iw = c->frame.width < REVELA_ISP_WIDTH ? c->frame.width
-                                                    : REVELA_ISP_WIDTH;
-    if (!pw) pw = iw < d->h_active ? iw : d->h_active;
-    if (!ph) ph = c->frame.height < d->v_active ? c->frame.height : d->v_active;
+    /* the picture's size is not the display's to be told: it is the
+     * ISP's output, and the display takes it from the stream */
     /* the clock first: the select switches at once, and the raster
      * restarts on the new clock and takes the rest in its next blanking */
     int row = clock_row(d->pixel_khz);
@@ -352,7 +377,6 @@ static int apply_display(const struct revela_config *c) {
         {REVELA_R_HS_POS, d->hsync_positive},
         {REVELA_R_VS_POS, d->vsync_positive},
         {REVELA_R_WIN_X0, w->x0}, {REVELA_R_WIN_Y0, w->y0},
-        {REVELA_R_WIN_W, pw}, {REVELA_R_WIN_H, ph},
         {REVELA_R_CENTER, w->center},
     };
     /* the serializer's new recipe; the clock select; the serializer

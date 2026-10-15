@@ -71,9 +71,13 @@
             ]
           }
         },
+        "crop": {
+          "block": "revela.blocks.crop",
+          "description": "What the display shows of the frame: at reset the whole of it, at run time the window the firmware sets for the display it drives -- the middle of a frame bigger than the display. Every block after it, and the display, takes its size from here."
+        },
         "logo": {
           "block": "revela.blocks.logo",
-          "description": "The mark, from block RAM, keyed over the corner of the picture: at reset, the corner of the largest frame this ISP is built for; at run time, wherever the firmware places it for the frame it applies.",
+          "description": "The mark, from block RAM, keyed over the corner of the picture the crop keeps: at reset, the corner of the largest frame this ISP is built for; at run time, wherever the firmware places it for the frame it applies.",
           "values": {
             "x0": "@revela.blocks.logo:corner(isp.max_width)",
             "y0": "@revela.blocks.logo:corner(isp.max_height)"
@@ -91,6 +95,10 @@
         ],
         [
           "rgb_gamma.out",
+          "crop.in"
+        ],
+        [
+          "crop.out",
           "logo.in"
         ],
         [

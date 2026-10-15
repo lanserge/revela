@@ -12,8 +12,8 @@
      "description": "The output raster. By default the one the input arrives in, so the output runs at the input's rate, genlocked to it."
     },
     "link_mode": {
-     "default": "'1080p30'",
-     "description": "The raster the receiver advertises in its EDID: payload plus one header row."
+     "default": "'1080p60'",
+     "description": "The raster the receiver advertises in its EDID: payload plus one header row. Its clock is the link's, and the HDMI front end is built for the span it falls in: 1080p60's 148.5 MHz, the most this board's input takes, so a source sends as many samples a second as the receiver can take."
     },
     "isp_mhz": {
      "default": 155,

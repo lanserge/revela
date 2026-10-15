@@ -180,9 +180,12 @@ def test_init_loads_the_build_then_applies_the_configuration(tmp_path):
     want = [raw(k, v) for k, v in design.items()]
     want += [raw(k, v) for k, v in profile.flatten(fitted, regmap).items()]
     want.append((commit, 1))
-    # the mark, in the corner of the frame the ISP puts out: its own batch
+    # the picture: the crop keeps as much of the frame as the display
+    # shows, and the mark goes in its corner -- their own batch
     from revela.blocks.logo import INSET
-    want += [(a["logo.x0"][0], 1920 - INSET), (a["logo.y0"][0], 1080 - INSET),
+    want += [(a["crop.x0"][0], 0), (a["crop.y0"][0], 0),
+             (a["crop.w"][0], 1920), (a["crop.h"][0], 1080),
+             (a["logo.x0"][0], 1920 - INSET), (a["logo.y0"][0], 1080 - INSET),
              (commit, 1)]
     r = cable["scanout_regs"]
     reg = {k: r["base"] + v for k, v in r["registers"].items()}
@@ -199,8 +202,7 @@ def test_init_loads_the_build_then_applies_the_configuration(tmp_path):
         "h_total", "h_active", "hs_beg", "hs_end", "v_total", "v_active",
         "vs_beg", "vs_end")]
     want += [(reg["hs_pos"], 1), (reg["vs_pos"], 1), (reg["win_x0"], 0),
-             (reg["win_y0"], 0), (reg["win_w"], 1920), (reg["win_h"], 1080),
-             (reg["center"], 1), (reg["arm"], 1)]
+             (reg["win_y0"], 0), (reg["center"], 1), (reg["arm"], 1)]
     assert writes == want
     # the sensor's mode went to the platform, and AE started it from the
     # sensor's own facts
@@ -343,7 +345,9 @@ def test_a_commit_the_isp_has_not_taken_yet_is_not_a_refusal(tmp_path):
     a = _addr(_maps()[0])
     commit = a["pipe.commit"][0]
     isp = [w for w in after if w[0] < raster]
-    assert isp == [(commit, 0), (a["logo.x0"][0], 640 - INSET),
+    assert isp == [(commit, 0), (a["crop.x0"][0], 0), (a["crop.y0"][0], 0),
+                   (a["crop.w"][0], 640), (a["crop.h"][0], 480),
+                   (a["logo.x0"][0], 640 - INSET),
                    (a["logo.y0"][0], 480 - INSET), (commit, 1)], isp
 
 
@@ -416,3 +420,20 @@ def test_a_struct_that_moves_changes_the_contract(tmp_path, monkeypatch):
     after = package.api("revela_algo.h", "REVELA_ALGO_API")
     assert before.split("-")[0] == after.split("-")[0]
     assert before != after
+
+
+def test_a_frame_bigger_than_the_display_shows_its_middle(tmp_path):
+    """Full resolution on a 1080p display: the crop keeps the display's
+    area from the middle of the frame, and the mark lands in the corner of
+    what it keeps."""
+    from revela.blocks.logo import INSET
+    exe, regmap, _ = _build(tmp_path)
+    writes, out = _run(exe, f"init mode=full_2592x1944 {_display('1080p30')}"
+                            " window.center=1")
+    assert "R ok" in out, out
+    a = _addr(regmap)
+    keys = ("crop.x0", "crop.y0", "crop.w", "crop.h", "logo.x0", "logo.y0")
+    got = {k: v for k in keys for addr, v in writes if addr == a[k][0]}
+    assert got == {"crop.x0": (2592 - 1920) // 2, "crop.y0": (1944 - 1080) // 2,
+                   "crop.w": 1920, "crop.h": 1080,
+                   "logo.x0": 1920 - INSET, "logo.y0": 1080 - INSET}, got

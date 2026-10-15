@@ -44,7 +44,9 @@ module tb;
 
   wire [15:0] h_total, h_active, hs_beg, hs_end;
   wire [15:0] v_total, v_active, vs_beg, vs_end, ps_per_px;
-  wire [15:0] win_x0, win_y0, win_w, win_h;
+  wire [15:0] win_x0, win_y0;
+  // the size of the frame arriving: the stream's, not the file's
+  reg  [15:0] pic_w = 16'd1920, pic_h = 16'd1080;
   wire hs_pos, vs_pos, center, arm_req, arm_ack;
 
   scanout_regs regs (
@@ -64,7 +66,6 @@ module tb;
       .param_hs_pos(hs_pos), .param_vs_pos(vs_pos),
       .param_ps_per_px(ps_per_px),
       .param_win_x0(win_x0), .param_win_y0(win_y0),
-      .param_win_w(win_w), .param_win_h(win_h),
       .param_center(center), .param_arm());
 
   scanout dut (
@@ -76,7 +77,7 @@ module tb;
       .reg_hs_pos(hs_pos), .reg_vs_pos(vs_pos),
       .reg_ps_per_px(ps_per_px),
       .reg_win_x0(win_x0), .reg_win_y0(win_y0),
-      .reg_win_w(win_w), .reg_win_h(win_h), .reg_center(center),
+      .reg_center(center), .pic_w(pic_w), .pic_h(pic_h),
       .arm_req(arm_req), .arm_ack(arm_ack),
       .param_follow(1'b0), .ps_en(ps_en), .ps_incdec(ps_incdec),
       .ps_done(1'b1),
@@ -127,12 +128,12 @@ module tb;
     end
   endtask
 
-  // A PICTURE MOVES ONLY BETWEEN FRAMES. Placement decides where every
-  // pixel of a frame lands, so a copy taken mid-frame would move the
-  // picture halfway down itself. Watch the raster's own copy: every
-  // time it changes, the raster must be in vertical blanking.
-  reg [15:0] seen_w;
-  initial seen_w = 16'd1920;
+  // A PICTURE MOVES ONLY BETWEEN FRAMES. Placement and size decide
+  // where every pixel of a frame lands, so a copy taken mid-frame would
+  // move the picture halfway down itself. Watch the raster's own copies:
+  // every time one changes, the raster must be in vertical blanking.
+  reg [15:0] seen_x0, seen_w;
+  initial begin seen_x0 = 16'd0; seen_w = 16'd1920; end
   // the line the raster scans, hsync edge to hsync edge
   integer line_len = 0, line_run = 0;
   reg hs_d = 0;
@@ -143,9 +144,16 @@ module tb;
   end
 
   always @(posedge clk) begin
-    if (dut.have && dut.win_w !== seen_w) begin
+    if (dut.have && dut.win_x0 !== seen_x0) begin
       if (!dut.in_vblank) begin
         $display("FAIL: placement changed outside vertical blanking");
+        fails = fails + 1;
+      end
+      seen_x0 <= dut.win_x0;
+    end
+    if (dut.have && dut.win_w !== seen_w) begin
+      if (!dut.in_vblank) begin
+        $display("FAIL: the picture's size changed outside vertical blanking");
         fails = fails + 1;
       end
       seen_w <= dut.win_w;
@@ -170,8 +178,8 @@ module tb;
           dut.win_x0 === 16'd0 && dut.win_y0 === 16'd0 &&
           dut.center === 1'b1,
           "reset places the build's own window");
-    rd(A_WIN_W);
-    check(last_read[15:0] === 16'd1920, "the file agrees, read back");
+    rd(A_CENTER);
+    check(last_read[0] === 1'b1, "the file agrees, read back");
     rd(A_ID);
     check(last_read === LAYOUT_ID, "the file reads back its layout's ID");
     wr(A_ID, 32'd0);
@@ -179,21 +187,22 @@ module tb;
 
     // A WRITE ALONE DOES NOT MOVE THE PICTURE. The frame in flight
     // keeps the placement it started with until the arm says take.
-    wr(A_WIN_W, 32'd1280); check(last_resp === OKAY, "width write accepted");
-    wr(A_WIN_H, 32'd720);  check(last_resp === OKAY, "height write accepted");
-    wr(A_CENTER, 32'd1);
+    wr(A_WIN_X0, 32'd100); check(last_resp === OKAY, "origin write accepted");
+    wr(A_WIN_Y0, 32'd50);  check(last_resp === OKAY, "line write accepted");
+    wr(A_CENTER, 32'd0);
     repeat (400) @(posedge clk);
-    check(dut.win_w === 16'd1920,
+    check(dut.win_x0 === 16'd0 && dut.center === 1'b1,
           "written but unarmed: the raster has not moved");
 
     // ARMED, THE COPY IS TAKEN -- in blanking, which the monitor above
     // is watching for, and within a frame.
     wr(A_ARM, 32'd1); check(last_resp === OKAY, "arm accepted");
     waited = 0;
-    while (dut.win_w !== 16'd1280 && waited < 4_000_000) begin
+    while (dut.win_x0 !== 16'd100 && waited < 4_000_000) begin
       @(posedge clk); waited = waited + 1;
     end
-    check(dut.win_w === 16'd1280 && dut.win_h === 16'd720,
+    check(dut.win_x0 === 16'd100 && dut.win_y0 === 16'd50 &&
+          dut.center === 1'b0,
           "armed: the raster took the new placement");
     check(waited < 2_475_000, "taken within one frame");
 
@@ -222,9 +231,9 @@ module tb;
     // this side: an AXI slave with no clock never answers, and the
     // processor waiting for it has hung.
     pix_en = 0;
-    wr(A_WIN_W, 32'd640);
+    wr(A_WIN_X0, 32'd640);
     check(last_resp === OKAY, "clock gone: a write is still answered");
-    rd(A_WIN_W);
+    rd(A_WIN_X0);
     check(last_read[15:0] === 16'd640, "clock gone: and a read is too");
     wr(A_ARM, 32'd1);
     check(last_resp === OKAY, "clock gone: the arm is still answered");
@@ -232,9 +241,9 @@ module tb;
     // ARMED MEANS FROZEN, and says so -- even with no reader running,
     // because the file cannot know that; it only knows nobody has
     // acknowledged.
-    wr(A_WIN_W, 32'd320);
+    wr(A_WIN_X0, 32'd320);
     check(last_resp === SLVERR, "armed: a placement write is REFUSED");
-    rd(A_WIN_W);
+    rd(A_WIN_X0);
     check(last_read[15:0] === 16'd640, "armed: and the value did not change");
 
     // THE ESCAPE HATCH. With no pixel clock the acknowledgement never
@@ -245,7 +254,7 @@ module tb;
     check(last_read[0] === 1'b1, "still armed, with no reader to ack");
     wr(A_ARM, 32'd0);
     check(last_resp === OKAY, "the arm can always be written back");
-    wr(A_WIN_W, 32'd800);
+    wr(A_WIN_X0, 32'd800);
     check(last_resp === OKAY, "released: placement writes flow again");
 
     // Plug it back in and the pending placement lands.
@@ -253,10 +262,10 @@ module tb;
     repeat (50) @(posedge clk);
     wr(A_ARM, 32'd1);
     waited = 0;
-    while (dut.win_w !== 16'd800 && waited < 4_000_000) begin
+    while (dut.win_x0 !== 16'd800 && waited < 4_000_000) begin
       @(posedge clk); waited = waited + 1;
     end
-    check(dut.win_w === 16'd800, "cable back: the placement lands");
+    check(dut.win_x0 === 16'd800, "cable back: the placement lands");
 
     // THE OTHER PLACE THE CABLE CAN GO. Stopping the clock in the
     // middle of the handshake leaves the acknowledgement raised, and
@@ -285,13 +294,32 @@ module tb;
     end
     check(dut.win_x0 === 16'd42, "and the handshake recovers by itself");
 
+    // THE PICTURE'S SIZE IS THE STREAM'S, and moves only between frames
+    // too: a new size arriving in the middle of a picture is held until
+    // the raster blanks -- the monitor above is watching -- and taken
+    // there, with no write and no arm.
+    waited = 0;
+    while (!(vid_active_video && dut.core.y == 11'd500) && waited < 4_000_000) begin
+      @(posedge clk); waited = waited + 1;
+    end
+    pic_w = 16'd1600; pic_h = 16'd900;
+    repeat (20) @(posedge clk);
+    check(dut.win_w === 16'd1920, "a size mid-picture is not taken there");
+    waited = 0;
+    while (dut.win_w !== 16'd1600 && waited < 4_000_000) begin
+      @(posedge clk); waited = waited + 1;
+    end
+    check(dut.win_w === 16'd1600 && dut.win_h === 16'd900,
+          "it is taken in the next blanking");
+    check(waited < 2_475_000, "within one frame");
+
     // A MODE CHANGE IS A WRITE LIKE ANY OTHER: the raster takes the new
     // totals whole, in blanking, and scans them. 720p's line is 1650.
     wr(A_H_TOTAL, 32'd1650); wr(A_H_ACTIVE, 32'd1280);
     wr(A_HS_BEG, 32'd1390);  wr(A_HS_END, 32'd1430);
     wr(A_V_TOTAL, 32'd750);  wr(A_V_ACTIVE, 32'd720);
     wr(A_VS_BEG, 32'd725);   wr(A_VS_END, 32'd730);
-    wr(A_WIN_X0, 32'd0); wr(A_WIN_W, 32'd1280); wr(A_WIN_H, 32'd720);
+    wr(A_WIN_X0, 32'd0);
     wr(A_ARM, 32'd1);
     waited = 0;
     while (dut.h_total !== 12'd1650 && waited < 4_000_000) begin

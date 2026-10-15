@@ -12,6 +12,20 @@ Pre-1.0, so the block API and the map format can still change. See
 
 ### Changed
 
+- **The picture is cropped in the ISP, and the display is sized by the
+  stream.** `revela.blocks.crop` is NumPy's own slice on four registers,
+  between the display curve and the mark; at reset it keeps the whole
+  frame. The firmware sets it to the middle of the frame, as much as the
+  display shows, and places the mark in the corner of what it keeps. The
+  ISP publishes the size of the frame it hands on, which crosses to the
+  display with the picture (np2hw's `frame_cdc`); the raster takes it in
+  vertical blanking, and the display's `win_w`/`win_h` registers are
+  gone.
+- **The PYNQ-Z2 receives a 148.5 MHz link.** `link_mode` is 1080p60, so
+  the HDMI input's front end is built for the 120-240 MHz span with its
+  VCO in specification; the board test holds that property rather than a
+  rate.
+
 - **The firmware** (`revela/firmware`): portable C that will run on the
   MCU beside an ISP, and runs on a Pi beside the board now. A platform
   lends it a HAL (`revela_hal.h`: the ISP's registers, the sensor by what

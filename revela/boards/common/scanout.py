@@ -7,8 +7,9 @@ whose mode and placement arrive on registers, set by whoever sets the
 camera's mode. What varies between builds is only what an unwritten
 bitstream shows, so that is all this generates: an AXI4-Lite register
 file, declared here, its reset values the build's mode from bayerlink's
-rasters, the whole active area, centred, and the fine phase steps one
-pixel of the raster's clock is.
+rasters, the picture centred, and the fine phase steps one pixel of the
+raster's clock is. The picture's size is not here: it is the stream's,
+the size of the frame the ISP puts out.
 
 The file is armed for a reader in another clock (np2hw's `arm`), and
 resets ARMED: the raster takes the build's mode once without anyone
@@ -40,13 +41,12 @@ def scanout_regs(mode: str, ps_per_pixel: int, clk_sel: int = 0) -> dict:
     r = raster(mode)
     fields = ([(name, 16) for name in MODE]
               + [("clk_sel", 2), ("hs_pos", 1), ("vs_pos", 1), ("ps_per_px", 16),
-                 ("win_x0", 16), ("win_y0", 16), ("win_w", 16),
-                 ("win_h", 16), ("center", 1), ("arm", 1)])
+                 ("win_x0", 16), ("win_y0", 16), ("center", 1), ("arm", 1)])
     defaults = {name: getattr(r, name) for name in MODE}
     defaults.update(clk_sel=int(clk_sel),
                     hs_pos=int(r.hsync_positive), vs_pos=int(r.vsync_positive),
                     ps_per_px=int(ps_per_pixel),
-                    win_x0=0, win_y0=0, win_w=r.h_active, win_h=r.v_active,
+                    win_x0=0, win_y0=0,
                     center=1, arm=1)
     # The file's ID: its layout, read back before anything is written, so
     # a map from another build is refused rather than written to the

@@ -264,12 +264,14 @@
      "width": 16
     },
     {
-     "name": "reg_win_w",
-     "width": 16
+     "name": "pic_w",
+     "width": 16,
+     "description": "The width of the frame arriving, on the raster's clock: the stream's, taken in vertical blanking."
     },
     {
-     "name": "reg_win_h",
-     "width": 16
+     "name": "pic_h",
+     "width": 16,
+     "description": "Its height."
     },
     {
      "name": "reg_center"

@@ -326,8 +326,8 @@
      }
     },
     "out_cdc": {
-     "block": "np2hw.hdl.stream:stream_cdc",
-     "description": "The ISP's picture into the raster's clock. Its depth is the raster's lead: with no frame store, the lines a frame's start arrives early are lines this holds.",
+     "block": "np2hw.hdl.stream:frame_cdc",
+     "description": "The ISP's picture into the raster's clock, each frame's size crossing with it. Its depth is the raster's lead: with no frame store, the lines a frame's start arrives early are lines this holds.",
      "build": {
       "DATA_BITS": "isp_out_bits",
       "A": 13
@@ -672,6 +672,22 @@
      "isp_dir.in"
     ],
     [
+     "isp.isp_out_frame_width",
+     "out_cdc.in_frame_width"
+    ],
+    [
+     "isp.isp_out_frame_height",
+     "out_cdc.in_frame_height"
+    ],
+    [
+     "out_cdc.out_frame_width",
+     "scanout.pic_w"
+    ],
+    [
+     "out_cdc.out_frame_height",
+     "scanout.pic_h"
+    ],
+    [
      "raster_clk",
      "isp_dir.clk"
     ],
@@ -754,14 +770,6 @@
     [
      "scanout_regs.param_win_y0",
      "scanout.reg_win_y0"
-    ],
-    [
-     "scanout_regs.param_win_w",
-     "scanout.reg_win_w"
-    ],
-    [
-     "scanout_regs.param_win_h",
-     "scanout.reg_win_h"
     ],
     [
      "scanout_regs.param_center",

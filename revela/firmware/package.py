@@ -36,7 +36,7 @@ LOOPS = ("ae", "awb", "af")
 RASTER = "scanout_regs"         # the cable map's display raster file
 RASTER_FIELDS = ("clk_sel", "ps_per_px", "h_total", "h_active", "hs_beg", "hs_end", "v_total",
                  "v_active", "vs_beg", "vs_end", "hs_pos", "vs_pos",
-                 "win_x0", "win_y0", "win_w", "win_h", "center", "arm")
+                 "win_x0", "win_y0", "center", "arm")
 
 
 def api(header: str, name: str) -> str:
@@ -148,6 +148,14 @@ def core_map_h(regmap: dict, cable_map: dict,
                  "its stream */")
     L.append(f"#define REVELA_ISP_WIDTH {int(regmap['geometry']['width'])}u")
     L.append(f"#define REVELA_ISP_HEIGHT {int(regmap['geometry']['height'])}u")
+    # the crop, where the build carries one: the window the picture is
+    crops = [b["path"] for b in regmap["blocks"] if b["block"] == "crop"]
+    if len(crops) > 1:
+        raise ValueError(f"this build carries {len(crops)} crops ({crops}); "
+                         "the firmware sets one")
+    for f in ("x0", "y0", "w", "h") if crops else ():
+        L.append(f"#define REVELA_CROP_{f.upper()} "
+                 f"0x{where[crops[0] + '.' + f][0]:04X}u")
     # the mark, where the build carries one: its placement registers, and
     # the corner rule's inset, which is the block's
     marks = [b["path"] for b in regmap["blocks"] if b["block"] == "logo"]

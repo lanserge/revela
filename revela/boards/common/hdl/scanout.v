@@ -23,6 +23,12 @@
 // the file resets armed, so a bitstream nobody writes to still takes the
 // mode it was built with. The copy is kept through a raster reset: the
 // mode is the register file's, not the raster clock's.
+//
+// The picture's SIZE is not the register file's: it is the stream's, the
+// size of the frame arriving, published beside the stream on this clock.
+// It is taken in vertical blanking too, every blanking, so a frame of a
+// new size is placed whole: by then the last frame's pixels are drawn,
+// and the next frame's size is published as its first beat is presented.
 module scanout #(
     parameter DW = 24,
     parameter XB = 12,
@@ -49,11 +55,12 @@ module scanout #(
     input  wire [15:0]   reg_ps_per_px,
     input  wire [15:0]   reg_win_x0,
     input  wire [15:0]   reg_win_y0,
-    input  wire [15:0]   reg_win_w,
-    input  wire [15:0]   reg_win_h,
     input  wire          reg_center,
     input  wire          arm_req,
     output reg           arm_ack,
+    // the size of the frame arriving, on this clock
+    input  wire [15:0]   pic_w,
+    input  wire [15:0]   pic_h,
     // 1: the raster follows the stream (the direct picture is on); 0: it
     // holds its mode unsteered, painting the fill
     input  wire          param_follow,
@@ -85,7 +92,8 @@ module scanout #(
     reg [XB-1:0] h_total, h_active, hs_beg, hs_end;
     reg [YB-1:0] v_total, v_active, vs_beg, vs_end;
     reg          hs_pos, vs_pos, center;
-    reg [15:0]   ps_per_px, win_x0, win_y0, win_w, win_h;
+    reg [15:0]   ps_per_px, win_x0, win_y0;
+    reg [15:0]   win_w = 16'd0, win_h = 16'd0;
     initial arm_ack = 1'b0;
 
     wire in_vblank = (vid_vsync == vs_pos) && !vid_active_video;
@@ -107,13 +115,16 @@ module scanout #(
                 vs_pos   <= reg_vs_pos;
                 ps_per_px <= reg_ps_per_px;
                 win_x0 <= reg_win_x0; win_y0 <= reg_win_y0;
-                win_w  <= reg_win_w;  win_h  <= reg_win_h;
                 center <= reg_center;
                 have    <= 1'b1;
                 arm_ack <= 1'b1;
             end else if (!req_s1) arm_ack <= 1'b0;
         end
     end
+    always @(posedge clk)
+        if (in_vblank || !have) begin
+            win_w <= pic_w; win_h <= pic_h;
+        end
 
     wire [15:0] act_x0, act_y0;
     raster #(.DW(DW), .XB(XB), .YB(YB), .FILL(FILL), .G_LEAD(G_LEAD)) core (

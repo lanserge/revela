@@ -43,8 +43,8 @@ def test_the_board_isp_core_is_built_at_its_geometry():
     assert form.spec.bit_depth == 12
     assert form.width >= max(m["width"] for m in modes)
     assert form.height >= max(m["height"] for m in modes)
-    assert [s.path for s in compose.stages(pipeline)[1:]][-2:] == [
-        "rgb_gamma", "logo"]
+    assert [s.path for s in compose.stages(pipeline)[1:]][-3:] == [
+        "rgb_gamma", "crop", "logo"]
 
 
 def test_the_board_resets_to_its_curve_and_the_sensor_profile_fits_it():

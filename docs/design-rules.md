@@ -473,6 +473,9 @@ revela/          (np2hw holds the machinery: np2hw.blocks -- the framework,
                   shared knot table via the channels view
     stats.py      model + register map; RTL pending np2hw reductions
     ccm.py        complete; first 3-channel block, seatless until demosaic
+    crop.py       complete; NumPy's own slice on four registers -- the first
+                  block whose frame out is not the frame in, so every block
+                  after it, and the display, is sized by what it keeps
     logo.py       complete; a mark composited from a ROM, position derived
                   from the frame's own shape -- the first block whose table
                   is data rather than coefficients, and the first to prove
