@@ -146,6 +146,7 @@ def core_map_h(regmap: dict, cable_map: dict,
     else:
         L.append("/* no Bayer phase register: this build's phase rides "
                  "its stream */")
+    L.append(f"#define REVELA_ISP_KHZ {int(cable_map['isp']['clock_khz'])}u")
     L.append(f"#define REVELA_ISP_WIDTH {int(regmap['geometry']['width'])}u")
     L.append(f"#define REVELA_ISP_HEIGHT {int(regmap['geometry']['height'])}u")
     # the crop, where the build carries one: the window the picture is

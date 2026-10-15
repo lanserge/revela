@@ -21,6 +21,12 @@ Pre-1.0, so the block API and the map format can still change. See
   display with the picture (np2hw's `frame_cdc`); the raster takes it in
   vertical blanking, and the display's `win_w`/`win_h` registers are
   gone.
+- **The ISP's clock is published.** The board's cable map states the
+  clock the ISP takes a sample a cycle on, traced from the fabric clock
+  driving it, and the firmware reports it (`isp_khz` in `status`), so a
+  source times its lines to what the ISP drains. With no sensor -- a clip
+  playing -- the Pi platform offers the firmware no sensor functions, and
+  a frame of any size is taken without touching one.
 - **The PYNQ-Z2 receives a 148.5 MHz link.** `link_mode` is 1080p60, so
   the HDMI input's front end is built for the 120-240 MHz span with its
   VCO in specification; the board test holds that property rather than a

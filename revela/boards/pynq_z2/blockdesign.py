@@ -177,7 +177,22 @@ def main(argv=None) -> int:
         entry = {"base": window["base"], "size": window["size"]}
         if "offsets" in facts:
             entry.update(registers=facts["offsets"], id=facts["id"])
+        if path.rpartition(".")[2] == "isp":
+            # the clock the ISP takes a sample a cycle on: how fast a
+            # source may hand it samples, traced to the fabric clock
+            # that drives it
+            entry["clock_khz"] = isp_khz()
         return entry
+    def isp_khz():
+        from revela.boards.zynq7 import fabric_clocks
+        net = next(n["pins"] for n in design.netlist["nets"]
+                   if "fabric.isp.clk" in n["pins"])
+        fclk = [p for p in net if p.startswith("ps7.FCLK_CLK")]
+        if len(fclk) != 1:
+            raise ValueError(f"the ISP's clock is driven by {fclk}, not one "
+                             "fabric clock")
+        i = fclk[0][len("ps7.FCLK_CLK"):]
+        return round(fabric_clocks(design)[f"fclk{i}_mhz"] * 1000)
     def display_clocks():
         # each row's clock, from the clock manager configured to make it:
         # a fine step is a 56th of a VCO period, so a pixel is 56 times

@@ -317,4 +317,8 @@ def test_the_cable_map_publishes_the_display_clocks(built):
          "pll": {"divclk": 1, "mult": 5, "out0": 1}}]
     # the serializer MMCM's registers are on the cable's bus too
     assert "tmds_pll" in cable
+    # and the clock the ISP takes its samples on: the fabric clock driving
+    # it, as the processor is told to make it
+    fabric = json.loads((built / "generated" / "clocks.json").read_text())
+    assert cable["isp"]["clock_khz"] == round(fabric["fclk0_mhz"] * 1000)
     assert "clk_sel" in cable["scanout_regs"]["registers"]

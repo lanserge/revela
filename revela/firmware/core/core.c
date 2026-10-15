@@ -547,6 +547,10 @@ int revela_fw_status(char *line, uint32_t cap) {
          i++)
         n += snprintf(line + n, cap - n, i ? ",%u" : "%u",
                       (unsigned)REVELA_CLOCKS[i].khz);
+    /* the clock the ISP takes a sample a cycle on: no source may hand it
+     * a line faster than that */
+    if (n > 0 && (uint32_t)n < cap)
+        n += snprintf(line + n, cap - n, " isp_khz=%u", (unsigned)REVELA_ISP_KHZ);
     if (n > 0 && (uint32_t)n < cap)
         n += snprintf(line + n, cap - n, " frame=%ux%ux%u display=%ux%u/%ukHz",
                      (unsigned)f->width, (unsigned)f->height,

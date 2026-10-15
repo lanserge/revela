@@ -96,7 +96,7 @@ def _maps():
     regmap = compose.register_map(pipelines.load(
         "revela.boards.pynq_z2.isp:revela_isp_core"))
     regs = scanout_regs("1080p30", 560)
-    cable = {"isp": {"base": 0, "size": 0x8000},
+    cable = {"isp": {"base": 0, "size": 0x8000, "clock_khz": 142857},
              "scanout_regs": {"base": 0x8000, "size": 0x1000,
                               "registers": regs["facts"]["offsets"],
                               "id": regs["facts"]["id"],
@@ -371,6 +371,8 @@ def test_a_raster_at_a_clock_the_display_does_not_make_is_refused(tmp_path):
     assert writes == []
     assert any("makes no 25175 kHz clock" in l for l in out)
     assert any("tv_khz=27000,74250,148500" in l for l in out)
+    # and the clock the ISP takes its samples on, for whoever times a source
+    assert any(" isp_khz=142857 " in l for l in out)
     # 480p's clock is a row: its raster selects it
     writes, out = _run(exe, f"init {FRAME_1080P30} {_display('480p60')} "
                             "window.center=1")

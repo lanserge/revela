@@ -9,7 +9,9 @@
  *   sensor          its Linux driver, through V4L2 controls on the
  *                   subdevice the bridge holds; its MODE is the bridge's,
  *                   set at start (--mode), so a different frame is
- *                   refused here and asked of the bridge instead
+ *                   refused here and asked of the bridge instead. While
+ *                   the bridge plays a clip there is no sensor, and the
+ *                   HAL offers none: the frame is the clip's
  *   console         the bridge's control socket: the firmware's commands
  *   every frame     revela_fw_tick
  *   link up         the last configuration, replayed -- the board forgets
@@ -72,7 +74,7 @@ static uint64_t now_us(void) {
 }
 static void log_line(const char *line) { printf("%s\n", line); }
 
-static const struct revela_hal pi = {
+static struct revela_hal pi = {
     .isp_read = isp_read, .isp_write = isp_write,
     .sensor_mode = sensor_mode, .sensor_exposure = exposure,
     .sensor_analog_gain = analog_gain, .sensor_digital_gain = digital_gain,
@@ -102,7 +104,13 @@ void bridge_frame_hook(const struct bridge_frame *f) {
 
 void bridge_link_hook(const struct bridge_link *l) {
     attach();
-    if (l->mode) { mode = *l->mode; have_mode = 1; }
+    if (l->mode) {
+        mode = *l->mode; have_mode = 1;
+        if (!mode.sensor) {
+            pi.sensor_mode = NULL; pi.sensor_exposure = NULL;
+            pi.sensor_analog_gain = NULL; pi.sensor_digital_gain = NULL;
+        }
+    }
     if (!l->up || !l->edid || !replay[0]) return;
     int ours = 0;
     for (int i = 0; i + 9 < 256; i++)
