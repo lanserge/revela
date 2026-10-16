@@ -1,7 +1,7 @@
 {
  "blocks": {
   "hdmi_in": {
-   "description": "The HDMI-in jack: an HDMI receiver (bayerlink-fpga's hdmi_rx, dvi2rgb by default) decoding the cable to parallel video, the hot-plug and DDC lines, and the pins they land on. Every design on this board that receives bayerlink uses this block rather than restating any of it. The link's rate is one parameter: the jack's clock is constrained at it, and the front end's clocking is set for it.",
+   "description": "The HDMI-in jack: an HDMI receiver (bayerlink-fpga's hdmi_rx, the implementation front_end names) decoding the cable to parallel video, the hot-plug and DDC lines, and the pins they land on. Every design on this board that receives bayerlink uses this block rather than restating any of it. The link's rate is one parameter: the jack's clock is constrained at it, and the front end's clocking is set for it.",
    "parameters": {
     "lane_map": {
      "default": "dvi_rx.lane_map",
@@ -13,6 +13,10 @@
     },
     "link_khz": {
      "description": "The link's pixel clock, in kHz: the rate the receiver advertises and the source sends. The TMDS pin's clock is constrained at it and the front end set for it."
+    },
+    "front_end": {
+     "default": "'dvi2rgb'",
+     "description": "Which implementation of bayerlink-fpga's hdmi_rx receives the link: Digilent's dvi2rgb, or tmds_rx, bayerlink-fpga's own, which also gives its account of the link on `status`."
     }
    },
    "inputs": [
@@ -47,6 +51,11 @@
     },
     {
      "name": "sda_i"
+    },
+    {
+     "name": "status",
+     "when": "front_end == 'tmds_rx'",
+     "description": "The receiver's account of the link: tmds_rx's status word."
     }
    ],
    "pins": [
@@ -78,7 +87,9 @@
     "dvi_rx": {
      "block": "bayerlink_fpga.frontends.hdmi_rx",
      "build": {
-      "link_khz": "link_khz"
+      "link_khz": "link_khz",
+      "implementation": "front_end",
+      "status": "1 if front_end == 'tmds_rx' else 0"
      }
     },
     "hpd_one": {
@@ -155,7 +166,12 @@
     [
      "ddc_sda_io",
      "ddc_phy.sda_io"
-    ]
+    ],
+    {
+     "from": "dvi_rx.status",
+     "to": "status",
+     "when": "front_end == 'tmds_rx'"
+    }
    ]
   }
  }

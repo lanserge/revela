@@ -12,6 +12,20 @@ Pre-1.0, so the block API and the map format can still change. See
 
 ### Changed
 
+- **The PYNQ-Z2 receives HDMI with bayerlink-fpga's own receiver.** The
+  board's `front_end` chooses the HDMI input's implementation, `tmds_rx` by
+  default: it aligns in milliseconds where Digilent's dvi2rgb took seconds
+  on every mode change, and its account of the link -- bonded, locked,
+  each lane's alignment, eye width and bit slips -- is on a GPIO of its
+  own, `rx_gpio`. The board test holds the receiver's VCO and lane order
+  to whichever implementation is chosen.
+- **The firmware leaves a running display clock alone.** A configuration
+  whose clock the hardware already runs -- its select on that row, the
+  serializer's MMCM locked on that row's recipe, as they read back -- is
+  applied without reloading the serializer, which stops the HDMI clock and
+  makes a TV find the signal again. The firmware's status reports the
+  display's counters (`counters`), the longest raster it scans.
+
 - **The picture is cropped in the ISP, and the display is sized by the
   stream.** `revela.blocks.crop` is NumPy's own slice on four registers,
   between the display curve and the mark; at reset it keeps the whole

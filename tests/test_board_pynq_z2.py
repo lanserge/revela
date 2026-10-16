@@ -71,6 +71,15 @@ def ip_config(built, module):
     return out
 
 
+def _front_end() -> dict:
+    """The implementation the board's HDMI input is filled by."""
+    from importlib.resources import files
+    from revela.boards.pynq_z2 import choices
+    blocks = json.loads(files("bayerlink_fpga.frontends").joinpath(
+        "hdmi_rx.json").read_text())["blocks"]
+    return blocks["hdmi_rx"]["implementations"][choices()["front_end"]]
+
+
 def instance(built, name):
     """``(module, parameters, connections)`` of the cell ``name`` in the
     Verilog the build wrote."""
@@ -103,8 +112,8 @@ def test_the_demo_generates_and_checks_without_vivado(built):
     # out: the receiver's lane order is the front end's, not the default.
     module, params, _ = instance(built, "blrx")
     assert module == "bayerlink_in"
-    assert (params["LANE0"], params["LANE1"], params["LANE2"]) == \
-        ("1", "2", "0"), params
+    lanes = tuple(str(n) for n in _front_end()["facts"]["lane_map"])
+    assert (params["LANE0"], params["LANE1"], params["LANE2"]) == lanes, params
     # Nothing is written beside the sources: they ship in the package.
     assert not (pynq_z2.HERE / "generated").exists()
 
@@ -175,7 +184,11 @@ def test_the_top_is_the_design(built):
     clocks = (built / "hdl" / "rx_pin_clocks.xdc").read_text()
     assert f"create_clock -period {1e6 / khz:.3f} -name TMDS_clk " \
         "[get_ports TMDS_clk_p]" in clocks
-    vco = 5 * khz * int(ip_config(built, "dvi_rx")["kClkRange"])
+    # whichever implementation receives it: Digilent's range setting, or
+    # tmds_rx's own
+    rng = (ip_config(built, "dvi_rx").get("kClkRange")
+           or instance(built, "dvi_rx")[1].get("RANGE"))
+    vco = 5 * khz * int(rng)
     assert 600_000 <= vco <= 1_200_000, vco
     assert not any("create_clock" in line and "TMDS" in line
                    for xdc in pynq_z2.HERE.glob("*.xdc")

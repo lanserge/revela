@@ -357,6 +357,24 @@ static void pll_readback(uint32_t *fb, uint32_t *out0, uint32_t *st) {
 }
 #endif
 
+/* Whether the display already runs at clock row `row`: its select on that
+ * row, and -- where the build carries the serializer's MMCM -- that MMCM
+ * locked on that row's recipe, as its registers read back. */
+static int clock_held(int row) {
+    uint32_t sel = 0xFFFFFFFFu;
+    if (H->isp_read(REVELA_R_CLK_SEL, &sel) < 0 || sel != (uint32_t)row)
+        return 0;
+#ifdef REVELA_PLL_BASE
+    uint32_t fb, out0, st;
+    pll_readback(&fb, &out0, &st);
+    return (st & 1)
+        && fb == (REVELA_CLOCKS[row].divclk | (REVELA_CLOCKS[row].mult << 8))
+        && out0 == REVELA_CLOCKS[row].out0;
+#else
+    return 1;
+#endif
+}
+
 /* The display raster and where the picture sits in it, armed together
  * and taken by the display in its next vertical blanking. */
 static int apply_display(const struct revela_config *c) {
@@ -380,7 +398,13 @@ static int apply_display(const struct revela_config *c) {
         {REVELA_R_CENTER, w->center},
     };
     /* the serializer's new recipe; the clock select; the serializer
-     * loaded on the new clock; then the raster's numbers, armed */
+     * loaded on the new clock; then the raster's numbers, armed. A clock
+     * the hardware already runs is left alone -- reloading the serializer
+     * stops the HDMI clock for a moment, and a TV takes seconds to find
+     * the signal again. The hardware is asked, not this copy's memory:
+     * the firmware starts fresh with every run of its platform, and the
+     * board keeps its clock through all of them. */
+    if (clock_held(row)) goto raster;
 #ifdef REVELA_PLL_BASE
     if (pll_stage(row) < 0)
         return refuse("the serializer MMCM did not answer; not armed");
@@ -397,6 +421,7 @@ static int apply_display(const struct revela_config *c) {
                       (unsigned)out0, (unsigned)st);
     }
 #endif
+raster:
     for (size_t i = 1; i < sizeof v / sizeof v[0]; i++)
         if (wr(v[i][0], v[i][1]) < 0)
             return refuse("the display did not answer; not armed");
@@ -551,6 +576,10 @@ int revela_fw_status(char *line, uint32_t cap) {
      * a line faster than that */
     if (n > 0 && (uint32_t)n < cap)
         n += snprintf(line + n, cap - n, " isp_khz=%u", (unsigned)REVELA_ISP_KHZ);
+    /* the display's counters, in bits: the longest raster it scans */
+    if (n > 0 && (uint32_t)n < cap)
+        n += snprintf(line + n, cap - n, " counters=%ux%u",
+                      (unsigned)REVELA_RASTER_XB, (unsigned)REVELA_RASTER_YB);
     if (n > 0 && (uint32_t)n < cap)
         n += snprintf(line + n, cap - n, " frame=%ux%ux%u display=%ux%u/%ukHz",
                      (unsigned)f->width, (unsigned)f->height,

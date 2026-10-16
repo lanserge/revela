@@ -33,6 +33,10 @@ set_false_path -from [get_cells -hier -filter {NAME =~ */ctrl_gpio/*gpio_Data_Ou
 ## meaningless. The receiver's diagnostic counters cross to the PS
 ## GPIOs under the same contract: counts, read at leisure.
 set_false_path -from [get_cells -hier -filter {NAME =~ */blrx/*hdr_*_reg*}]
+## The HDMI receiver's own account of the link -- alignments, eye widths,
+## bit slips, the bond -- crosses to rx_gpio the same way: states that
+## change once per search, read at leisure.
+set_false_path -from [get_cells -hier -filter {NAME =~ */dvi_rx/*u_align/eye_reg* || NAME =~ */dvi_rx/*u_align/slips_reg* || NAME =~ */dvi_rx/*u_align/aligned_reg || NAME =~ */dvi_rx/*u_bond/bonded_reg}] -to [get_clocks clk_fpga_0]
 
 ## link_reset: two paths here are asynchronous BY CONSTRUCTION, and
 ## timing them is not a conservative choice, it is a meaningless one.

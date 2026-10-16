@@ -31,7 +31,14 @@ FAKE = r'''
 /* --no-frames: the ISP takes no commit, and -- as the real one does --
  * refuses its registers' writes while one is pending */
 static int bad_id, no_frames, armed;
+/* the display's clock as the hardware holds it: its select and its
+ * serializer's recipe, remembered as written -- --held starts them where
+ * an earlier run left the board, on the 74.25 MHz row */
+static uint32_t sel_mem, fb_mem, out0_mem;
 static int isp_read(uint32_t a, uint32_t *v) {
+    if (a == REVELA_R_CLK_SEL) { *v = sel_mem; return 0; }
+    if (a == REVELA_PLL_BASE + 0x200u) { *v = fb_mem; return 0; }
+    if (a == REVELA_PLL_BASE + 0x208u) { *v = out0_mem; return 0; }
     for (size_t i = 0; REVELA_IDS[i].path; i++)
         if (REVELA_IDS[i].addr == a) {
             *v = REVELA_IDS[i].value ^ (uint32_t)bad_id; return 0; }
@@ -41,6 +48,9 @@ static int isp_write(uint32_t a, uint32_t v) {
     if (armed && a < REVELA_RASTER_BASE && a != REVELA_COMMIT) {
         printf("X %u %u\n", (unsigned)a, (unsigned)v); return -1; }
     if (a == REVELA_COMMIT) armed = v && no_frames;  /* 0 releases it */
+    if (a == REVELA_R_CLK_SEL) sel_mem = v;
+    if (a == REVELA_PLL_BASE + 0x200u) fb_mem = v;
+    if (a == REVELA_PLL_BASE + 0x208u) out0_mem = v;
     printf("W %u %u\n", (unsigned)a, (unsigned)v); return 0; }
 static int mode(const struct revela_sensor_mode *m) {
     printf("S mode %s %u %u %u\n", m->name, (unsigned)m->width,
@@ -67,6 +77,11 @@ int main(int argc, char **argv) {
         if (!strcmp(argv[i], "--bytes")) continue;
         if (!strcmp(argv[i], "--bad-id")) { bad_id = 1; continue; }
         if (!strcmp(argv[i], "--no-frames")) { no_frames = 1; continue; }
+        if (!strcmp(argv[i], "--held")) {
+            sel_mem = 1;
+            fb_mem = REVELA_CLOCKS[1].divclk | (REVELA_CLOCKS[1].mult << 8);
+            out0_mem = REVELA_CLOCKS[1].out0;
+            continue; }
         revela_fw_command(argv[i], reply, sizeof reply);
         printf("R %s\n", reply);
     }
@@ -373,6 +388,8 @@ def test_a_raster_at_a_clock_the_display_does_not_make_is_refused(tmp_path):
     assert any("tv_khz=27000,74250,148500" in l for l in out)
     # and the clock the ISP takes its samples on, for whoever times a source
     assert any(" isp_khz=142857 " in l for l in out)
+    # and the longest raster the display scans, for whoever plans one
+    assert any(" counters=12x11 " in l for l in out)
     # 480p's clock is a row: its raster selects it
     writes, out = _run(exe, f"init {FRAME_1080P30} {_display('480p60')} "
                             "window.center=1")
@@ -439,3 +456,27 @@ def test_a_frame_bigger_than_the_display_shows_its_middle(tmp_path):
     assert got == {"crop.x0": (2592 - 1920) // 2, "crop.y0": (1944 - 1080) // 2,
                    "crop.w": 1920, "crop.h": 1080,
                    "logo.x0": 1920 - INSET, "logo.y0": 1080 - INSET}, got
+
+
+def test_a_clock_the_display_already_runs_is_not_reloaded(tmp_path):
+    """A fresh firmware -- every run of its platform starts one -- finding
+    the board already on the clock it asks for leaves the serializer
+    alone: reloading it stops the HDMI clock, and the TV takes seconds to
+    find the signal again. The raster is still written and armed. On
+    another clock, the switch is made."""
+    exe, _, cable = _build(tmp_path)
+    r = cable["scanout_regs"]
+    reg = {k: r["base"] + v for k, v in r["registers"].items()}
+    pll = cable["tmds_pll"]["base"]
+    clock = {pll + 0x200, pll + 0x208, pll + 0x25C, reg["clk_sel"]}
+    good = f"init {FRAME_1080P30} {_display('1080p30')} window.center=1"
+    writes, out = _run(exe, "--held", good)
+    assert "R ok" in out, out
+    assert not [w for w in writes if w[0] in clock], writes
+    assert (reg["arm"], 1) in writes and (reg["h_total"], 2200) in writes
+    writes, out = _run(exe, "--held",
+                       f"init {FRAME_1080P30} {_display('1080p60')} "
+                       "window.center=1")
+    assert "R ok" in out, out
+    assert (reg["clk_sel"], 2) in writes
+
