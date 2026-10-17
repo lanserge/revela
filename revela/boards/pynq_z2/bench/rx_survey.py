@@ -68,25 +68,44 @@ def main() -> int:
               for name in ("bonded", "clock_locked", "aligned", "eye",
                            "slip")}
     lanes = len(status["aligned"])
+    # how many slips and taps there are is what the survey goes through
+    # before it comes round to its first entry again; then it is read on
+    # until every entry is in -- a read slower than an entry is held for
+    # misses one now and then, and finds it on a later round
     counts, where = {}, {}
-    # every tap the survey's tap field counts, and a TMDS word's ten bits
-    taps, slips = 1 << fields.field(GPIO, "survey_tap")[2], 10
     deadline = time.time() + args.seconds
-    previous = None
-    while time.time() < deadline and len(counts) < lanes * slips * taps:
+    previous = first = None
+    went_on = round_done = False
+    slips = taps = 0
+    while time.time() < deadline:
+        if round_done and len(counts) >= lanes * slips * taps:
+            break
         word = mmio.read(offset)
         if word != previous:
             previous = word
             continue
         e = {name: fields.decode(GPIO, name, word) for name in ENTRY}
-        counts[e["survey_lane"], e["survey_slip"], e["survey_tap"]] = \
-            e["survey_count"]
+        key = (e["survey_lane"], e["survey_slip"], e["survey_tap"])
+        if first is None:
+            first = key
+        elif key != first:
+            went_on = True
+        elif went_on and not round_done:
+            round_done = True
+            slips = 1 + max(k[1] for k in counts)
+            taps = 1 + max(k[2] for k in counts)
+        counts[key] = e["survey_count"]
         where[e["survey_lane"]] = (e["survey_lane_slip"],
                                    e["survey_lane_tap"],
                                    e["survey_lane_aligned"])
 
+    if not round_done:
+        slips = 1 + max((k[1] for k in counts), default=-1)
+        taps = 1 + max((k[2] for k in counts), default=-1)
     print(f"bonded={status['bonded']} clock_locked={status['clock_locked']} "
-          f"| {len(counts)} of {lanes * slips * taps} entries")
+          f"| {len(counts)} of {lanes * slips * taps} entries"
+          + ("" if round_done else
+             f", the survey not once round in {args.seconds} s"))
     for lane in range(lanes):
         slip, tap, aligned = where.get(lane, (None, None, 0))
         print(f"lane {lane}: aligned={aligned} samples at slip {slip} tap "

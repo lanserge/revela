@@ -14,11 +14,16 @@ Pre-1.0, so the block API and the map format can still change. See
 
 - **The PYNQ-Z2 receives HDMI with bayerlink-fpga's own receiver.** The
   board's `front_end` chooses the HDMI input's implementation, `tmds_rx` by
-  default: it aligns in milliseconds where Digilent's dvi2rgb took seconds
-  on every mode change, and its account of the link -- bonded, locked,
-  each lane's alignment, eye width and bit slips -- is on a GPIO of its
-  own, `rx_gpio`. The board test holds the receiver's VCO and lane order
-  to whichever implementation is chosen.
+  default: it aligns in a fraction of a second where Digilent's dvi2rgb
+  took seconds on every mode change, and its account of the link -- the
+  bond, the clock, each lane's alignment, eye and bit slip, and its survey
+  of every lane's delay taps -- is on a GPIO of its own, `rx_gpio`, every
+  field named; `bench/rx_survey.py` draws each lane's eyes. The board
+  test holds the receiver's VCO and lane order to whichever implementation
+  is chosen.
+- **A GPIO field may be equal parts.** A field with a `count` is that
+  many parts, part 0 lowest -- a value per lane in one port -- and the
+  bench reads and writes it as a list.
 - **The firmware leaves a running display clock alone.** A configuration
   whose clock the hardware already runs -- its select on that row, the
   serializer's MMCM locked on that row's recipe, as they read back -- is

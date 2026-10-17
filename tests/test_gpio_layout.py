@@ -143,7 +143,7 @@ LANES = {"gpio": "lanes", "channels": [{"direction": "in", "cell": "cat", "field
     {"name": "flag"}, {"name": "eye", "bits": 15, "count": 3}]}]}
 
 
-def test_a_field_of_equal_parts_reads_as_a_list_part_0_lowest(tmp_path):
+def test_a_field_of_equal_parts_is_read_and_written_as_a_list(tmp_path):
     import json
     layout = gpio.layout(LANES)
     assert layout["channels"][0]["fields"]["eye"] == {
@@ -154,6 +154,11 @@ def test_a_field_of_equal_parts_reads_as_a_list_part_0_lowest(tmp_path):
     m.words[0] = (((9 << 10) | (4 << 5) | 7) << 1) | 1
     assert fields.read(m, "lanes", "eye") == [7, 4, 9]
     assert fields.read(m, "lanes", "flag") == 1
+    fields.write(m, "lanes", "eye", [1, 2, 3])
+    assert fields.read(m, "lanes", "eye") == [1, 2, 3]
+    assert fields.read(m, "lanes", "flag") == 1     # the rest of the word kept
+    with pytest.raises(ValueError, match="is 3 parts, not 2"):
+        fields.write(m, "lanes", "eye", [1, 2])
 
 
 def test_a_field_that_does_not_divide_into_its_parts_is_refused():

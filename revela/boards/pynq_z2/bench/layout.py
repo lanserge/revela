@@ -86,7 +86,16 @@ class Layout:
                                "it against the fabric by")
 
     def write(self, mmio, gpio, name, value):
-        """Set one field, leaving the rest of its word as it is."""
+        """Set one field, leaving the rest of its word as it is: for a field
+        of `count` equal parts, a list of them, part 0 first."""
         offset, lsb, bits = self.field(gpio, name)
+        count = self.count(gpio, name)
+        if count != 1:
+            if len(value) != count:
+                raise ValueError(f"{gpio} {name} is {count} parts, "
+                                 f"not {len(value)}")
+            part = bits // count
+            value = sum((v & ((1 << part) - 1)) << (part * i)
+                        for i, v in enumerate(value))
         mask = ((1 << bits) - 1) << lsb
         mmio.write(offset, (mmio.read(offset) & ~mask) | ((value << lsb) & mask))
