@@ -82,6 +82,11 @@ def gpio_layout(design) -> dict:
         if node["block"] != "revela.boards.zynq7.gpio:words":
             continue
         config = node["config"]
+        # a GPIO this build leaves out (its node's `when` false) has no
+        # cell, and no window in the address map: software is not told of
+        # one it cannot reach
+        if config["gpio"] not in by_cell:
+            continue
         # Positions from the whole declaration -- a field this build
         # lacks still holds its bits -- and then only the fields it has.
         layout = gpio.layout(config)

@@ -81,7 +81,7 @@
     },
     "front_end": {
      "default": "'tmds_rx'",
-     "description": "The HDMI input's receiver: tmds_rx, bayerlink-fpga's own, which aligns in milliseconds where dvi2rgb takes seconds on every mode change, and reports each lane on rx_gpio; or 'dvi2rgb', Digilent's."
+     "description": "The HDMI input's receiver: tmds_rx, bayerlink-fpga's own, which aligns in a fraction of a second where dvi2rgb takes seconds on every mode change, and reports each lane on rx_gpio, its eye measured tap by tap; or 'dvi2rgb', Digilent's."
     }
    },
    "constraints": [
@@ -545,17 +545,82 @@
     "rx": {
      "block": "revela.boards.zynq7.gpio:words",
      "when": "front_end == 'tmds_rx'",
-     "description": "The HDMI receiver's own account of the link, one word: what the bench reads to see how much margin each lane has.",
+     "description": "The HDMI receiver's own account of the link, two words: its status, and its survey of every lane's delay taps -- what the bench reads to see how much margin each lane has (bench/rx_survey.py).",
      "config": {
       "gpio": "rx_gpio",
       "channels": [
        {
         "direction": "in",
+        "cell": "rx_status_cat",
         "fields": [
          {
-          "name": "rx_status",
-          "bits": 32,
-          "description": "tmds_rx's status: bonded, clock locked, each lane aligned (3), each lane's eye width in delay taps (3 x 5), each lane's bit slips (3 x 4) -- lane 2 first."
+          "name": "slip",
+          "bits": 12,
+          "count": 3,
+          "description": "Each lane's bit slip."
+         },
+         {
+          "name": "eye",
+          "bits": 15,
+          "count": 3,
+          "description": "Each lane's eye: its delay taps that misread nothing."
+         },
+         {
+          "name": "aligned",
+          "bits": 3,
+          "count": 3,
+          "description": "Each lane aligned."
+         },
+         {
+          "name": "clock_locked",
+          "bits": 1,
+          "description": "The receiver's clock manager locked to the link's clock."
+         },
+         {
+          "name": "bonded",
+          "bits": 1,
+          "description": "The three lanes found in step: the video is the source's."
+         }
+        ]
+       },
+       {
+        "direction": "in",
+        "cell": "rx_survey_cat",
+        "fields": [
+         {
+          "name": "survey_count",
+          "bits": 8,
+          "description": "The survey entry: the misread tokens at its lane, bit slip and delay tap, 255 for no blank seen. Every lane's every slip and tap in turn, each held long enough to read twice alike."
+         },
+         {
+          "name": "survey_tap",
+          "bits": 5,
+          "description": "The survey entry's delay tap."
+         },
+         {
+          "name": "survey_slip",
+          "bits": 4,
+          "description": "The survey entry's bit slip."
+         },
+         {
+          "name": "survey_lane",
+          "bits": 2,
+          "description": "The survey entry's lane."
+         },
+         {
+          "name": "survey_lane_tap",
+          "bits": 5,
+          "description": "The delay tap that lane samples at."
+         },
+         {
+          "name": "survey_lane_slip",
+          "bits": 4,
+          "description": "The bit slip that lane samples at."
+         },
+         {
+          "name": "survey_lane_aligned",
+          "bits": 1,
+          "description": "Whether that lane is aligned."
          }
         ]
        }
@@ -1231,8 +1296,63 @@
      "when": "front_end == 'tmds_rx'"
     },
     {
-     "from": "hdmi_in.status",
-     "to": "rx.rx_status",
+     "from": "hdmi_in.bonded",
+     "to": "rx.bonded",
+     "when": "front_end == 'tmds_rx'"
+    },
+    {
+     "from": "hdmi_in.clock_locked",
+     "to": "rx.clock_locked",
+     "when": "front_end == 'tmds_rx'"
+    },
+    {
+     "from": "hdmi_in.aligned",
+     "to": "rx.aligned",
+     "when": "front_end == 'tmds_rx'"
+    },
+    {
+     "from": "hdmi_in.eye",
+     "to": "rx.eye",
+     "when": "front_end == 'tmds_rx'"
+    },
+    {
+     "from": "hdmi_in.slip",
+     "to": "rx.slip",
+     "when": "front_end == 'tmds_rx'"
+    },
+    {
+     "from": "hdmi_in.survey_count",
+     "to": "rx.survey_count",
+     "when": "front_end == 'tmds_rx'"
+    },
+    {
+     "from": "hdmi_in.survey_tap",
+     "to": "rx.survey_tap",
+     "when": "front_end == 'tmds_rx'"
+    },
+    {
+     "from": "hdmi_in.survey_slip",
+     "to": "rx.survey_slip",
+     "when": "front_end == 'tmds_rx'"
+    },
+    {
+     "from": "hdmi_in.survey_lane",
+     "to": "rx.survey_lane",
+     "when": "front_end == 'tmds_rx'"
+    },
+    {
+     "from": "hdmi_in.survey_lane_tap",
+     "to": "rx.survey_lane_tap",
+     "when": "front_end == 'tmds_rx'"
+    },
+    {
+     "from": "hdmi_in.survey_lane_slip",
+     "to": "rx.survey_lane_slip",
+     "when": "front_end == 'tmds_rx'"
+    },
+    {
+     "from": "hdmi_in.survey_lane_aligned",
+     "to": "rx.survey_lane_aligned",
      "when": "front_end == 'tmds_rx'"
     }
    ],

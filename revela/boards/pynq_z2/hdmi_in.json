@@ -16,7 +16,7 @@
     },
     "front_end": {
      "default": "'dvi2rgb'",
-     "description": "Which implementation of bayerlink-fpga's hdmi_rx receives the link: Digilent's dvi2rgb, or tmds_rx, bayerlink-fpga's own, which also gives its account of the link on `status`."
+     "description": "Which implementation of bayerlink-fpga's hdmi_rx receives the link: Digilent's dvi2rgb, or tmds_rx, bayerlink-fpga's own, which also gives its account of the link: each lane's alignment, and its eye measured tap by tap."
     }
    },
    "inputs": [
@@ -53,9 +53,64 @@
      "name": "sda_i"
     },
     {
-     "name": "status",
+     "name": "bonded",
      "when": "front_end == 'tmds_rx'",
-     "description": "The receiver's account of the link: tmds_rx's status word."
+     "description": "tmds_rx: the lanes found in step."
+    },
+    {
+     "name": "clock_locked",
+     "when": "front_end == 'tmds_rx'",
+     "description": "tmds_rx: the receiver's clock manager locked."
+    },
+    {
+     "name": "aligned",
+     "when": "front_end == 'tmds_rx'",
+     "description": "tmds_rx: each lane aligned."
+    },
+    {
+     "name": "eye",
+     "when": "front_end == 'tmds_rx'",
+     "description": "tmds_rx: each lane's eye: its taps that misread nothing."
+    },
+    {
+     "name": "slip",
+     "when": "front_end == 'tmds_rx'",
+     "description": "tmds_rx: each lane's bit slip."
+    },
+    {
+     "name": "survey_count",
+     "when": "front_end == 'tmds_rx'",
+     "description": "tmds_rx: the survey entry: misread tokens at its lane, slip and tap."
+    },
+    {
+     "name": "survey_tap",
+     "when": "front_end == 'tmds_rx'",
+     "description": "tmds_rx: the survey entry's tap."
+    },
+    {
+     "name": "survey_slip",
+     "when": "front_end == 'tmds_rx'",
+     "description": "tmds_rx: the survey entry's bit slip."
+    },
+    {
+     "name": "survey_lane",
+     "when": "front_end == 'tmds_rx'",
+     "description": "tmds_rx: the survey entry's lane."
+    },
+    {
+     "name": "survey_lane_tap",
+     "when": "front_end == 'tmds_rx'",
+     "description": "tmds_rx: the tap that lane samples at."
+    },
+    {
+     "name": "survey_lane_slip",
+     "when": "front_end == 'tmds_rx'",
+     "description": "tmds_rx: the bit slip that lane samples at."
+    },
+    {
+     "name": "survey_lane_aligned",
+     "when": "front_end == 'tmds_rx'",
+     "description": "tmds_rx: whether that lane is aligned."
     }
    ],
    "pins": [
@@ -168,8 +223,63 @@
      "ddc_phy.sda_io"
     ],
     {
-     "from": "dvi_rx.status",
-     "to": "status",
+     "from": "dvi_rx.bonded",
+     "to": "bonded",
+     "when": "front_end == 'tmds_rx'"
+    },
+    {
+     "from": "dvi_rx.clock_locked",
+     "to": "clock_locked",
+     "when": "front_end == 'tmds_rx'"
+    },
+    {
+     "from": "dvi_rx.aligned",
+     "to": "aligned",
+     "when": "front_end == 'tmds_rx'"
+    },
+    {
+     "from": "dvi_rx.eye",
+     "to": "eye",
+     "when": "front_end == 'tmds_rx'"
+    },
+    {
+     "from": "dvi_rx.slip",
+     "to": "slip",
+     "when": "front_end == 'tmds_rx'"
+    },
+    {
+     "from": "dvi_rx.survey_count",
+     "to": "survey_count",
+     "when": "front_end == 'tmds_rx'"
+    },
+    {
+     "from": "dvi_rx.survey_tap",
+     "to": "survey_tap",
+     "when": "front_end == 'tmds_rx'"
+    },
+    {
+     "from": "dvi_rx.survey_slip",
+     "to": "survey_slip",
+     "when": "front_end == 'tmds_rx'"
+    },
+    {
+     "from": "dvi_rx.survey_lane",
+     "to": "survey_lane",
+     "when": "front_end == 'tmds_rx'"
+    },
+    {
+     "from": "dvi_rx.survey_lane_tap",
+     "to": "survey_lane_tap",
+     "when": "front_end == 'tmds_rx'"
+    },
+    {
+     "from": "dvi_rx.survey_lane_slip",
+     "to": "survey_lane_slip",
+     "when": "front_end == 'tmds_rx'"
+    },
+    {
+     "from": "dvi_rx.survey_lane_aligned",
+     "to": "survey_lane_aligned",
      "when": "front_end == 'tmds_rx'"
     }
    ]

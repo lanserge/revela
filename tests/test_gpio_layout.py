@@ -137,3 +137,27 @@ def test_the_bench_refuses_a_layout_the_fabric_does_not_read_back(tmp_path):
         {"stat": gpio.layout(STATUS)}))
     with pytest.raises(RuntimeError, match="states no constant"):
         _bench_layout().beside(tmp_path / "rx.bit").verify(lambda name: m)
+
+
+LANES = {"gpio": "lanes", "channels": [{"direction": "in", "cell": "cat", "fields": [
+    {"name": "flag"}, {"name": "eye", "bits": 15, "count": 3}]}]}
+
+
+def test_a_field_of_equal_parts_reads_as_a_list_part_0_lowest(tmp_path):
+    import json
+    layout = gpio.layout(LANES)
+    assert layout["channels"][0]["fields"]["eye"] == {
+        "lsb": 1, "bits": 15, "count": 3}
+    (tmp_path / "gpio_layout.json").write_text(json.dumps({"lanes": layout}))
+    fields = _bench_layout().beside(tmp_path / "rx.bit")
+    m = FakeMMIO()
+    m.words[0] = (((9 << 10) | (4 << 5) | 7) << 1) | 1
+    assert fields.read(m, "lanes", "eye") == [7, 4, 9]
+    assert fields.read(m, "lanes", "flag") == 1
+
+
+def test_a_field_that_does_not_divide_into_its_parts_is_refused():
+    bad = {"gpio": "g", "channels": [{"direction": "in", "fields": [
+        {"name": "eye", "bits": 14, "count": 3}]}]}
+    with pytest.raises(ValueError, match="14 bits are not 3 equal parts"):
+        gpio.words(bad)

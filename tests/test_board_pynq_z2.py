@@ -129,6 +129,9 @@ def test_the_gpio_layout_is_the_fabrics(built):
     assert int(ip_config(built, "ctrl_gpio")["C_DOUT_DEFAULT"], 16) == \
         ctrl["default"] == 0x12
     assert "consumer" not in ctrl["fields"]     # capture is off here
+    # every GPIO it names is one the build placed: one the bench can reach
+    placed = json.loads((built / "generated" / "address_map.json").read_text())
+    assert set(layout) <= set(placed), set(layout) - set(placed)
     width = int(ip_config(built, "status_gpio")["C_GPIO_WIDTH"])
     top = max(f["lsb"] + f["bits"] for f in
               layout["status_gpio"]["channels"][0]["fields"].values())
@@ -335,3 +338,17 @@ def test_the_cable_map_publishes_the_display_clocks(built):
     fabric = json.loads((built / "generated" / "clocks.json").read_text())
     assert cable["isp"]["clock_khz"] == round(fabric["fclk0_mhz"] * 1000)
     assert "clk_sel" in cable["scanout_regs"]["registers"]
+
+
+def test_a_gpio_the_build_leaves_out_is_not_in_its_layout():
+    """With Digilent's receiver there is no rx_gpio: the layout software
+    reads must not name it, or every script that opens the layout's GPIOs
+    stops on the one the address map does not place."""
+    from types import SimpleNamespace
+    from revela.boards.pynq_z2.blockdesign import gpio_layout
+    cells = {"status_gpio", "stream_gpio", "ctrl_gpio", "status_cat",
+             "isl_cat", "hdr_cat", "isl_pad", "ident_cat", "fb_dbg0"}
+    design = SimpleNamespace(instances={
+        f"x.{c}": SimpleNamespace(build={"VALUE": 0}) for c in cells})
+    layout = gpio_layout(design)
+    assert "rx_gpio" not in layout and "status_gpio" in layout

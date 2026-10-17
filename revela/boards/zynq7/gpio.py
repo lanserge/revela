@@ -23,7 +23,9 @@ second drifts first, and nothing says so.
           ...]}]}
 
 An input channel packs its items low bit first; a group is a nested
-concatenation, named by its cell, and a pad a constant of zeros. An output
+concatenation, named by its cell, and a pad a constant of zeros. A field
+with a `count` is that many equal parts, part 0 lowest -- one port that
+carries a value per lane, say -- and software reads it as a list. An output
 channel gives each field a slice, named by its cell, and `skip` leaves bits
 unused; a field's `default` is its power-on value. An input field with a
 `value` reads a constant cell (named by its `cell`) rather than a port: an
@@ -85,6 +87,10 @@ def words(config: dict) -> dict:
             raise ValueError(f"{gpio} channel {index + 1}: its fields take "
                              f"{_items_bits(ch['fields'])} bits of {width}")
         build[f"width{suffix}"] = width
+        for name, _, bits, item in _fields(ch["fields"]):
+            if bits % item.get("count", 1):
+                raise ValueError(f"{gpio}: {name}'s {bits} bits are not "
+                                 f"{item['count']} equal parts")
         if ch["direction"] == "out":
             build[f"out{suffix}"] = 1
             default = sum(item.get("default", 0) << lsb
@@ -201,6 +207,8 @@ def layout(config: dict) -> dict:
                                  if "default" in item else {}),
                               **({"constant": True}
                                  if "value" in item else {}),
+                              **({"count": item["count"]}
+                                 if "count" in item else {}),
                               **({"description": item["description"]}
                                  if "description" in item else {})}
                        for name, lsb, bits, item in _fields(ch["fields"])}})

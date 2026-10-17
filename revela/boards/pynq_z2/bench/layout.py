@@ -42,9 +42,23 @@ class Layout:
                        "build")
 
     def decode(self, gpio, name, word):
-        """One field out of a word already read from its channel."""
+        """One field out of a word already read from its channel: a list,
+        part 0 first, for a field of `count` equal parts."""
         _, lsb, bits = self.field(gpio, name)
-        return (word >> lsb) & ((1 << bits) - 1)
+        value = (word >> lsb) & ((1 << bits) - 1)
+        count = self.count(gpio, name)
+        if count == 1:
+            return value
+        part = bits // count
+        return [(value >> (part * i)) & ((1 << part) - 1)
+                for i in range(count)]
+
+    def count(self, gpio, name):
+        """How many equal parts a field is: 1 for a plain field."""
+        for channel in self.gpios[gpio]["channels"]:
+            if name in channel["fields"]:
+                return channel["fields"][name].get("count", 1)
+        raise KeyError(f"{self.path}: {gpio} has no field {name!r}")
 
     def read(self, mmio, gpio, name):
         offset, _, _ = self.field(gpio, name)
