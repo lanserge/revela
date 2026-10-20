@@ -3,7 +3,7 @@
 """The pipeline context revela's blocks may consume, and the CFA orders.
 
 Width, height, the active window, the Bayer phase, the bit depth, the frame
-phase: facts about the pipeline, not about any one block, declared here
+count: facts about the pipeline, not about any one block, declared here
 once. A block names the ones it reads in ``consumes``; the ``pipe`` block
 owns the ones that are registers, and a design takes the rest from the
 stream. revela's block decorator binds this vocabulary to every block it
@@ -98,16 +98,16 @@ CONTEXT = (
         follows="bit_depth",
     ),
     Context(
-        name="frame_phase",
-        bits=4,
+        name="frame_seq",
+        bits=32,
         default=0,
-        description="The live frame's position in the sensor's capture loop -- a "
-                    "time-of-flight reference phase, an HDR exposure slot -- the "
-                    "temporal twin of bayer_phase. Unlike bayer_phase it advances "
-                    "every frame, so software never writes it: the receiver derives "
-                    "it as (frame counter + offset) mod loop length, the loop length "
-                    "and offset being the sensor's, set once. A block reads the "
-                    "position of the frame i back as (frame_phase - i) mod length",
+        description="Which frame this is: the frame count each header carries, as "
+                    "the source counts. It advances every frame, so software never "
+                    "writes it. A block that follows a capture loop -- a "
+                    "time-of-flight reference phase, an HDR exposure slot -- takes "
+                    "its place in the loop as a scalar input, and the pipeline binds "
+                    "that input to an expression over this count (frame_seq & 3 for "
+                    "a source that anchors its loop of four there)",
         origin="stream",
     ),
 )

@@ -39,6 +39,8 @@ module isp_entry #(
     input  wire [15:0] hdr_height,
     input  wire [1:0]  hdr_phase,
     input  wire [4:0]  hdr_bits,
+    // the header's frame count: which frame this is, as the source counts
+    input  wire [31:0] hdr_frame_seq,
     (* X_INTERFACE_INFO = "lanserge:interface:np2hw_stream_rtl:1.0 in_stream VALID" *)
     input  wire        in_valid,
     (* X_INTERFACE_INFO = "lanserge:interface:np2hw_stream_rtl:1.0 in_stream READY" *)
@@ -69,6 +71,9 @@ module isp_entry #(
     output reg  [15:0] ctx_height = 16'd0,
     output reg  [1:0]  ctx_bayer_phase = 2'd0,
     output reg  [4:0]  ctx_bit_depth = 5'd0,
+    // which frame this is, as the source counts: a block following a
+    // capture loop reads its place in it through an expression over this
+    output reg  [31:0] ctx_frame_seq = 32'd0,
     // Sticky: a line arrived wider than the ISP was built for and was
     // cropped to it. VISIBLE and stated, rather than refused into a dark
     // screen -- a picture that is merely narrow can be recognised and
@@ -85,6 +90,7 @@ module isp_entry #(
             ctx_height      <= hdr_height;
             ctx_bayer_phase <= hdr_phase;
             ctx_bit_depth   <= hdr_bits;
+            ctx_frame_seq   <= hdr_frame_seq;
         end
 
     // CROP, not refuse. Count this line's samples; hand the first WIDTH of

@@ -12,6 +12,11 @@ Pre-1.0, so the block API and the map format can still change. See
 
 ### Changed
 
+- **The frame count rides with the stream.** `frame_seq`, the count each
+  bayerlink header carries, is a stream context fact, latched by
+  `isp_entry` with the frame's geometry; a block following a capture loop
+  binds its place in it to an expression over the count (`"frame_seq &
+  3"`). It replaces `frame_phase`, which nothing had yet read.
 - **A new raster starts dark, for long enough that a TV trains on it.** A
   TV trains its receiver to a bit rate the first time it meets it and
   keeps the training; at 1.485 Gb/s, past the rated serializer of the

@@ -400,6 +400,10 @@
      "isp_entry.hdr_bits"
     ],
     [
+     "blrx.hdr_frame_seq",
+     "isp_entry.hdr_frame_seq"
+    ],
+    [
      "isp_entry.ctx_width",
      "isp.ctx_width"
     ],

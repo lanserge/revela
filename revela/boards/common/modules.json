@@ -29,6 +29,11 @@
      "width": 5
     },
     {
+     "name": "hdr_frame_seq",
+     "width": 32,
+     "description": "The header's frame count: which frame this is, as the source counts."
+    },
+    {
      "name": "in",
      "width": "SAMPLE_BITS",
      "stream": [
@@ -63,6 +68,11 @@
     {
      "name": "ctx_bit_depth",
      "width": 5
+    },
+    {
+     "name": "ctx_frame_seq",
+     "width": 32,
+     "description": "Which frame this is, as the source counts, held for the frame."
     },
     {
      "name": "truncated"

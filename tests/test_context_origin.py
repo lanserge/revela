@@ -10,8 +10,8 @@ from revela.blocks import pipe as pipe_block
 
 
 def test_a_stream_only_context_takes_no_register_anywhere():
-    """No pipeline gets a register for ``frame_phase`` -- which is why adding
+    """No pipeline gets a register for ``frame_seq`` -- which is why adding
     it moved no address in any existing design."""
     registers = {p.name for p in pipe_block.pipe.params.params}
-    assert "frame_phase" not in registers
+    assert "frame_seq" not in registers
     assert {c.name for c in pipe_block.CONTEXT if c.origin != "stream"} <= registers

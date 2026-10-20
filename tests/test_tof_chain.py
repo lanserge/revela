@@ -33,7 +33,7 @@ def _pipeline():
         "tof", {"quad": tofquad, "range": tofrange},
         [("in", "quad.in"), ("quad.out", "range.in"), ("range.out", "out")],
         stream={"bits": BIT_DEPTH, "max_width": WIDTH, "max_height": HEIGHT,
-                "channels": 8, "context": ["frame_phase"]})
+                "channels": 8, "context": ["frame_seq"]})
 
 
 def _window(rng, pos, order=(0, 1, 2, 3)):
