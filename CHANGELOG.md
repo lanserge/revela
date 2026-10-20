@@ -12,11 +12,28 @@ Pre-1.0, so the block API and the map format can still change. See
 
 ### Changed
 
+- **A block knows only its own inputs; the design connects them.** A model
+  is `(pixel, p, bit_depth)`. blacklevel, whitebalance, the demosaics and
+  stats declare `bayer_phase` as a scalar input (`revela.blocks.cfa`) and
+  read its two bits as their slice starts, and say themselves that their
+  math needs an even frame; `bayer_isp` names revela's pipeline context
+  (`"vocabulary": "revela.blocks.pipe:VOCABULARY"`) and binds each to the
+  stream's phase (`"bind": {"bayer_phase": "bayer_phase"}`), so the board
+  ISP's ports and register map are as they were. Unbound, the phase is the
+  block's own register: a block run alone takes it in its values.
+  `ispblock` binds nothing: it is np2hw's `block`.
 - **The frame count rides with the stream.** `frame_seq`, the count each
   bayerlink header carries, is a stream context fact, latched by
   `isp_entry` with the frame's geometry; a block following a capture loop
   binds its place in it to an expression over the count (`"frame_seq &
   3"`). It replaces `frame_phase`, which nothing had yet read.
+- **stats meters its own window.** The window is stats' configuration,
+  `window_x0 .. window_y1` registers of its own beside its phase input, and
+  no longer pipeline context: nothing else read it. **Register map**: a
+  design with stats has the window under stats, not `pipe`; and in every
+  design `pipe.commit` moves from 0x24 to 0x14, the window's offsets it
+  sat after being gone -- firmware cut from an older map writes its
+  commit where there is none.
 - **A new raster starts dark, for long enough that a TV trains on it.** A
   TV trains its receiver to a bit rate the first time it meets it and
   keeps the training; at 1.485 Gb/s, past the rated serializer of the
@@ -134,7 +151,7 @@ Pre-1.0, so the block API and the map format can still change. See
   twin are `np2hw.pipeline` (`revela.designs.load` is
   `np2hw.pipeline.load`). revela's pipe block is named to np2hw through
   revela's context `Vocabulary` (`revela.blocks.pipe.VOCABULARY`), which
-  `ispblock` binds; context signals that follow the frame's geometry and
+  a revela design names; context signals that follow the frame's geometry and
   depth say so (`follows`). The register map's `generator` is `np2hw`.
 - **The Vivado flow moved to np2hw.** `revela.boards.vivado`, `bdtrace`,
   `vendor_check` and `checkhwh` are `np2hw.toolchain.vivado` and its

@@ -219,7 +219,7 @@ MASK = (1 << 16) - 1
         ),
     ],
 )
-def tofrange(pixel, p, ctx, bit_depth: int):
+def tofrange(pixel, p, bit_depth: int):
     """THE model. Span and offset for the metres, intrinsics for the geometry.
 
     Ordinary NumPy -- run it on a phase image and it returns depth -- and also

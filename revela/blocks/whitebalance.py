@@ -30,8 +30,8 @@ Which gain applies to which pixel
     gain[0, 0] = R      gain[0, 1] = Gr
     gain[1, 0] = Gb     gain[1, 1] = B
 
-The CFA phase arrives as the same two context bits, used as stride-2 slice
-starts, so ONE bitstream serves every sensor orientation. Gr and Gb are
+The CFA phase is the same ``bayer_phase`` input, its two bits the stride-2
+slice starts, so ONE bitstream serves every sensor orientation. Gr and Gb are
 separate registers deliberately: green imbalance is real on real sensors,
 and a single G gain would leave it uncorrectable. Convention holds green at
 unity and scales R and B relative to it, which keeps the signal from
@@ -60,8 +60,9 @@ import numpy as np
 
 from np2hw import saturate
 
-from np2hw.blocks import ContextBit, StreamPort
+from np2hw.blocks import StreamPort
 from revela.blocks import ispblock
+from revela.blocks.cfa import phase_input
 from np2hw.blocks.params import Param
 
 # The gain's Q format lives ON THE DECLARATION below, nowhere else: the
@@ -80,15 +81,6 @@ from np2hw.blocks.params import Param
                        "applied on top of a pedestal scales the pedestal."),),
     outputs=(StreamPort("out",
                         "Balanced Bayer, saturated to the datapath range."),),
-    consumes=("bayer_phase",),
-    context=(
-        ContextBit("phase_row", "bayer_phase", bit=1,
-                   description="Row parity R sits on, from the pipeline's "
-                               "bayer_phase context register -- the same two "
-                               "bits every CFA-indexed block consumes"),
-        ContextBit("phase_col", "bayer_phase", bit=0,
-                   description="Column parity R sits on, from bayer_phase"),
-    ),
     params=[
         Param(
             name="gain",
@@ -108,9 +100,11 @@ from np2hw.blocks.params import Param
                 "shows the illuminant's cast rather than a wrong image"
             ),
         ),
+        phase_input(),
     ],
+    even_frame=True,
 )
-def whitebalance(pixel, p, ctx, bit_depth: int):
+def whitebalance(pixel, p, bit_depth: int):
     """THE model. Four CFA planes, each scaled by its own colour's gain.
 
     The same shape as blacklevel with the adder replaced by a multiplier:
@@ -130,8 +124,9 @@ def whitebalance(pixel, p, ctx, bit_depth: int):
     # changes the model, the RTL and the documentation together, or not at
     # all. This is a Python int at trace time, exactly like bit_depth.
     one = 1 << p.decl.gain.frac
-    for i, rows in enumerate((ctx.phase_row, 1 - ctx.phase_row)):
-        for j, cols in enumerate((ctx.phase_col, 1 - ctx.phase_col)):
+    row, col = p.bayer_phase >> 1, p.bayer_phase & 1
+    for i, rows in enumerate((row, 1 - row)):
+        for j, cols in enumerate((col, 1 - col)):
             # (i, j) indexes the COLOUR: [R, Gr; Gb, B]. The phase decides
             # which positions that colour occupies.
             out[rows::2, cols::2] = saturate(

@@ -2,6 +2,7 @@
   "blocks": {
     "bayer_isp": {
       "description": "Raw Bayer in, linear RGB in the target colour space out. For any Bayer sensor: geometry and CFA phase arrive with the stream, tuning arrives at run time. Output encoding (a tone curve) and anything the design adds belong to the design, not here.",
+      "vocabulary": "revela.blocks.pipe:VOCABULARY",
       "parameters": {
         "bit_depth": {
           "description": "Depth samples arrive at here; the receiver scales the wire depth to it. Traced through every block from here."
@@ -37,18 +38,30 @@
       "nodes": {
         "blacklevel": {
           "block": "revela.blocks.blacklevel",
+          "bind": {
+            "bayer_phase": "bayer_phase"
+          },
           "description": "Remove the sensor pedestal per CFA colour, before anything multiplies the signal."
         },
         "whitebalance": {
           "block": "revela.blocks.whitebalance",
+          "bind": {
+            "bayer_phase": "bayer_phase"
+          },
           "description": "Per-CFA-colour gain, the AWB loop's actuator. Before demosaic: interpolating unbalanced planes bakes the imbalance into all three channels."
         },
         "ha_green": {
           "block": "revela.blocks.demosaic.hamilton_adams:ha_green",
+          "bind": {
+            "bayer_phase": "bayer_phase"
+          },
           "description": "Hamilton-Adams green reconstruction, direction-adaptive; emits the (raw, green) word the chroma stage differences against."
         },
         "ha_rb": {
           "block": "revela.blocks.demosaic.hamilton_adams:ha_rb",
+          "bind": {
+            "bayer_phase": "bayer_phase"
+          },
           "description": "Red and blue as colour differences against the reconstructed green."
         },
         "ccm": {

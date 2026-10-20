@@ -16,6 +16,7 @@ import pytest
 
 from conftest import requires_verilator
 
+from revela.blocks.pipe import VOCABULARY
 from revela.blocks.tofquad import tofquad
 from revela.blocks.tofrange import tofrange
 from np2hw.design.composite import assemble
@@ -32,6 +33,7 @@ def _pipeline():
     return assemble(
         "tof", {"quad": tofquad, "range": tofrange},
         [("in", "quad.in"), ("quad.out", "range.in"), ("range.out", "out")],
+        vocabulary=VOCABULARY,
         stream={"bits": BIT_DEPTH, "max_width": WIDTH, "max_height": HEIGHT,
                 "channels": 8, "context": ["frame_seq"]})
 

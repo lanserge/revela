@@ -123,7 +123,7 @@ def _ink(bit_depth: int) -> tuple:
                           "start: the corner is corner(height)"),
     ],
 )
-def logo(pixel, p, ctx, bit_depth: int):
+def logo(pixel, p, bit_depth: int):
     """THE model. Position, one table read, one palette read, a select --
     the position from its registers.
 

@@ -2,6 +2,7 @@
  "blocks": {
   "revela_stereo": {
    "description": "Two eyes, each the standard ISP: raw Bayer in, linear RGB out, per eye. The ISP is described once, as bayer_isp, and instantiated twice. Every block inside still gets its own instance path and its own base address -- left.ccm and right.ccm are independent registers, so each eye is tuned on its own -- and the emitted RTL is one module per block, instantiated per eye, instead of two identical copies.",
+   "vocabulary": "revela.blocks.pipe:VOCABULARY",
    "parameters": {
     "bit_depth": {
      "default": 12,

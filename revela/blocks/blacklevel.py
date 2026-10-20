@@ -33,10 +33,11 @@ Which offset applies to which pixel
     offset[0, 0] = R      offset[0, 1] = Gr
     offset[1, 0] = Gb     offset[1, 1] = B
 
-The model takes the CFA phase as two one-bit values -- which rows R sits on, and
-which columns -- and uses them as the START of stride-2 slices. Since those
-starts are registers, changing sensor orientation is a two-bit write rather than
-a rebuild: ONE bitstream serves every CFA order.
+The model takes the CFA phase as one input, ``bayer_phase``, and uses its two
+bits -- which rows R sits on, and which columns -- as the START of stride-2
+slices. Those starts are run-time values, the stream's phase where a design
+binds the input to it and a register where it does not, so changing sensor
+orientation is never a rebuild: ONE bitstream serves every CFA order.
 
 How this is built
 -----------------
@@ -56,8 +57,9 @@ import numpy as np
 
 from np2hw import saturate
 
-from np2hw.blocks import ContextBit, StreamPort
+from np2hw.blocks import StreamPort
 from revela.blocks import ispblock
+from revela.blocks.cfa import phase_input
 from np2hw.blocks.params import Param
 
 # Wide enough to hold a pedestal for any sensor revela targets (a 12-bit part
@@ -73,16 +75,6 @@ OFFSET_BITS = 16
                        "Raw Bayer, still sitting on the sensor's pedestal."),),
     outputs=(StreamPort("out",
                         "Pedestal removed, saturated to the datapath range."),),
-    consumes=("bayer_phase",),
-    context=(
-        ContextBit("phase_row", "bayer_phase", bit=1,
-                   description="Row parity R sits on, from the pipeline's "
-                               "bayer_phase context register. A register, not a "
-                               "build option, so one bitstream serves every CFA "
-                               "order"),
-        ContextBit("phase_col", "bayer_phase", bit=0,
-                   description="Column parity R sits on, from bayer_phase"),
-    ),
     params=[
         Param(
             name="offset",
@@ -99,9 +91,11 @@ OFFSET_BITS = 16
                 "rather than a wrong one"
             ),
         ),
+        phase_input(),
     ],
+    even_frame=True,
 )
-def blacklevel(pixel, p, ctx, bit_depth: int):
+def blacklevel(pixel, p, bit_depth: int):
     """THE model. Four CFA planes, each offset by its own colour's register.
 
     Written the way the hardware reads the frame: a stride-2 slice is one CFA
@@ -119,8 +113,9 @@ def blacklevel(pixel, p, ctx, bit_depth: int):
     """
     value = pixel.astype(np.int32)
     out = np.empty_like(value)
-    for i, rows in enumerate((ctx.phase_row, 1 - ctx.phase_row)):
-        for j, cols in enumerate((ctx.phase_col, 1 - ctx.phase_col)):
+    row, col = p.bayer_phase >> 1, p.bayer_phase & 1
+    for i, rows in enumerate((row, 1 - row)):
+        for j, cols in enumerate((col, 1 - col)):
             # (i, j) indexes the COLOUR: [R, Gr; Gb, B]. The phase decides which
             # positions that colour occupies.
             out[rows::2, cols::2] = saturate(

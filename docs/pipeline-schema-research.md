@@ -173,8 +173,8 @@ Three kinds of link, and nothing else:
    path, with no wire. A GUI that drew a wire for every register would be
    unreadable; a block's coefficients are simply part of the block.
 3. **References** name a shared entity by path where a wire would be wrong:
-   a pipeline-wide variable a block consumes (`bayer_phase`, as `consumes`
-   does today), the loop a table is indexed by, a store read far from where
+   a pipeline-wide variable a block's input is bound to (`bayer_phase`, as
+   a node's `bind` does), the loop a table is indexed by, a store read far from where
    it is written.
 
 Legality, checked at load: every input driven exactly once; every cycle

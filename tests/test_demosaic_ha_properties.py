@@ -27,8 +27,8 @@ TOP = (1 << BIT_DEPTH) - 1
 
 
 def full(frame, phase):
-    word = ha.ha_green.run(frame, {}, bit_depth=BIT_DEPTH, bayer_phase=phase)
-    return ha.ha_rb.run(word, {}, bit_depth=BIT_DEPTH, bayer_phase=phase)
+    word = ha.ha_green.run(frame, {"bayer_phase": phase}, bit_depth=BIT_DEPTH)
+    return ha.ha_rb.run(word, {"bayer_phase": phase}, bit_depth=BIT_DEPTH)
 
 
 def frames(rng, n, lo=0, hi=TOP + 1, shape=(12, 16)):
@@ -111,8 +111,8 @@ def test_small_alphabet_fuzz_hits_the_ties(rng, phase):
     tie and both near-tie branches are exercised thousands of times, each
     pixel checked against the independent window walk."""
     for frame in frames(rng, 30, hi=4):
-        out = ha.ha_green.run(frame, {}, bit_depth=BIT_DEPTH,
-                              bayer_phase=phase)
+        out = ha.ha_green.run(frame, {"bayer_phase": phase},
+                              bit_depth=BIT_DEPTH)
         np.testing.assert_array_equal(out[..., 1], green_oracle(frame, phase))
 
 
@@ -120,8 +120,8 @@ def test_small_alphabet_fuzz_hits_the_ties(rng, phase):
 def test_full_range_fuzz(rng, phase):
     """And the same at full scale, where clipping and signed floors bite."""
     for frame in frames(rng, 10):
-        out = ha.ha_green.run(frame, {}, bit_depth=BIT_DEPTH,
-                              bayer_phase=phase)
+        out = ha.ha_green.run(frame, {"bayer_phase": phase},
+                              bit_depth=BIT_DEPTH)
         np.testing.assert_array_equal(out[..., 1], green_oracle(frame, phase))
 
 
@@ -144,7 +144,7 @@ def test_micro_vectors():
     f[2, 0], f[2, 4] = 190, 194                    # X at +-2
     f[2, 2] = 200                                  # centre
     f[1, 2], f[3, 2] = 10, 90                      # gn, gs
-    out = ha.ha_green.run(f, {}, bit_depth=BIT_DEPTH, bayer_phase=0)
+    out = ha.ha_green.run(f, {"bayer_phase": 0}, bit_depth=BIT_DEPTH)
     assert int(out[2, 2, 1]) == 106                # horizontal branch
 
     # Vertical branch: transpose the same construction by hand.
@@ -155,7 +155,7 @@ def test_micro_vectors():
     f[0, 2], f[4, 2] = 190, 194
     f[2, 2] = 200
     f[2, 1], f[2, 3] = 10, 90
-    out = ha.ha_green.run(f, {}, bit_depth=BIT_DEPTH, bayer_phase=0)
+    out = ha.ha_green.run(f, {"bayer_phase": 0}, bit_depth=BIT_DEPTH)
     assert int(out[2, 2, 1]) == 106                # vertical branch
 
     # Tie: dh = dv = 0 + |lh| = |lv| = 2*50 = 100 each.
@@ -163,5 +163,5 @@ def test_micro_vectors():
     f = np.zeros((6, 8), dtype=np.uint16)
     f[2, 1] = f[2, 3] = f[1, 2] = f[3, 2] = 60
     f[2, 2] = 50                                   # lh = lv = 100
-    out = ha.ha_green.run(f, {}, bit_depth=BIT_DEPTH, bayer_phase=0)
+    out = ha.ha_green.run(f, {"bayer_phase": 0}, bit_depth=BIT_DEPTH)
     assert int(out[2, 2, 1]) == 85                 # four-neighbour branch

@@ -73,8 +73,7 @@ def test_the_knot_count_is_the_declarations_not_a_constant():
     """
     variant = gamma.gamma.configure({"knots": {"shape": [65], "bits": 13}})
     frame = np.array([[0, FULL], [2048, 2047]], dtype=np.uint16)
-    out = variant(frame, variant.params.bind({}), variant.context_view({}),
-                  BIT_DEPTH)
+    out = variant(frame, variant.params.bind({}), BIT_DEPTH)
     np.testing.assert_array_equal(out, frame)
     assert len(variant.params.registers) == 65
 
@@ -89,7 +88,7 @@ def test_a_curve_cannot_invent_precision():
     variant = gamma.gamma.configure({"knots": {"bits": 13}})
     with pytest.raises(ValueError, match="cannot invent precision"):
         variant(np.zeros((2, 2), np.uint16), variant.params.bind({}),
-                variant.context_view({}), 8)
+                8)
 
 
 def test_knots_from_curve_identity_is_the_reset_ramp():

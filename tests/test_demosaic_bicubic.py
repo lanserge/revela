@@ -77,7 +77,7 @@ def raw_frame(rng, width=WIDTH, height=HEIGHT) -> np.ndarray:
 def test_matches_the_per_pixel_oracle(rng, phase):
     """THE model test: every pixel, every phase, against the window walk."""
     frame = raw_frame(rng)
-    out = bicubic.run(frame, {}, bit_depth=BIT_DEPTH, bayer_phase=phase)
+    out = bicubic.run(frame, {"bayer_phase": phase}, bit_depth=BIT_DEPTH)
     np.testing.assert_array_equal(out, oracle(frame, phase))
 
 
@@ -86,14 +86,14 @@ def test_flat_field_stays_flat(rng, phase):
     """Every kernel sums to its divisor, so a constant frame is exact."""
     for level in (0, 1, 1000, TOP):
         frame = np.full((HEIGHT, WIDTH), level, dtype=np.uint16)
-        out = bicubic.run(frame, {}, bit_depth=BIT_DEPTH, bayer_phase=phase)
+        out = bicubic.run(frame, {"bayer_phase": phase}, bit_depth=BIT_DEPTH)
         np.testing.assert_array_equal(out, np.full((HEIGHT, WIDTH, 3), level))
 
 
 def test_measured_samples_pass_through(rng):
     """At each site, the measured channel is the input, untouched."""
     frame = raw_frame(rng)
-    out = bicubic.run(frame, {}, bit_depth=BIT_DEPTH, bayer_phase=0)
+    out = bicubic.run(frame, {"bayer_phase": 0}, bit_depth=BIT_DEPTH)
     np.testing.assert_array_equal(out[0::2, 0::2, 0], frame[0::2, 0::2])  # R
     np.testing.assert_array_equal(out[0::2, 1::2, 1], frame[0::2, 1::2])  # Gr
     np.testing.assert_array_equal(out[1::2, 0::2, 1], frame[1::2, 0::2])  # Gb
@@ -113,10 +113,10 @@ def test_overshoot_clips_high_and_low():
     # R lattice on row 0 (cols 0,2,4,6). Site (0,3) is Gr: its R estimate
     # reads cols 0,2,4,6 with weights -1,9,9,-1.
     frame[0, [0, 2, 4, 6]] = (TOP, 0, 0, TOP)      # h4 = -2*TOP -> clips to 0
-    out = bicubic.run(frame, {}, bit_depth=BIT_DEPTH, bayer_phase=0)
+    out = bicubic.run(frame, {"bayer_phase": 0}, bit_depth=BIT_DEPTH)
     assert out[0, 3, 0] == 0
     frame[0, [0, 2, 4, 6]] = (0, TOP, TOP, 0)      # h4 = 18*TOP -> clips high
-    out = bicubic.run(frame, {}, bit_depth=BIT_DEPTH, bayer_phase=0)
+    out = bicubic.run(frame, {"bayer_phase": 0}, bit_depth=BIT_DEPTH)
     assert out[0, 3, 0] == TOP
 
 
@@ -125,10 +125,10 @@ def test_division_floors_like_numpy():
     signed shift in hardware and NumPy's // must be the same operation."""
     frame = np.zeros((6, 8), dtype=np.uint16)
     frame[0, [0, 2, 4, 6]] = (1, 0, 0, 0)          # h4 = -1 -> // 16 = -1 -> 0
-    out = bicubic.run(frame, {}, bit_depth=BIT_DEPTH, bayer_phase=0)
+    out = bicubic.run(frame, {"bayer_phase": 0}, bit_depth=BIT_DEPTH)
     assert out[0, 3, 0] == 0
     frame[0, [0, 2, 4, 6]] = (0, 1, 1, 0)          # h4 = 18 -> // 16 = 1
-    out = bicubic.run(frame, {}, bit_depth=BIT_DEPTH, bayer_phase=0)
+    out = bicubic.run(frame, {"bayer_phase": 0}, bit_depth=BIT_DEPTH)
     assert out[0, 3, 0] == 1
 
 
@@ -139,7 +139,7 @@ def test_borders_replicate():
     leaking into the pad would dent the first columns by up to 1/16.
     """
     frame = np.full((6, 8), 3000, dtype=np.uint16)
-    out = bicubic.run(frame, {}, bit_depth=BIT_DEPTH, bayer_phase=0)
+    out = bicubic.run(frame, {"bayer_phase": 0}, bit_depth=BIT_DEPTH)
     np.testing.assert_array_equal(out, np.full((6, 8, 3), 3000))
 
 
@@ -155,8 +155,8 @@ def test_a_multi_channel_stream_fails_at_the_trace():
 
 def test_odd_dimensions_are_refused(rng):
     with pytest.raises(ValueError, match="odd dimension"):
-        bicubic.run(np.zeros((5, 8), dtype=np.uint16), {},
-                    bit_depth=BIT_DEPTH, bayer_phase=0)
+        bicubic.run(np.zeros((5, 8), dtype=np.uint16), {"bayer_phase": 0},
+                    bit_depth=BIT_DEPTH)
 
 
 # --------------------------------------------------------------------------- #
@@ -182,8 +182,7 @@ def test_verilog_is_bit_exact_with_the_model(tmp_path, rng):
         frame = raw_frame(rng)
         trials.append({
             "seed": int(rng.integers(0, 2**31)),
-            "context": {"bayer_phase": phase},
-            "values": {},
+            "values": {"bayer_phase": phase},
             "frame": frame.ravel().tolist(),
         })
 

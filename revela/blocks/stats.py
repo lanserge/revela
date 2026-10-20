@@ -67,6 +67,7 @@ import numpy as np
 from np2hw.blocks import StreamPort
 from revela.blocks import ispblock
 from np2hw.blocks.params import Param, StatsWindow
+from revela.blocks.cfa import phase_input
 
 # Build-time grid maximum. The RAM is sized for this; the zone SIZE is a runtime
 # register, so one bitstream covers every resolution with the same grid.
@@ -95,7 +96,6 @@ STATS_DECLARATION = dict(
     version=(1, 0),
     name="stats",
     description="Per-zone CFA colour and luminance statistics for AE and AWB.",
-    consumes=("bayer_phase", "window_x0", "window_y0", "window_x1", "window_y1"),
     # A SINK: statistics observe the datapath and produce no pixels, so this
     # block taps the stream rather than sitting in it and never stalls its
     # source -- the pixels it is watching have somewhere else to be.
@@ -143,7 +143,19 @@ STATS_DECLARATION = dict(
                         "the colour sums at end of frame. Defaults are written by the "
                         "host from LUMA_WEIGHT_DEFAULT",
         ),
+        phase_input(),
+        Param(name="window_x0", bits=16, default=0,
+              description="Left edge of the metered window, in pixels from "
+                          "the line start"),
+        Param(name="window_y0", bits=16, default=0,
+              description="Top edge of the metered window, in lines from the "
+                          "frame start"),
+        Param(name="window_x1", bits=16, default=1920,
+              description="Right edge of the metered window, exclusive"),
+        Param(name="window_y1", bits=16, default=1080,
+              description="Bottom edge of the metered window, exclusive"),
     ],
+    even_frame=True,
     stats=[
         StatsWindow(
             name="zones",
@@ -172,6 +184,7 @@ def default_registers(zones_x: int = ZONES_X, zones_y: int = ZONES_Y,
     """
     x0, y0, x1, y1 = window
     values = {
+        "window_x0": x0, "window_y0": y0, "window_x1": x1, "window_y1": y1,
         "zone_width": max(1, (x1 - x0) // zones_x),
         "zone_height": max(1, (y1 - y0) // zones_y),
         "zones_x": zones_x,
@@ -183,8 +196,7 @@ def default_registers(zones_x: int = ZONES_X, zones_y: int = ZONES_Y,
 
 
 @ispblock(**STATS_DECLARATION)
-def stats(pixel: np.ndarray, p, bayer_phase: int = 0,
-          window: tuple[int, int, int, int] | None = None) -> np.ndarray:
+def stats(pixel: np.ndarray, p) -> np.ndarray:
     """Accumulate one frame of statistics.
 
     THE specification and THE golden reference. Integer throughout, saturating
@@ -192,11 +204,10 @@ def stats(pixel: np.ndarray, p, bayer_phase: int = 0,
 
     Args:
         pixel: ``(height, width)`` raw Bayer frame, unsigned.
-        p: bound parameter values, from ``stats.params.bind({...})``.
-        bayer_phase: pipeline context. Position of R: bit 1 row parity, bit 0
-            column parity.
-        window: ``(x0, y0, x1, y1)`` active window, exclusive at the top end.
-            Defaults to the whole frame. Comes from pipeline context.
+        p: bound parameter values, from ``stats.params.bind({...})`` --
+            among them the Bayer phase (bit 1 R's row parity, bit 0 its
+            column parity) and the metered window ``window_x0 .. window_y1``,
+            exclusive at the top end.
 
     Returns:
         A 2-D ``(zones_y * zones_x, 5)`` uint32 array: one ROW per zone record,
@@ -213,7 +224,8 @@ def stats(pixel: np.ndarray, p, bayer_phase: int = 0,
     if pixel.ndim != 2:
         raise ValueError(f"expected a 2-D Bayer frame, got shape {pixel.shape}")
     height, width = pixel.shape
-    x0, y0, x1, y1 = window if window is not None else (0, 0, width, height)
+    x0, y0, x1, y1 = (int(p.window_x0), int(p.window_y0), int(p.window_x1),
+                      int(p.window_y1))
     if not (0 <= x0 < x1 <= width and 0 <= y0 < y1 <= height):
         raise ValueError(
             f"window {(x0, y0, x1, y1)} outside the {width}x{height} frame")
@@ -224,7 +236,7 @@ def stats(pixel: np.ndarray, p, bayer_phase: int = 0,
         raise ValueError(
             f"grid {zones_x}x{zones_y} exceeds the built maximum {ZONES_X}x{ZONES_Y}")
 
-    phase_row, phase_col = (int(bayer_phase) >> 1) & 1, int(bayer_phase) & 1
+    phase_row, phase_col = (int(p.bayer_phase) >> 1) & 1, int(p.bayer_phase) & 1
     limit = (1 << ACCUMULATOR_BITS) - 1
 
     # Colour sums first. int64 during accumulation, saturated to the hardware's

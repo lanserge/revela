@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
 """The ``pipe`` block: pipeline context, owned in one place and fanned out.
 
-Width, height, the active window, the Bayer phase and the bit depth are facts
-about the pipeline, not about any one block. They are declared here, once, and
-reach their consumers as WIRES. No other block holds a copy. A fact the design
-names in ``stream.context`` arrives with the stream instead, and takes no
-register here -- the standard ISP takes width, height, Bayer phase and depth
-that way, leaving ``pipe`` the active window.
+Width, height, the Bayer phase and the bit depth are facts about the
+pipeline, not about any one block. They are declared here, once, and reach
+the blocks a design binds to them as WIRES. No other block holds a copy. A
+fact the design names in ``stream.context`` arrives with the stream instead,
+and takes no register here -- the standard ISP takes width, height, Bayer
+phase and depth that way, leaving ``pipe`` only its commit.
 
 That is worth being firm about. The tempting alternative -- give every block its
 own width register -- means a resolution change is N register writes that must

@@ -77,7 +77,8 @@ def describe(name: str, *chains: dict, bit_depth: int = 12,
     Python rather than reading it from a file.
     """
     stream = {"bits": bit_depth, "max_width": width, "max_height": height}
-    top = {"inputs": [{"name": n, **stream} for n in inputs],
+    top = {"vocabulary": "revela.blocks.pipe:VOCABULARY",
+           "inputs": [{"name": n, **stream} for n in inputs],
            "outputs": [{"name": n} for n in outputs],
            "nodes": {}, "connections": []}
     blocks = {name: top}

@@ -54,7 +54,7 @@ the missing colour is green + mean(D) over 2 row/column neighbours (at
 green sites) or 4 diagonals (at the opposite colour's site), floored and
 clipped. Green passes through.
 
-Both stages take the CFA phase as context bits, exactly like every
+Both stages take the CFA phase as their ``bayer_phase`` input, exactly like every
 CFA-indexed block: one bitstream serves every order, and np2hw lowers each
 stage to one shared window with per-site selection -- the adaptive select
 is a comparator and a mux inside the plane, not a second datapath.
@@ -64,19 +64,9 @@ from __future__ import annotations
 import numpy as np
 from np2hw import saturate
 
-from np2hw.blocks import ContextBit, StreamPort
+from np2hw.blocks import StreamPort
 from revela.blocks import ispblock
-
-_PHASE_CONTEXT = (
-    ContextBit("phase_row", "bayer_phase", bit=1,
-               description="Row parity R sits on, from the pipeline's "
-                           "bayer_phase context register. A register, not "
-                           "a build option, so one bitstream serves every "
-                           "CFA order"),
-    ContextBit("phase_col", "bayer_phase", bit=0,
-               description="Column parity R sits on, from bayer_phase"),
-)
-
+from revela.blocks.cfa import phase_input
 
 @ispblock(
     version=(1, 0),
@@ -88,10 +78,10 @@ _PHASE_CONTEXT = (
                         "The raw sample and the reconstructed green, one "
                         "word: what the chroma stage needs and nothing "
                         "it does not."),),
-    consumes=("bayer_phase",),
-    context=_PHASE_CONTEXT,
+    params=[phase_input()],
+    even_frame=True,
 )
-def ha_green(pixel, p, ctx, bit_depth: int):
+def ha_green(pixel, p, bit_depth: int):
     """THE model. Adaptive estimate at non-green sites, passthrough at green."""
     height, width = pixel.shape[:2]
     value = pixel.astype(np.int32)
@@ -112,7 +102,7 @@ def ha_green(pixel, p, ctx, bit_depth: int):
     est = np.where(dh < dv, gh, np.where(dv < dh, gv, ga))
 
     green = np.empty_like(value)
-    pr, pc = ctx.phase_row, ctx.phase_col
+    pr, pc = p.bayer_phase >> 1, p.bayer_phase & 1
     green[pr::2, pc::2] = est[pr::2, pc::2]                # R site
     green[pr::2, 1 - pc::2] = centre[pr::2, 1 - pc::2]     # Gr measured
     green[1 - pr::2, pc::2] = centre[1 - pr::2, pc::2]     # Gb measured
@@ -130,10 +120,10 @@ def ha_green(pixel, p, ctx, bit_depth: int):
     outputs=(StreamPort("out",
                         "Linear RGB; interpolated channels clipped to the "
                         "datapath range."),),
-    consumes=("bayer_phase",),
-    context=_PHASE_CONTEXT,
+    params=[phase_input()],
+    even_frame=True,
 )
-def ha_rb(pixel, p, ctx, bit_depth: int):
+def ha_rb(pixel, p, bit_depth: int):
     """THE model. D = raw - green, interpolated per site, added back to green."""
     height, width = pixel.shape[:2]
     raw = np.pad(pixel[..., 0].astype(np.int32), 1, mode="edge")
@@ -157,7 +147,7 @@ def ha_rb(pixel, p, ctx, bit_depth: int):
 
     red = np.empty_like(cent)
     blue = np.empty_like(cent)
-    pr, pc = ctx.phase_row, ctx.phase_col
+    pr, pc = p.bayer_phase >> 1, p.bayer_phase & 1
     sites = (((pr, pc), cent, diag),           # R site
              ((pr, 1 - pc), horiz, vert),      # Gr: R left/right, B above/below
              ((1 - pr, pc), vert, horiz),      # Gb: mirrored

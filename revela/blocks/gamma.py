@@ -157,7 +157,7 @@ def _curve(value, p, bit_depth):
                         "this is the block that makes RGB for a display."),),
     params=[_knots_param()],
 )
-def gamma(pixel, p, ctx, bit_depth: int):
+def gamma(pixel, p, bit_depth: int):
     """THE model. Segment by bit-slice, gather two knots, integer lerp.
 
     Plain NumPy both ways: on arrays the fancy index is a fancy index; traced,
@@ -182,7 +182,7 @@ def gamma(pixel, p, ctx, bit_depth: int):
                         "Tone-mapped RGB, same width per channel."),),
     params=[_knots_param()],
 )
-def rgb_gamma(pixel, p, ctx, bit_depth: int):
+def rgb_gamma(pixel, p, bit_depth: int):
     """THE model. The same curve, once per channel, one knot table.
 
     One table for all three channels is the classical display-gamma

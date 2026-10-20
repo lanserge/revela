@@ -4,26 +4,20 @@
 
 A block is np2hw's (np2hw.blocks): its model -- the decorated function,
 written at the hardware's arithmetic, the specification and the golden
-reference -- and the declarations its arithmetic cannot state. What revela
-adds is its convention, bound once in :func:`ispblock`: the pipeline
-context its blocks may consume (revela.blocks.context), which the ``pipe``
-block owns where it is a register and the stream carries where it is not.
+reference -- and the declarations its arithmetic cannot state. A block knows
+nothing of the pipeline it is placed in: a revela design names revela's
+pipeline context (``revela.blocks.pipe:VOCABULARY``) and binds each block's
+inputs to it.
 
 Blocks are discovered, not listed (:func:`registry`): a block is available
 to a pipeline description as soon as it is declared.
 """
 from __future__ import annotations
 
-import functools
-
 from np2hw.blocks import block, registry as _registry, resolve as _resolve
 
-from revela.blocks.pipe import VOCABULARY
-
-#: Declare one of revela's blocks: np2hw's block, with revela's pipeline
-#: context -- and the pipe block that owns it -- as the vocabulary its
-#: blocks consume.
-ispblock = functools.partial(block, vocabulary=VOCABULARY)
+#: Declare one of revela's blocks: np2hw's block.
+ispblock = block
 
 
 def registry() -> dict:

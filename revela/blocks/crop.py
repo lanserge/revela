@@ -49,6 +49,6 @@ WHOLE = (1 << 16) - 1          # a length no frame reaches: the frame ends it
                           "are kept, fewer where the line ends first"),
     ],
 )
-def crop(pixel, p, ctx, bit_depth: int):
+def crop(pixel, p, bit_depth: int):
     """THE model: the slice."""
     return pixel[p.y0:, p.x0:][:p.h, :p.w]

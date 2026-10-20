@@ -101,7 +101,7 @@ from np2hw.blocks.params import Param
         ),
     ],
 )
-def ccm(pixel, p, ctx, bit_depth: int):
+def ccm(pixel, p, bit_depth: int):
     """THE model. Three channels in, one dot product per output channel.
 
     ``pixel`` is an ``(h, w, 3)`` frame; ``pixel[..., k]`` is a channel. The

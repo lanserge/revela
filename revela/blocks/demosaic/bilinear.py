@@ -47,12 +47,12 @@ toward the neighbouring colour, which is what every shipping ISP does.
 Which combination applies where
 -------------------------------
 
-The site table is indexed by CFA position, and the CFA phase arrives as two
-one-bit context values -- which row parity R sits on, and which column
-parity -- used as the STARTS of stride-2 slices, exactly as in blacklevel.
-The starts are registers, so one bitstream serves every CFA order; the
-tracer lowers the four disjoint planes to ONE full-rate datapath whose tap
-combination is selected by pixel position.
+The site table is indexed by CFA position, and the CFA phase is the
+``bayer_phase`` input, whose two bits -- which row parity R sits on, and
+which column parity -- are the STARTS of stride-2 slices, exactly as in
+blacklevel. The starts are run-time values, so one bitstream serves every
+CFA order; the tracer lowers the four disjoint planes to ONE full-rate
+datapath whose tap combination is selected by pixel position.
 
 The stream, three channels
 --------------------------
@@ -75,8 +75,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from np2hw.blocks import ContextBit, StreamPort
+from np2hw.blocks import StreamPort
 from revela.blocks import ispblock
+from revela.blocks.cfa import phase_input
 
 
 @ispblock(
@@ -91,18 +92,10 @@ from revela.blocks import ispblock
                         "Packed linear RGB, R in the low bits; interpolated "
                         "channels carry no headroom beyond the input's "
                         "range."),),
-    consumes=("bayer_phase",),
-    context=(
-        ContextBit("phase_row", "bayer_phase", bit=1,
-                   description="Row parity R sits on, from the pipeline's "
-                               "bayer_phase context register. A register, "
-                               "not a build option, so one bitstream serves "
-                               "every CFA order"),
-        ContextBit("phase_col", "bayer_phase", bit=0,
-                   description="Column parity R sits on, from bayer_phase"),
-    ),
+    params=[phase_input()],
+    even_frame=True,
 )
-def bilinear(pixel, p, ctx, bit_depth: int):
+def bilinear(pixel, p, bit_depth: int):
     """THE model. Five tap combinations, routed to channels by CFA site.
 
     Written the way the hardware reads the frame: the window taps are
@@ -130,7 +123,7 @@ def bilinear(pixel, p, ctx, bit_depth: int):
     red = np.empty_like(value)
     green = np.empty_like(value)
     blue = np.empty_like(value)
-    pr, pc = ctx.phase_row, ctx.phase_col
+    pr, pc = p.bayer_phase >> 1, p.bayer_phase & 1
     # The site table from the docstring, one row per CFA position.
     sites = (
         ((pr, pc), centre, cross, diag),            # R site

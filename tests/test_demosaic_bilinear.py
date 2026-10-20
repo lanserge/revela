@@ -76,7 +76,7 @@ def raw_frame(rng, width=WIDTH, height=HEIGHT) -> np.ndarray:
 def test_matches_the_per_pixel_oracle(rng, phase):
     """THE model test: every pixel, every phase, against the window walk."""
     frame = raw_frame(rng)
-    out = bilinear.run(frame, {}, bit_depth=BIT_DEPTH, bayer_phase=phase)
+    out = bilinear.run(frame, {"bayer_phase": phase}, bit_depth=BIT_DEPTH)
     np.testing.assert_array_equal(out, oracle(frame, phase))
 
 
@@ -89,7 +89,7 @@ def test_flat_field_stays_flat(rng, phase):
     """
     for level in (0, 1, 1000, TOP):
         frame = np.full((HEIGHT, WIDTH), level, dtype=np.uint16)
-        out = bilinear.run(frame, {}, bit_depth=BIT_DEPTH, bayer_phase=phase)
+        out = bilinear.run(frame, {"bayer_phase": phase}, bit_depth=BIT_DEPTH)
         np.testing.assert_array_equal(out, np.full((HEIGHT, WIDTH, 3), level))
 
 
@@ -100,7 +100,7 @@ def test_measured_samples_pass_through(rng):
     (R at even/even) makes the site map explicit.
     """
     frame = raw_frame(rng)
-    out = bilinear.run(frame, {}, bit_depth=BIT_DEPTH, bayer_phase=0)
+    out = bilinear.run(frame, {"bayer_phase": 0}, bit_depth=BIT_DEPTH)
     np.testing.assert_array_equal(out[0::2, 0::2, 0], frame[0::2, 0::2])  # R
     np.testing.assert_array_equal(out[0::2, 1::2, 1], frame[0::2, 1::2])  # Gr
     np.testing.assert_array_equal(out[1::2, 0::2, 1], frame[1::2, 0::2])  # Gb
@@ -117,7 +117,7 @@ def test_division_truncates():
     frame = np.zeros((4, 4), dtype=np.uint16)
     # Phase 0: (1,1) is a B site; its G is cross of (0,1),(2,1),(1,0),(1,2).
     frame[0, 1], frame[2, 1], frame[1, 0], frame[1, 2] = 1, 1, 1, 2
-    out = bilinear.run(frame, {}, bit_depth=BIT_DEPTH, bayer_phase=0)
+    out = bilinear.run(frame, {"bayer_phase": 0}, bit_depth=BIT_DEPTH)
     assert out[1, 1, 1] == 1
     # Its R is the diagonal average of (0,0),(0,2),(2,0),(2,2) = 0.
     assert out[1, 1, 0] == 0
@@ -131,7 +131,7 @@ def test_borders_replicate():
     """
     frame = np.zeros((4, 4), dtype=np.uint16)
     frame[:, 0] = 1000
-    out = bilinear.run(frame, {}, bit_depth=BIT_DEPTH, bayer_phase=0)
+    out = bilinear.run(frame, {"bayer_phase": 0}, bit_depth=BIT_DEPTH)
     # (1,0) is a Gb site (phase 0): its R is vert = mean of (0,0),(2,0) = 1000;
     # its B is horiz = mean of x[-1] (replicated 1000) and (1,1)=0 -> 500.
     assert out[1, 0, 0] == 1000
@@ -151,8 +151,8 @@ def test_a_multi_channel_stream_fails_at_the_trace():
 def test_odd_dimensions_are_refused(rng):
     """A CFA-indexed block has no consistent phase on an odd frame."""
     with pytest.raises(ValueError, match="odd dimension"):
-        bilinear.run(np.zeros((5, 8), dtype=np.uint16), {},
-                     bit_depth=BIT_DEPTH, bayer_phase=0)
+        bilinear.run(np.zeros((5, 8), dtype=np.uint16), {"bayer_phase": 0},
+                     bit_depth=BIT_DEPTH)
 
 
 # --------------------------------------------------------------------------- #
@@ -178,8 +178,7 @@ def test_verilog_is_bit_exact_with_the_model(tmp_path, rng):
         frame = raw_frame(rng)
         trials.append({
             "seed": int(rng.integers(0, 2**31)),
-            "context": {"bayer_phase": phase},
-            "values": {},
+            "values": {"bayer_phase": phase},
             "frame": frame.ravel().tolist(),
         })
 

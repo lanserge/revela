@@ -36,7 +36,7 @@ def test_zero_offset_is_pass_through(rng):
     new hardware needlessly confusing.
     """
     frame = raw_frame(rng, WIDTH, HEIGHT, BIT_DEPTH)
-    out = blacklevel.blacklevel.run(frame, {}, bayer_phase=0, bit_depth=BIT_DEPTH)
+    out = blacklevel.blacklevel.run(frame, {"bayer_phase": 0}, bit_depth=BIT_DEPTH)
     np.testing.assert_array_equal(out, frame)
 
 
@@ -68,7 +68,7 @@ def test_full_range_survives_a_signed_offset_register():
     top = (1 << BIT_DEPTH) - 1
     mid = 1 << (BIT_DEPTH - 1)
     frame = np.array([[mid - 1, mid], [top, top - 1]], dtype=np.uint16)
-    out = blacklevel.blacklevel.run(frame, {}, bayer_phase=0, bit_depth=BIT_DEPTH)
+    out = blacklevel.blacklevel.run(frame, {"bayer_phase": 0}, bit_depth=BIT_DEPTH)
     np.testing.assert_array_equal(out, frame)
 
 
@@ -83,7 +83,7 @@ def test_offset_follows_the_colour_not_the_position(phase):
     frame = np.zeros((2, 2), dtype=np.uint16)
     offsets = {"offset_0_0": 10, "offset_0_1": 20, "offset_1_0": 30,
                "offset_1_1": 40}
-    out = blacklevel.blacklevel.run(frame, offsets, bayer_phase=phase, bit_depth=BIT_DEPTH)
+    out = blacklevel.blacklevel.run(frame, {**offsets, "bayer_phase": phase}, bit_depth=BIT_DEPTH)
 
     phase_row, phase_col = (phase >> 1) & 1, phase & 1
     for y in (0, 1):
@@ -137,8 +137,7 @@ def test_verilog_is_bit_exact_with_the_model(tmp_path, rng):
         offsets = OFFSET.values(rng.integers(-300, 301, (2, 2)))
         trials.append({
             "seed": int(rng.integers(0, 2**31)),
-            "context": {"bayer_phase": phase},
-            "values": offsets,
+            "values": {**offsets, "bayer_phase": phase},
             "frame": frame.ravel().tolist(),
         })
 

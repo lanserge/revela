@@ -120,12 +120,15 @@ kept apart deliberately:
   next **frame boundary** and clears the bit, so a frame is never processed with
   half-updated coefficients. While a batch is pending, coefficient writes are
   refused, so the batch cannot change under the commit.
-- **Pipeline context** — the facts every block shares: width, height, active
-  window, Bayer phase, bit depth. Each comes from ONE place: those named in
-  `stream.context` arrive with the stream, and the rest (the active window) are
-  registers in a single `pipe` block at base 0. Either way they are fanned out
-  to blocks as **WIRES**, never duplicated as per-block CSRs. One width register per pipeline,
-  read by everyone. The alternative — a width register in every block — makes a
+- **Pipeline context** — the facts a pipeline shares: width, height, Bayer
+  phase, bit depth, frame count. Each comes from ONE place: those named in
+  `stream.context` arrive with the stream, and the rest are registers in a
+  single `pipe` block at base 0. A block takes what it needs as a scalar
+  input; the design **binds** the input to an expression over these facts
+  (`"bind": {"bayer_phase": "bayer_phase"}`, `{"pos": "frame_seq & 3"}`),
+  folded into the block's core, and the facts reach it as **WIRES**, never
+  duplicated as per-block CSRs. An input left unbound is the block's own
+  register. One phase per pipeline, read by everyone. The alternative — a width register in every block — makes a
   resolution change N writes that must all land in the same frame, and any block
   whose write is missed corrupts the image in a way that looks like a bug in that
   block.
@@ -535,12 +538,13 @@ experiments/      exploratory work, NOT part of the library, float allowed
   lowers them to ONE full-rate datapath with the coefficient selected by pixel
   position, not four quarter-rate paths.
 - **A block is a decorated function.** np2hw's block framework
-  (`np2hw.blocks`) holds what the arithmetic cannot say -- the register set,
-  which context bits the model takes -- and `Block.generate()` is generic,
-  shared by every block. revela's `@ispblock` is np2hw's decorator with
-  revela's pipeline context (`revela.blocks.context`) bound as the vocabulary
-  its blocks consume; the Verilog traced from a model carries the licence the
-  model's own source file states. Stream WIDTHS are
+  (`np2hw.blocks`) holds what the arithmetic cannot say -- the registers and
+  scalar inputs -- and `Block.generate()` is generic, shared by every block.
+  A block knows nothing of the pipeline it is placed in: a revela design
+  names revela's pipeline context (`"vocabulary":
+  "revela.blocks.pipe:VOCABULARY"`) and binds each block's inputs to it in
+  JSON, and the streams connect the rest. The Verilog traced from a model
+  carries the licence the model's own source file states. Stream WIDTHS are
   deliberately not declared: np2hw derives them from the trace, and declaring
   them twice is how `in_flags` and `ctx_ports` went wrong. A design holds
   Blocks, not modules; the registry discovers Blocks; a block that cannot be

@@ -156,7 +156,7 @@ ATAN = [8192, 4836, 2555, 1297, 651, 326, 163, 81, 41, 20, 10, 5]
                         "because one CORDIC produced both."),),
     params=[],
 )
-def tofquad(pixel, p, ctx, bit_depth: int):
+def tofquad(pixel, p, bit_depth: int):
     """THE model. Route by tag, quadrature, pre-scale, vectoring CORDIC."""
     s = pixel.astype(np.int64)
     sample = [s[..., k] for k in range(PHASES)]

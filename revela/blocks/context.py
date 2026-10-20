@@ -2,11 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
 """The pipeline context revela's blocks may consume, and the CFA orders.
 
-Width, height, the active window, the Bayer phase, the bit depth, the frame
-count: facts about the pipeline, not about any one block, declared here
-once. A block names the ones it reads in ``consumes``; the ``pipe`` block
-owns the ones that are registers, and a design takes the rest from the
-stream. revela's block decorator binds this vocabulary to every block it
+Width, height, the Bayer phase, the bit depth, the frame count: facts
+about the pipeline, not about any one block, declared here
+once. A block takes what it needs as scalar inputs, and a design binds
+each input to an expression over these (``"bayer_phase"``, ``"frame_seq &
+3"``); the ``pipe`` block owns the ones that are registers, and a design
+takes the rest from the stream. revela's block decorator binds this vocabulary to every block it
 declares.
 """
 from __future__ import annotations
@@ -30,8 +31,7 @@ BAYER_ORDER_NAMES = {
 BAYER_ORDER_CODES = {name: code for code, name in BAYER_ORDER_NAMES.items()}
 
 # The context signals every pipeline carries. Adding one here makes it available
-# to any block that names it in `consumes`; it does not cost the blocks that do
-# not.
+# to any binding that names it; it does not cost the designs that do not.
 CONTEXT = (
     Context(
         name="width",
@@ -49,44 +49,12 @@ CONTEXT = (
         follows="height",
     ),
     Context(
-        name="window_x0",
-        bits=16,
-        default=0,
-        description="Left edge of the active window, in pixels from the line start",
-        origin="register",
-    ),
-    Context(
-        name="window_y0",
-        bits=16,
-        default=0,
-        description="Top edge of the active window, in lines from the frame start",
-        origin="register",
-    ),
-    Context(
-        name="window_x1",
-        bits=16,
-        default=1920,
-        description="Right edge of the active window, exclusive",
-        origin="register",
-        follows="width",
-    ),
-    Context(
-        name="window_y1",
-        bits=16,
-        default=1080,
-        description="Bottom edge of the active window, exclusive",
-        origin="register",
-        follows="height",
-    ),
-    Context(
         name="bayer_phase",
         bits=2,
         default=BAYER_RGGB,
         description="Position of the R pixel in the 2x2 CFA tile: bit 1 row parity, "
                     "bit 0 column parity. 0=RGGB 1=GRBG 2=GBRG 3=BGGR. A register, not "
                     "a build option, so one bitstream serves every sensor orientation",
-        # a CFA-indexed block has no consistent phase on an odd frame
-        even_frame=True,
     ),
     Context(
         name="bit_depth",
@@ -117,7 +85,7 @@ CONTEXT_BY_NAME = {ctx.name: ctx for ctx in CONTEXT}
 
 
 def context_names() -> tuple[str, ...]:
-    """Every context signal a block may name in ``consumes``."""
+    """Every context signal a binding may name."""
     return tuple(ctx.name for ctx in CONTEXT)
 
 

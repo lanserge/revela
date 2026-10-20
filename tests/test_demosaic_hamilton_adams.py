@@ -100,7 +100,7 @@ def pack2(word):
 @pytest.mark.parametrize("phase", range(4))
 def test_green_matches_the_oracle(rng, phase):
     frame = raw_frame(rng)
-    out = ha.ha_green.run(frame, {}, bit_depth=BIT_DEPTH, bayer_phase=phase)
+    out = ha.ha_green.run(frame, {"bayer_phase": phase}, bit_depth=BIT_DEPTH)
     np.testing.assert_array_equal(out[..., 0], frame)     # raw rides along
     np.testing.assert_array_equal(out[..., 1], green_oracle(frame, phase))
 
@@ -108,8 +108,8 @@ def test_green_matches_the_oracle(rng, phase):
 @pytest.mark.parametrize("phase", range(4))
 def test_rb_matches_the_oracle(rng, phase):
     frame = raw_frame(rng)
-    word = ha.ha_green.run(frame, {}, bit_depth=BIT_DEPTH, bayer_phase=phase)
-    out = ha.ha_rb.run(word, {}, bit_depth=BIT_DEPTH, bayer_phase=phase)
+    word = ha.ha_green.run(frame, {"bayer_phase": phase}, bit_depth=BIT_DEPTH)
+    out = ha.ha_rb.run(word, {"bayer_phase": phase}, bit_depth=BIT_DEPTH)
     np.testing.assert_array_equal(
         out, rb_oracle(word[..., 0], word[..., 1], phase))
 
@@ -118,9 +118,9 @@ def test_rb_matches_the_oracle(rng, phase):
 def test_flat_field_stays_flat(rng, phase):
     for level in (0, 7, TOP):
         frame = np.full((HEIGHT, WIDTH), level, dtype=np.uint16)
-        word = ha.ha_green.run(frame, {}, bit_depth=BIT_DEPTH,
-                               bayer_phase=phase)
-        out = ha.ha_rb.run(word, {}, bit_depth=BIT_DEPTH, bayer_phase=phase)
+        word = ha.ha_green.run(frame, {"bayer_phase": phase},
+                               bit_depth=BIT_DEPTH)
+        out = ha.ha_rb.run(word, {"bayer_phase": phase}, bit_depth=BIT_DEPTH)
         np.testing.assert_array_equal(out, np.full((HEIGHT, WIDTH, 3), level))
 
 
@@ -129,7 +129,7 @@ def test_the_decision_follows_the_edge():
     VERTICALLY through the edge and reproduces the column exactly."""
     frame = np.zeros((6, 8), dtype=np.uint16)
     frame[:, 4:] = 1000                          # vertical step at x=4
-    out = ha.ha_green.run(frame, {}, bit_depth=BIT_DEPTH, bayer_phase=0)
+    out = ha.ha_green.run(frame, {"bayer_phase": 0}, bit_depth=BIT_DEPTH)
     green = out[..., 1]
     # (2, 4) is an R site (phase 0): along the edge G is 1000 above/below.
     assert green[2, 4] == 1000
@@ -146,7 +146,7 @@ def test_the_tie_averages_both_axes():
     frame = np.zeros((6, 8), dtype=np.uint16)
     frame[1, 2], frame[3, 2] = 100, 100          # gn = gs
     frame[2, 1], frame[2, 3] = 100, 100          # gw = ge
-    out = ha.ha_green.run(frame, {}, bit_depth=BIT_DEPTH, bayer_phase=0)
+    out = ha.ha_green.run(frame, {"bayer_phase": 0}, bit_depth=BIT_DEPTH)
     assert out[2, 2, 1] == 100                   # mean of four equals 100
 
 
@@ -157,7 +157,7 @@ def test_correction_overshoot_clips():
     frame[2, 2] = TOP                            # centre bright, X at +-2 dark:
     #   lh = 2*TOP, dh = 0 + 2*TOP
     frame[3, 2] = TOP                            # gn=0, gs=TOP -> dv = 3*TOP
-    out = ha.ha_green.run(frame, {}, bit_depth=BIT_DEPTH, bayer_phase=0)
+    out = ha.ha_green.run(frame, {"bayer_phase": 0}, bit_depth=BIT_DEPTH)
     # dh < dv: gh = TOP + (2*TOP)//4 overshoots and must clip.
     assert out[2, 2, 1] == TOP
 
@@ -188,7 +188,7 @@ def test_green_verilog_is_bit_exact(tmp_path, rng):
     generated = ha.ha_green.generate(spec, WIDTH, HEIGHT,
                                      module_name="revela_ha_green")
     trials = [{"seed": int(rng.integers(0, 2**31)),
-               "context": {"bayer_phase": phase}, "values": {},
+               "values": {"bayer_phase": phase},
                "frame": raw_frame(rng).ravel().tolist()}
               for phase in range(4)]
     run_cocotb(tmp_path=tmp_path, verilog=generated.verilog,
@@ -205,10 +205,10 @@ def test_rb_verilog_is_bit_exact(tmp_path, rng):
                                   module_name="revela_ha_rb")
     trials = []
     for phase in range(4):
-        word = ha.ha_green.run(raw_frame(rng), {}, bit_depth=BIT_DEPTH,
-                               bayer_phase=phase)
+        word = ha.ha_green.run(raw_frame(rng), {"bayer_phase": phase},
+                               bit_depth=BIT_DEPTH)
         trials.append({"seed": int(rng.integers(0, 2**31)),
-                       "context": {"bayer_phase": phase}, "values": {},
+                       "values": {"bayer_phase": phase},
                        "frame": pack2(word).ravel().tolist()})
     run_cocotb(tmp_path=tmp_path, verilog=generated.verilog,
                toplevel=generated.top, test_module="np2hw.testing.block",

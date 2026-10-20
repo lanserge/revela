@@ -185,8 +185,7 @@ def test_statistics_read_back_in_the_models_shape(device, register_map):
     model_output = stats.stats(
         np.zeros((32, 32), dtype=np.uint16),
         stats.stats.params.bind(stats.default_registers(
-            stats.ZONES_X, stats.ZONES_Y, (0, 0, 32, 32))),
-        bayer_phase=0, window=(0, 0, 32, 32))
+            stats.ZONES_X, stats.ZONES_Y, (0, 0, 32, 32))))
     assert read.shape == model_output.shape
 
 

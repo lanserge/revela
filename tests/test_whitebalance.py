@@ -36,7 +36,7 @@ def test_unity_gain_is_pass_through(rng):
     image -- same bring-up argument as blacklevel's zero offset.
     """
     frame = raw_frame(rng, WIDTH, HEIGHT, BIT_DEPTH)
-    out = whitebalance.whitebalance.run(frame, {}, bayer_phase=0, bit_depth=BIT_DEPTH)
+    out = whitebalance.whitebalance.run(frame, {"bayer_phase": 0}, bit_depth=BIT_DEPTH)
     np.testing.assert_array_equal(out, frame)
 
 
@@ -67,7 +67,7 @@ def test_full_scale_survives_unity_exactly():
     top = (1 << BIT_DEPTH) - 1
     mid = 1 << (BIT_DEPTH - 1)
     frame = np.array([[top, mid], [mid - 1, top - 1]], dtype=np.uint16)
-    out = whitebalance.whitebalance.run(frame, {}, bayer_phase=0, bit_depth=BIT_DEPTH)
+    out = whitebalance.whitebalance.run(frame, {"bayer_phase": 0}, bit_depth=BIT_DEPTH)
     np.testing.assert_array_equal(out, frame)
 
 
@@ -77,7 +77,7 @@ def test_gain_follows_the_colour_not_the_position(phase):
     frame = np.full((2, 2), 64, dtype=np.uint16)
     gains = {"gain_0_0": 1 * GAIN_ONE, "gain_0_1": 2 * GAIN_ONE,
              "gain_1_0": 3 * GAIN_ONE, "gain_1_1": 4 * GAIN_ONE}
-    out = whitebalance.whitebalance.run(frame, gains, bayer_phase=phase, bit_depth=BIT_DEPTH)
+    out = whitebalance.whitebalance.run(frame, {**gains, "bayer_phase": phase}, bit_depth=BIT_DEPTH)
 
     phase_row, phase_col = (phase >> 1) & 1, phase & 1
     for y in (0, 1):
@@ -135,8 +135,7 @@ def test_verilog_is_bit_exact_with_the_model(tmp_path, rng):
         gains = GAIN.values(rng.integers(64, 1025, (2, 2)))   # x0.25 .. x4
         trials.append({
             "seed": int(rng.integers(0, 2**31)),
-            "context": {"bayer_phase": phase},
-            "values": gains,
+            "values": {**gains, "bayer_phase": phase},
             "frame": frame.ravel().tolist(),
         })
 

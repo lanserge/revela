@@ -6,7 +6,7 @@ The device object mirrors the pipeline's hierarchy, so the instance path that
 :mod:`np2hw.pipeline.compose` allocated is the attribute chain software uses::
 
     dev = Device(register_map, transport)
-    dev.pipe.window_x0 = 0
+    dev.left.stats.window_x0 = 0
     dev.left.blacklevel.offset_0_0 = -64
     dev.left.ccm.m_0_0 = 512
 

@@ -49,7 +49,7 @@ price of the sharper kernel, and stating it is the point of having this
 block next to bilinear.
 
 Which combination applies where is decided exactly as in bilinear: the CFA
-phase arrives as two context bits used as stride-2 slice STARTS, and np2hw
+phase's two bits are the stride-2 slice STARTS, and np2hw
 lowers the four planes to one full-rate datapath over one shared window
 with the tap combination selected by pixel position.
 
@@ -61,8 +61,9 @@ from __future__ import annotations
 import numpy as np
 from np2hw import saturate
 
-from np2hw.blocks import ContextBit, StreamPort
+from np2hw.blocks import StreamPort
 from revela.blocks import ispblock
+from revela.blocks.cfa import phase_input
 
 # Keys cubic convolution, a = -1/2, evaluated at the half-phase positions
 # (+-0.5, +-1.5 lattice units): the one kernel this block needs.
@@ -82,18 +83,10 @@ OFFSETS = (-3, -1, 1, 3)                 # mosaic-domain reach of the kernel
                         "Linear RGB; interpolated channels are clipped to "
                         "the datapath range, absorbing the cubic kernel's "
                         "overshoot."),),
-    consumes=("bayer_phase",),
-    context=(
-        ContextBit("phase_row", "bayer_phase", bit=1,
-                   description="Row parity R sits on, from the pipeline's "
-                               "bayer_phase context register. A register, "
-                               "not a build option, so one bitstream serves "
-                               "every CFA order"),
-        ContextBit("phase_col", "bayer_phase", bit=0,
-                   description="Column parity R sits on, from bayer_phase"),
-    ),
+    params=[phase_input()],
+    even_frame=True,
 )
-def bicubic(pixel, p, ctx, bit_depth: int):
+def bicubic(pixel, p, bit_depth: int):
     """THE model. Five cubic tap combinations, routed by CFA site.
 
     Written the way the hardware reads the frame: window taps are shifted
@@ -124,7 +117,7 @@ def bicubic(pixel, p, ctx, bit_depth: int):
     red = np.empty_like(value)
     green = np.empty_like(value)
     blue = np.empty_like(value)
-    pr, pc = ctx.phase_row, ctx.phase_col
+    pr, pc = p.bayer_phase >> 1, p.bayer_phase & 1
     # The site table from the docstring -- bilinear's routing, cubic combos.
     sites = (
         ((pr, pc), centre, cross, diag),            # R site

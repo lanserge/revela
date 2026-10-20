@@ -49,8 +49,8 @@ compared at PIPELINE level against reference images, never per block. Per-block,
 each is held bit-exact to its own model, which says nothing about which looks
 better and is not meant to.
 
-All three consume `bayer_phase` from the pipeline context, so one bitstream
-serves any CFA order.
+All three take the CFA phase as their `bayer_phase` input, which a design
+binds to the stream's, so one bitstream serves any CFA order.
 """
 
 
