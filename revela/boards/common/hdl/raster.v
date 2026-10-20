@@ -67,10 +67,8 @@
 // then a few ppm off nominal and constant, as any source's crystal is.
 // Modelled: from a hold the error peaks near 200 pixels and settles
 // within two seconds; the trim moves under 2 ppm from one frame to the
-// next.
-// `steer` chooses it (0), the debt paid at once (1), or no steering and
-// no hold at all (2: the raster runs free, a frame shown where its start
-// lands in the blanking).
+// next. With `follow` off the raster runs free: no step, no hold, a frame
+// shown where its start lands outside the window's rows.
 //
 // A NEW RASTER STARTS DARK. A television trains its receiver to a bit
 // rate the first time it meets it, and keeps the training. At 1.485 Gb/s
@@ -101,11 +99,7 @@ module raster #(
     // How long the fill is painted after the raster starts, in fine
     // phase steps -- 1/56 of the clock's VCO period, 24.05 ps on a
     // 742.5 MHz VCO: the default is 4 s of it. Taken as whole frames.
-    parameter [47:0] G_QUIET_STEPS = 48'd166320166320,
-    // SELFTEST paints from the raster's OWN counters and ignores the
-    // stream: is the data this block emits where its own enable says
-    // it is? A displacement that survives this is downstream of here.
-    parameter SELFTEST = 0
+    parameter [47:0] G_QUIET_STEPS = 48'd166320166320
 ) (
     input  wire          clk,
     input  wire          rst,
@@ -137,7 +131,6 @@ module raster #(
     input  wire [15:0]   win_h,
     input  wire          center,        // derive the offsets instead
     input  wire          follow,        // 1: steer to the stream; 0: hold
-    input  wire [1:0]    steer,         // 0 smooth, 1 at once, 2 none
     output reg           ps_en,         // one PSEN pulse per step
     output reg           ps_incdec,     // 1: delay (retard the raster)
     input  wire          ps_done,
@@ -152,8 +145,8 @@ module raster #(
     output wire [14:0]   status
 );
     localparam PB = XB + YB;            // bits of a frame's pixel count
-    localparam OB = XB + 1 + 16;        // bits of the steering debt
-    localparam RB = OB + 5;             // the smooth loop's signed numbers
+    localparam OB = XB + 1 + 16;        // bits of an error in steps
+    localparam RB = OB + 5;             // the loop's signed numbers
 
     reg [XB-1:0] x;
     reg [YB-1:0] y;
@@ -179,7 +172,7 @@ module raster #(
     reg fits = 1'b0;
     reg [PB-1:0] frame_px = 0;          // pixels in a frame
     reg [XB:0]   two_lines = 0;         // pixels in two lines
-    reg [OB-1:0] owed_cap = 0;          // the most debt one arrival sets
+    reg [OB-1:0] owed_cap = 0;          // the most error one arrival sets
     reg [PB-1:0] s_max = 0;             // the most steps one frame spreads:
                                         // one each 16 clocks, PSDONE's ~12
                                         // inside it
@@ -229,10 +222,6 @@ module raster #(
 
     reg [15:0] in_period;               // line ticks since the last arrival
     reg head_sof_d;                     // one arrival edge per input frame
-    // the steering debt, when it is paid at once (steer 1): steps still to
-    // issue, OVERWRITTEN at each arrival
-    reg [OB-1:0] owed;
-    reg owed_ret;                       // 1: retard the raster (delay)
     reg ps_busy;                        // one step in flight
     reg [4:0] ps_tmo;                   // PSDONE comes ~12 PSCLKs later; a
                                         // miswired done pin degrades to slow
@@ -251,11 +240,9 @@ module raster #(
     // constant, worked out once like the rest
     reg [47:0] quiet_t;
     reg quiet;                          // painting the fill
-    // the steering's choice, and whether there is any
-    wire smooth   = (steer == 2'd0);
-    wire steering = follow && (steer != 2'd2);
+    wire steering = follow;
     wire holding = wait_sof && steering;
-    // the smooth loop: the arrival's error in signed steps (positive:
+    // the loop: the arrival's error in signed steps (positive:
     // retard), the integral in steps a frame with eight bits of fraction,
     // and what the next frame spreads -- how many, which way
     reg signed [RB-1:0] e_s, rate_q, sum_r, e_p, s_raw;
@@ -272,7 +259,7 @@ module raster #(
     wire signed [PB+1:0] dda_wrap = dda + pf_minus;
     wire dda_due = (per_frame != 0) && !dda_wrap[PB+1];
     reg [3:0] due;                      // steps fallen due, not yet issued
-    wire issue_s = !ps_busy && steering && smooth && (due != 0);
+    wire issue_s = !ps_busy && steering && (due != 0);
 
     reg armed;                          // this frame's first beat is HERE
     reg show_frame;                     // ...and the genlock held as it
@@ -321,7 +308,7 @@ module raster #(
     reg [PB:0] pos_r, tgt_r, diff_r, dist_r, back_r, err_r;
     reg ahead_r;
     reg [OB-1:0] steps_r;
-    reg capped_r, small_r;
+    reg capped_r;
     reg late_r;
     wire [PB:0] fpx = {1'b0, frame_px};
     wire [PB:0] half = fpx >> 1;
@@ -330,7 +317,6 @@ module raster #(
     reg [3:0]  vsyncs;
     reg vs_d, underflow, misalign, refused;
     reg [2:0] sof_run, sof_cnt;
-    wire [31:0] selftest_px = {4{x[7:0]}};
     always @(posedge clk) begin
         alive <= alive + 1;
         if (rst || !locked || held) begin
@@ -338,7 +324,7 @@ module raster #(
             wait_sof <= 1; counting <= 0; realign <= 0; held_lines <= 0;
             wait_n <= 0;
             in_period <= 0; head_sof_d <= 0;
-            owed <= 0; owed_ret <= 0; calc <= 0;
+            calc <= 0;
             rate_q <= 0; per_frame <= 0; per_ret <= 0; scalc <= 0; s_pf <= 0;
             dda <= 0; pf_minus <= 0; due <= 0;
             ps_en <= 0; ps_incdec <= 0;
@@ -380,9 +366,9 @@ module raster #(
             if (!steering) begin wait_sof <= 0; counting <= 0; realign <= 0; end
 
             // ---- the genlock: the clock is steered, the counters are
-            // still. Each arrival sets what the next frame steers -- spread
-            // across it (smooth), or a debt drained at once -- and the
-            // stepper makes it one fine-phase step at a time.
+            // still. Each arrival sets what the next frame steers, spread
+            // across it, and the stepper makes it one fine-phase step at a
+            // time.
             if (line_end) begin
                 in_period <= (in_period == 16'hFFFF) ? in_period
                                                      : in_period + 1'b1;
@@ -405,11 +391,11 @@ module raster #(
             end
             // the spread: the frame's steps falling due evenly
             dda <= dda_due ? dda_wrap : (per_frame != 0) ? dda_add : dda;
-            if (dda_due && smooth && steering && !issue_s && due != 4'hF)
+            if (dda_due && steering && !issue_s && due != 4'hF)
                 due <= due + 4'd1;
-            else if (issue_s && !(dda_due && smooth && steering))
+            else if (issue_s && !(dda_due && steering))
                 due <= due - 4'd1;
-            else if (!(smooth && steering))
+            else if (!steering)
                 due <= 0;
             if (quiet && quiet_t >= G_QUIET_STEPS) quiet <= 1'b0;
             // the stepper: one PSEN pulse, then wait for PSDONE
@@ -421,11 +407,6 @@ module raster #(
                 ps_en <= 1'b1;
                 ps_incdec <= per_ret;
                 ps_busy <= 1'b1; ps_tmo <= 5'd31;
-            end else if (steering && !smooth && owed != 0) begin
-                ps_en <= 1'b1;
-                ps_incdec <= owed_ret;
-                ps_busy <= 1'b1; ps_tmo <= 5'd31;
-                owed <= owed - 1'b1;
             end
             head_sof_d <= head_sof;
             if (sof_arr) begin
@@ -441,7 +422,7 @@ module raster #(
                     if (arr_err > 2) begin
                         // beyond steering: hold at this frame's end, cooled
                         if (realign_cool == 0) realign <= 1;
-                        owed <= 0; calc <= 7'b0000000;
+                        calc <= 7'b0000000;
                     end else begin
                         // within steering: capture the arrival, measure
                         // over the next seven cycles
@@ -477,29 +458,20 @@ module raster #(
                 err_r <= late_r ? dist_r : back_r;
                 calc <= 7'b0100000;
             end
-            // the debt in steps, and whether it is capped, in one cycle;
-            // the choice in the next
+            // the error in steps, and whether it is capped, in one cycle;
+            // the signed error for the loop in the next
             if (calc[5]) begin
                 steps_r <= err_r[XB:0] * ps_per_px;
                 capped_r <= err_r > two_lines;
-                small_r <= err_r <= 1;
                 calc <= 7'b1000000;
             end
             if (calc[6]) begin
-                if (smooth) begin
-                    // the whole error, signed, for the loop: no dead band,
-                    // the integral is what averages a pixel's dither away
-                    e_s <= late_r ? $signed({5'd0, capped_r ? owed_cap : steps_r})
-                                  : -$signed({5'd0, capped_r ? owed_cap : steps_r});
-                    scalc <= 4'b0001;
-                end else if (!small_r) begin
-                    // past two lines the debt is capped, so the multiply
-                    // only ever sees an error that fits two lines
-                    owed <= capped_r ? owed_cap : steps_r;
-                    owed_ret <= late_r;
-                end else begin
-                    owed <= 0;
-                end
+                // the whole error, signed: no dead band, the integral is what
+                // averages a pixel's dither away; past two lines it is
+                // capped, so the multiply only ever sees an error that fits
+                e_s <= late_r ? $signed({5'd0, capped_r ? owed_cap : steps_r})
+                              : -$signed({5'd0, capped_r ? owed_cap : steps_r});
+                scalc <= 4'b0001;
                 calc <= 7'b0000000;
             end
             // the loop, a cycle a step: the integral's sum and the eighth;
@@ -539,7 +511,7 @@ module raster #(
             // restoring -- it never moved. The loop keeps what it learned
             // of the crystals, for the source's return.
             if (in_period > {v_total, 2'b00}) begin
-                glocked <= 0; lock_run <= 0; owed <= 0;
+                glocked <= 0; lock_run <= 0;
                 calc <= 0; scalc <= 0; s_pf <= 0;
             end
 
@@ -549,14 +521,9 @@ module raster #(
             vid_vsync <= vs_pos ? ((y >= vs_beg) && (y < vs_end))
                                 : !((y >= vs_beg) && (y < vs_end));
             vid_active_video <= active;
-            if (SELFTEST)
-                vid_data <= (x < 4 || x >= h_active - 4) ? {DW{1'b1}}
-                                                         : selftest_px[DW-1:0];
-            else
-                vid_data <= (armed && in_win && s_axis_tvalid && !quiet
-                             && ((first_px ? glocked : show_frame)
-                                 || !steering))
-                            ? s_axis_tdata : FILL;
+            vid_data <= (armed && in_win && s_axis_tvalid && !quiet
+                         && ((first_px ? glocked : show_frame) || !steering))
+                        ? s_axis_tdata : FILL;
 
             vs_d <= vid_vsync;
             if (vid_vsync && !vs_d) vsyncs <= vsyncs + 4'd1;

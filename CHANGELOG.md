@@ -27,10 +27,7 @@ Pre-1.0, so the block API and the map format can still change. See
   crystals' difference -- and the steps it asks for are spread evenly
   across the next frame, so the display's clock is a few ppm off nominal
   and constant, never pulsed at the frame rate. From a jam the error peaks
-  near 200 pixels and settles in about two seconds. A control field,
-  `ctrl_gpio.steer`, chooses it (0, the default), the error paid at once
-  (1), or no steering and no hold (2); it crosses to the raster's clock
-  through two flops.
+  near 200 pixels and settles in about two seconds.
 - **Every frame on the cable is whole.** The raster's counters never
   jump. A raster starts aligned: from power-up, reset or a clock switch it
   holds a blank line until a frame start arrives, then as many lines more

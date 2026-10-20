@@ -243,13 +243,6 @@
           "cell": "o_direct",
           "default": 1,
           "description": "The direct picture's branch of the tee; it also makes the raster follow the stream."
-         },
-         {
-          "name": "steer",
-          "cell": "o_steer",
-          "bits": 2,
-          "default": 0,
-          "description": "How the raster steers to the stream: 0 smoothly (a frame's correction spread evenly across the next), 1 a frame's correction at once, 2 not at all."
          }
         ]
        },
@@ -700,10 +693,6 @@
     [
      "control.direct",
      "fabric.en_direct"
-    ],
-    [
-     "control.steer",
-     "fabric.steer"
     ],
     [
      "ps7.FCLK_CLK0",

@@ -1,10 +1,10 @@
 # Copyright 2026 Serge Rabyking
 # SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
 """The raster following a stream, simulated: a frame start arriving off
-its target is answered by fine-phase steps, the error in pixels times the
-steps a pixel is, the right way round; one inside the dead band by none;
-one beyond steering by a hold for the next frame start, then a cooled
-raster that holds no more -- and never a line or a frame cut short."""
+its target is answered by fine-phase steps the right way round, more for
+a larger error, spread over the frames after it; one beyond steering by
+a hold for the next frame start, then a cooled raster that holds no more
+-- and never a line or a frame cut short."""
 import re
 import shutil
 import subprocess
@@ -35,18 +35,18 @@ def test_the_raster_steers_by_the_arrival_error_and_holds_once(tmp_path):
            re.findall(r"ARRIVAL (\d+) at \S+: steps=(\d+) retard=(\d+) "
                       r"holds=(\d+) cuts=(\d+)", run.stdout)}
 
-    def late(x, y):                     # pixels past the target
-        return (y - TARGET) * H_TOTAL + x
+    steps = {n: got[n][0] for n in got}
+    retard = {n: got[n][1] for n in got}
+    # late: retarded, every step; early: advanced; a larger error, more
+    assert steps[1] > 0 and retard[1] == steps[1]       # 40 px late
+    assert steps[2] > 0 and retard[2] == 0              # 70 px early
+    assert retard[3] == steps[3] > steps[1]             # 105 px late
+    assert steps[4] < PS                                # one pixel: less
+    assert [got[n][2] for n in range(1, 7)] == [0, 0, 0, 0, 1, 0]  # holds
+    assert all(got[n][3] == 0 for n in got)             # never a cut
 
-    assert got[1] == (late(40, 8) * PS, late(40, 8) * PS, 0, 0)
-    assert got[2] == (-late(30, 7) * PS, 0, 0, 0)
-    assert got[3] == (late(5, 9) * PS, late(5, 9) * PS, 0, 0)
-    assert got[4] == (0, 0, 0, 0)       # one pixel: the dead band
-    assert got[5] == (0, 0, 1, 0)       # five lines: held, once, uncut
-    assert got[6] == (0, 0, 0, 0)       # cooled: neither hold nor steer
 
-
-def _smooth(tmp_path, steer=0, drift=20, start=0, frames=160, quiet=0,
+def _smooth(tmp_path, follow=1, drift=20, start=0, frames=160, quiet=0,
             jump_at=-1, jump_px=0):
     """The closed-loop bench: each frame's arrival error (pixels), the
     steps the raster made over it (positive retards), the cuts so far, the
@@ -54,9 +54,9 @@ def _smooth(tmp_path, steer=0, drift=20, start=0, frames=160, quiet=0,
     pixels reached the sink, whether the first of them was astray of the
     window's first pixel, and whether the raster held; and the clock the
     stream's first pixel reached the sink on."""
-    vvp = tmp_path / f"smooth_{steer}_{drift}_{start}_{quiet}_{jump_at}.vvp"
+    vvp = tmp_path / f"smooth_{follow}_{drift}_{start}_{quiet}_{jump_at}.vvp"
     subprocess.run(["iverilog", "-g2012", "-o", str(vvp),
-                    f"-Ptb_raster_smooth.STEER={steer}",
+                    f"-Ptb_raster_smooth.FOLLOW={follow}",
                     f"-Ptb_raster_smooth.DRIFT={drift}",
                     f"-Ptb_raster_smooth.START={start}",
                     f"-Ptb_raster_smooth.FRAMES={frames}",
@@ -139,11 +139,11 @@ def test_a_stream_that_does_not_fit_the_raster_shows_nothing(tmp_path):
     assert all(r[2] == 0 for r in rows)
 
 
-def test_steer_none_neither_steps_nor_holds(tmp_path):
-    """steer 2: the raster runs free -- a source drifting away and a frame
-    start five lines off are answered by no step and no hold, and still a
-    frame is shown whole or not at all."""
-    rows, _ = _smooth(tmp_path, steer=2, drift=200, start=500, frames=20)
+def test_follow_off_neither_steps_nor_holds(tmp_path):
+    """follow off: the raster runs free -- a source drifting away and a
+    frame start five lines off are answered by no step and no hold, and
+    still a frame is shown whole or not at all."""
+    rows, _ = _smooth(tmp_path, follow=0, drift=200, start=500, frames=20)
     assert all(st == 0 and c == 0 and h == 0 and a == 0
                for _, st, c, _, _, _, a, h in rows), rows
 

@@ -290,11 +290,6 @@
      "description": "1: follow the stream; 0: hold the mode unsteered, painting the fill."
     },
     {
-     "name": "param_steer",
-     "width": 2,
-     "description": "How the raster steers: 0 smoothly, a frame's correction spread evenly across the next; 1 a frame's correction paid at once; 2 not at all, the raster running free."
-    },
-    {
      "name": "ps_done",
      "description": "The raster clock's fine phase step is made."
     },

@@ -31,8 +31,6 @@ module tb_raster_genlock;
         .vs_beg(11'd42), .vs_end(11'd44), .hs_pos(1'b1), .vs_pos(1'b1),
         .ps_per_px(16'd7), .win_x0(16'd0), .win_y0(16'd10),
         .win_w(16'd80), .win_h(16'd30), .center(1'b0), .follow(1'b1),
-        .steer(2'd1),                   // the debt paid at once: these
-                                        // checks count each arrival's steps
         .ps_en(ps_en), .ps_incdec(ps_incdec), .ps_done(ps_done),
         .act_x0(ax0), .act_y0(ay0), .vid_active_video(act),
         .vid_data(data), .vid_hsync(hs), .vid_vsync(vs), .status(status));
