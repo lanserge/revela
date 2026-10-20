@@ -168,7 +168,7 @@
     },
     "clk_sel": {
      "block": "revela.boards.common.modules:clock_select",
-     "description": "The display clock, row 0 or row 1, as the raster's register file says."
+     "description": "The display clock, the row the raster's armed copy holds: switched at a frame's end, with the mode it is for."
     },
     "tmds_pll": {
      "block": "revela.boards.common.tmds_pll",

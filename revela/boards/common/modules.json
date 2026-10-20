@@ -277,6 +277,11 @@
      "name": "reg_center"
     },
     {
+     "name": "reg_clk_sel",
+     "width": 2,
+     "description": "The display clock's row, taken in the copy with the mode it is for."
+    },
+    {
      "name": "arm_req",
      "description": "The register file holds its values for a copy."
     },
@@ -308,6 +313,11 @@
     {
      "name": "arm_ack",
      "description": "The copy is taken."
+    },
+    {
+     "name": "clk_sel",
+     "width": 2,
+     "description": "The display clock's row, as the copy has it: switched at a frame's end, for the clock select."
     },
     {
      "name": "ps_en",

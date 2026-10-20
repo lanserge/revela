@@ -209,15 +209,18 @@ def test_init_loads_the_build_then_applies_the_configuration(tmp_path):
     pll = cable["tmds_pll"]["base"]
     # the serializer's recipe lands BEFORE the clock moves (SADDR, no
     # load): the wizard reloads by itself on a lost lock, from whatever its
-    # registers hold then; the load proper comes after
+    # registers hold then. The clock's row is one of the raster's numbers,
+    # all of them armed together -- the display switches the clock as it
+    # takes them, after its frame's last line -- and the load proper comes
+    # after the arm is taken, on the new clock
     want += [(pll + 0x200, 1 | 10 << 8), (pll + 0x208, 2)] * 2
-    want += [(pll + 0x25C, 2), (reg["clk_sel"], 1)]
-    want += [(pll + 0x25C, 3), (reg["ps_per_px"], 560)]
+    want += [(pll + 0x25C, 2), (reg["clk_sel"], 1), (reg["ps_per_px"], 560)]
     want += [(reg[f], getattr(d, f)) for f in (
         "h_total", "h_active", "hs_beg", "hs_end", "v_total", "v_active",
         "vs_beg", "vs_end")]
     want += [(reg["hs_pos"], 1), (reg["vs_pos"], 1), (reg["win_x0"], 0),
              (reg["win_y0"], 0), (reg["center"], 1), (reg["arm"], 1)]
+    want += [(pll + 0x25C, 3)]
     assert writes == want
     # the sensor's mode went to the platform, and AE started it from the
     # sensor's own facts
@@ -349,7 +352,11 @@ def test_a_commit_the_isp_has_not_taken_yet_is_not_a_refusal(tmp_path):
     assert any("pending, until the ISP's next frame" in l for l in out)
     r = cable["scanout_regs"]
     raster = r["base"]
-    assert writes[-1] == (raster + r["registers"]["arm"], 1)
+    # the display armed -- and, the clock switching as it is taken, the
+    # serializer loaded after it, on the new clock
+    pll = cable["tmds_pll"]["base"]
+    assert writes[-2:] == [(raster + r["registers"]["arm"], 1),
+                           (pll + 0x25C, 3)], writes[-2:]
     again, out = _run(exe, "--no-frames", good,
                       "configure frame.width=640 frame.height=480")
     replies = [l for l in out if l.startswith("R ")]
@@ -462,21 +469,28 @@ def test_a_clock_the_display_already_runs_is_not_reloaded(tmp_path):
     """A fresh firmware -- every run of its platform starts one -- finding
     the board already on the clock it asks for leaves the serializer
     alone: reloading it stops the HDMI clock, and the TV takes seconds to
-    find the signal again. The raster is still written and armed. On
-    another clock, the switch is made."""
+    find the signal again. The raster is still written and armed, the
+    clock's row among its numbers -- the row it already runs, so nothing
+    switches. On another clock, the switch is made: the new row armed with
+    the raster, the serializer staged before and loaded after."""
     exe, _, cable = _build(tmp_path)
     r = cable["scanout_regs"]
     reg = {k: r["base"] + v for k, v in r["registers"].items()}
     pll = cable["tmds_pll"]["base"]
-    clock = {pll + 0x200, pll + 0x208, pll + 0x25C, reg["clk_sel"]}
+    serializer = {pll + 0x200, pll + 0x208, pll + 0x25C}
     good = f"init {FRAME_1080P30} {_display('1080p30')} window.center=1"
     writes, out = _run(exe, "--held", good)
     assert "R ok" in out, out
-    assert not [w for w in writes if w[0] in clock], writes
+    assert not [w for w in writes if w[0] in serializer], writes
+    assert [w for w in writes if w[0] == reg["clk_sel"]] == \
+        [(reg["clk_sel"], 1)], writes
     assert (reg["arm"], 1) in writes and (reg["h_total"], 2200) in writes
     writes, out = _run(exe, "--held",
                        f"init {FRAME_1080P30} {_display('1080p60')} "
                        "window.center=1")
     assert "R ok" in out, out
-    assert (reg["clk_sel"], 2) in writes
+    at = {w: i for i, w in enumerate(writes)}
+    staged, row = at[(pll + 0x25C, 2)], at[(reg["clk_sel"], 2)]
+    armed, loaded = at[(reg["arm"], 1)], at[(pll + 0x25C, 3)]
+    assert staged < row < armed < loaded, (staged, row, armed, loaded)
 

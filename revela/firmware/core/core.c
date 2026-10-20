@@ -382,8 +382,9 @@ static int apply_display(const struct revela_config *c) {
     const struct revela_window *w = &c->window;
     /* the picture's size is not the display's to be told: it is the
      * ISP's output, and the display takes it from the stream */
-    /* the clock first: the select switches at once, and the raster
-     * restarts on the new clock and takes the rest in its next blanking */
+    /* the clock's row is one of the raster's numbers: the display takes
+     * them all together, after its frame's last line, so the clock
+     * switches between frames with the mode it is for */
     int row = clock_row(d->pixel_khz);
     const uint32_t v[][2] = {
         {REVELA_R_CLK_SEL, (uint32_t)row},
@@ -397,22 +398,26 @@ static int apply_display(const struct revela_config *c) {
         {REVELA_R_WIN_X0, w->x0}, {REVELA_R_WIN_Y0, w->y0},
         {REVELA_R_CENTER, w->center},
     };
-    /* the serializer's new recipe; the clock select; the serializer
-     * loaded on the new clock; then the raster's numbers, armed. A clock
-     * the hardware already runs is left alone -- reloading the serializer
-     * stops the HDMI clock for a moment, and a TV takes seconds to find
-     * the signal again. The hardware is asked, not this copy's memory:
-     * the firmware starts fresh with every run of its platform, and the
-     * board keeps its clock through all of them. */
-    if (clock_held(row)) goto raster;
+    /* the serializer's new recipe, staged; the raster's numbers, the
+     * clock's row among them, armed and taken -- the clock switches as
+     * the display takes them; then the serializer loaded on the new clock.
+     * A clock the hardware already runs is left alone -- reloading the
+     * serializer stops the HDMI clock for a moment, and a TV takes seconds
+     * to find the signal again. The hardware is asked, not this copy's
+     * memory: the firmware starts fresh with every run of its platform,
+     * and the board keeps its clock through all of them. */
+    int switching = !clock_held(row);
 #ifdef REVELA_PLL_BASE
-    if (pll_stage(row) < 0)
+    if (switching && pll_stage(row) < 0)
         return refuse("the serializer MMCM did not answer; not armed");
 #endif
-    if (wr(v[0][0], v[0][1]) < 0)
-        return refuse("the display did not answer; not armed");
+    for (size_t i = 0; i < sizeof v / sizeof v[0]; i++)
+        if (wr(v[i][0], v[i][1]) < 0)
+            return refuse("the display did not answer; not armed");
+    if (take(REVELA_R_ARM) < 0)
+        return refuse("the display did not take its raster (still armed)");
 #ifdef REVELA_PLL_BASE
-    if (pll_load() < 0) {
+    if (switching && pll_load() < 0) {
         uint32_t fb, out0, st;
         pll_readback(&fb, &out0, &st);
         return refuse("the serializer MMCM did not lock at five times "
@@ -421,12 +426,6 @@ static int apply_display(const struct revela_config *c) {
                       (unsigned)out0, (unsigned)st);
     }
 #endif
-raster:
-    for (size_t i = 1; i < sizeof v / sizeof v[0]; i++)
-        if (wr(v[i][0], v[i][1]) < 0)
-            return refuse("the display did not answer; not armed");
-    if (take(REVELA_R_ARM) < 0)
-        return refuse("the display did not take its raster (still armed)");
     return 0;
 }
 

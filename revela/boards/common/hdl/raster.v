@@ -33,10 +33,28 @@
 // of ppm of authority. Phase is measured at each frame start's arrival
 // at the queue head, in pixels, against a target G_LEAD lines before
 // the window; small errors drain through the phase shifter, invisible
-// to any sink. An error past two lines is not steerable at 24 ps: the
-// counters JAM to the target once, under a cooldown -- one visibly short
-// frame, the price of a mode set. Crystal ppm is the genlock's job; a
-// frame-rate change is a mode change, and the caller's.
+// to any sink. Crystal ppm is the genlock's job; a frame-rate change is a
+// mode change, and the caller's.
+//
+// EVERY FRAME ON THE CABLE IS WHOLE. The counters never jump, so no line
+// and no frame is ever cut short. A raster STARTS ALIGNED: from power-up,
+// reset or a clock switch it HOLDS -- a blank line again and again, the
+// line syncs running, no frame sync and no picture -- until a frame start
+// arrives, then as many lines more as put the NEXT frame start on the
+// target line, and starts a frame from its first line: the frame is
+// whole wherever the window sits, and the stream's next frame lands on
+// the window's first pixel. An error past two lines, which 24 ps
+// steps cannot pull in, is answered the same way: the frame on the cable
+// is finished whole, and at its end the raster holds until the next frame
+// start -- one long vertical blanking, never a short frame -- under a
+// cooldown, so a wild source cannot hold it every frame. A hold that no
+// frame start ends within two frames gives up and runs free. And a frame
+// is shown only from its own first pixel, and only while the genlock is
+// locked -- four frame starts in a row on the window's first line: a
+// frame start that arrives mid-window shows nothing of its frame, and a
+// stream whose frames do not fit the raster -- the moments after a source
+// changes its rate and before the raster's mode follows -- shows nothing
+// at all, the fill painted instead.
 //
 // THE STEERING IS SMOOTH. A frame's error paid off at once -- a step
 // every PSDONE for a millisecond, then nothing for the rest of the frame
@@ -47,11 +65,12 @@
 // difference (1/256 of the error a frame, critically damped), and the
 // steps it asks for are spread evenly across the next frame. The clock is
 // then a few ppm off nominal and constant, as any source's crystal is.
-// Modelled: from a jam the error peaks near 200 pixels and settles within
-// two seconds; the trim moves under 2 ppm from one frame to the next.
+// Modelled: from a hold the error peaks near 200 pixels and settles
+// within two seconds; the trim moves under 2 ppm from one frame to the
+// next.
 // `steer` chooses it (0), the debt paid at once (1), or no steering and
-// no jam at all (2: the raster runs free, the picture shown where it
-// lands).
+// no hold at all (2: the raster runs free, a frame shown where its start
+// lands in the blanking).
 //
 // A NEW RASTER STARTS DARK. A television trains its receiver to a bit
 // rate the first time it meets it, and keeps the training. At 1.485 Gb/s
@@ -165,6 +184,7 @@ module raster #(
                                         // one each 16 clocks, PSDONE's ~12
                                         // inside it
     reg [47:0] frame_steps = 0;         // a frame's length in fine steps
+    reg [31:0] line_steps = 0;          // ...and a line's
     reg [17:0] x_last = 18'd0, y_last = 18'd0;   // the window's last pixel
     reg [XB-1:0] h_last = 0;            // the line's last pixel
     reg [YB-1:0] v_last = 0;            // the frame's last line
@@ -182,6 +202,7 @@ module raster #(
         owed_cap  <= {h_total, 1'b0} * ps_per_px;
         s_max     <= frame_px >> 4;
         frame_steps <= frame_px * ps_per_px;
+        line_steps  <= h_total * ps_per_px;
     end
     // the counters start once those have settled after reset, so they
     // are worked out from the mode the raster starts on, not the one
@@ -201,6 +222,7 @@ module raster #(
                && (x >= w_x0) && (x < x_end)
                && (y >= w_y0) && (y < y_end);
     wire first_px = in_win && (x == w_x0[XB-1:0]) && (y == w_y0[YB-1:0]);
+    wire win_rows = fits && (y >= w_y0) && (y < y_end);
     wire last_px  = in_win && (x == x_last) && (y == y_last);
     wire line_end  = (x >= h_last);
     wire frame_end = line_end && (y >= v_last);
@@ -214,8 +236,14 @@ module raster #(
     reg ps_busy;                        // one step in flight
     reg [4:0] ps_tmo;                   // PSDONE comes ~12 PSCLKs later; a
                                         // miswired done pin degrades to slow
-    reg [5:0] jam_cool;                 // frames since the last jam: a wild
-                                        // source must not jam every frame
+    reg [5:0] realign_cool;             // frames since the last hold: a
+                                        // wild source must not hold every
+                                        // frame
+    reg realign;                        // hold at this frame's end
+    reg wait_sof;                       // holding for a frame start
+    reg counting;                       // ...one came: lines to the start
+    reg [YB:0] wait_n;
+    reg [YB+1:0] held_lines;            // how long the hold has lasted
     reg glocked;                        // STATUS, not a control state
     reg [2:0] lock_run;
     // the time since the raster started, in fine steps, a frame at a
@@ -226,6 +254,7 @@ module raster #(
     // the steering's choice, and whether there is any
     wire smooth   = (steer == 2'd0);
     wire steering = follow && (steer != 2'd2);
+    wire holding = wait_sof && steering;
     // the smooth loop: the arrival's error in signed steps (positive:
     // retard), the integral in steps a frame with eight bits of fraction,
     // and what the next frame spreads -- how many, which way
@@ -246,6 +275,8 @@ module raster #(
     wire issue_s = !ps_busy && steering && smooth && (due != 0);
 
     reg armed;                          // this frame's first beat is HERE
+    reg show_frame;                     // ...and the genlock held as it
+                                        // began: shown, all of it
     reg ever_armed;
     wire head_sof = s_axis_tvalid && s_axis_tuser;
     // ONE consumption rule: window positions consume, and nothing else
@@ -254,7 +285,9 @@ module raster #(
     // position IS the error. Blanking also DRAINS beats that are not a
     // frame start: without that, any transient where the raster runs
     // long grows the backlog forever. Converged, the drain is a no-op.
-    assign s_axis_tready = in_win || (blank && !head_sof);
+    // A hold drains everything: the frame start it waits for only times
+    // the frame that follows.
+    assign s_axis_tready = holding || in_win || (blank && !head_sof);
 
     // the measurement: the frame start reaching the queue head is the
     // arrival, once per input frame. Target: G_LEAD lines before the
@@ -269,7 +302,7 @@ module raster #(
     always @(posedge clk)
         arr_tgt <= (wy0 >= G_LEAD) ? (wy0 - G_LEAD) : (vtot + wy0 - G_LEAD);
     // signed-shortest-way phase error, in whole lines -- registered, in
-    // two steps: it only decides jam-or-steer, where a line's lag at a
+    // two steps: it only decides hold-or-steer, where a line's lag at a
     // line boundary changes nothing, and under the arrival's decision it
     // missed a 148.5 MHz clock by 4.7 ns. The fine measurement below captures the
     // arrival's own x and y, not this.
@@ -301,13 +334,15 @@ module raster #(
     always @(posedge clk) begin
         alive <= alive + 1;
         if (rst || !locked || held) begin
-            x <= 0; y <= 0; armed <= 0; ever_armed <= 0;
+            x <= 0; y <= v_last; armed <= 0; ever_armed <= 0; show_frame <= 0;
+            wait_sof <= 1; counting <= 0; realign <= 0; held_lines <= 0;
+            wait_n <= 0;
             in_period <= 0; head_sof_d <= 0;
             owed <= 0; owed_ret <= 0; calc <= 0;
             rate_q <= 0; per_frame <= 0; per_ret <= 0; scalc <= 0; s_pf <= 0;
             dda <= 0; pf_minus <= 0; due <= 0;
             ps_en <= 0; ps_incdec <= 0;
-            ps_busy <= 0; ps_tmo <= 0; jam_cool <= 0;
+            ps_busy <= 0; ps_tmo <= 0; realign_cool <= 0;
             glocked <= 0; lock_run <= 0;
             vid_active_video <= 0; vid_hsync <= 0; vid_vsync <= 0;
             vid_data <= FILL; vsyncs <= 0; vs_d <= 0;
@@ -316,8 +351,33 @@ module raster #(
             quiet_t <= 0; quiet <= (G_QUIET_STEPS != 0);
         end else begin
             x <= line_end ? {XB{1'b0}} : x + 1'b1;
-            if (line_end)
-                y <= frame_end ? {YB{1'b0}} : y + 1'b1;
+            if (line_end) begin
+                if (holding) begin
+                    // a frame start came: the lines that put the next one
+                    // on the target, then a frame from its first line; none
+                    // in two frames: run free
+                    if (counting) begin
+                        if (wait_n <= 1) begin
+                            y <= {YB{1'b0}};
+                            wait_sof <= 0; counting <= 0;
+                        end
+                        wait_n <= wait_n - 1'b1;
+                    end else if (held_lines >= {1'b0, v_total, 1'b0}) begin
+                        y <= {YB{1'b0}};
+                        wait_sof <= 0;
+                    end
+                    held_lines <= held_lines + 1'b1;
+                end else if (frame_end && realign && steering) begin
+                    // the frame on the cable is whole; hold at its end
+                    wait_sof <= 1; counting <= 0; held_lines <= 0;
+                    realign <= 0; realign_cool <= 6'd63;
+                    armed <= 0;
+                end else begin
+                    y <= frame_end ? {YB{1'b0}} : y + 1'b1;
+                end
+                if (!wait_sof) held_lines <= 0;
+            end
+            if (!steering) begin wait_sof <= 0; counting <= 0; realign <= 0; end
 
             // ---- the genlock: the clock is steered, the counters are
             // still. Each arrival sets what the next frame steers -- spread
@@ -326,10 +386,12 @@ module raster #(
             if (line_end) begin
                 in_period <= (in_period == 16'hFFFF) ? in_period
                                                      : in_period + 1'b1;
-                if (frame_end && quiet)
-                    quiet_t <= quiet_t + frame_steps;
-                if (frame_end && jam_cool != 0)
-                    jam_cool <= jam_cool - 1'b1;
+                // a held line is a line, not a frame: the quiet counts the
+                // hold's time as it passes, a line's worth at a time
+                if (quiet && (holding || frame_end))
+                    quiet_t <= quiet_t + (holding ? line_steps : frame_steps);
+                if (frame_end && !holding && realign_cool != 0)
+                    realign_cool <= realign_cool - 1'b1;
             end
             if (s_axis_tvalid && s_axis_tready && s_axis_tuser) begin
                 // lock is a REPORT: frame starts passing at the window
@@ -368,14 +430,17 @@ module raster #(
             head_sof_d <= head_sof;
             if (sof_arr) begin
                 in_period <= 0;
-                if (steering) begin
+                if (holding) begin
+                    // the frame start the hold waits for: the next comes a
+                    // frame later, and should find the target line
+                    if (!counting) begin
+                        counting <= 1;
+                        wait_n <= vtot - arr_tgt;
+                    end
+                end else if (steering) begin
                     if (arr_err > 2) begin
-                        // beyond steering: jam ONCE, cooled
-                        if (jam_cool == 0) begin
-                            x <= {XB{1'b0}};
-                            y <= arr_tgt[YB-1:0];
-                            jam_cool <= 6'd63;
-                        end
+                        // beyond steering: hold at this frame's end, cooled
+                        if (realign_cool == 0) realign <= 1;
                         owed <= 0; calc <= 7'b0000000;
                     end else begin
                         // within steering: capture the arrival, measure
@@ -488,22 +553,31 @@ module raster #(
                 vid_data <= (x < 4 || x >= h_active - 4) ? {DW{1'b1}}
                                                          : selftest_px[DW-1:0];
             else
-                vid_data <= (armed && in_win && s_axis_tvalid && !quiet)
+                vid_data <= (armed && in_win && s_axis_tvalid && !quiet
+                             && ((first_px ? glocked : show_frame)
+                                 || !steering))
                             ? s_axis_tdata : FILL;
 
             vs_d <= vid_vsync;
             if (vid_vsync && !vs_d) vsyncs <= vsyncs + 4'd1;
             if (!fits) refused <= 1;
 
-            // Arm on the frame start, in the blanking before it is due;
-            // disarm when the window's last pixel is spent, so the next
-            // frame must arm again. Alignment is per FRAME. A late frame
-            // start consumed mid-window arms too: the joined frame shows
-            // from where it joins.
-            if (blank && head_sof) begin armed <= 1; ever_armed <= 1; end
-            if (s_axis_tvalid && s_axis_tready && s_axis_tuser)
+            // Arm on the frame start, waiting outside the window's rows --
+            // before them, or after for the next frame: one waiting in a
+            // line's blanking between two of the window's lines would
+            // show its frame from the next line on. Disarm when the
+            // window's last pixel is spent, so the next
+            // frame must arm again. Alignment is per FRAME, and a frame is
+            // shown whole or not at all: a frame start taken mid-window
+            // arms nothing, and the rest of its frame is drained under the
+            // fill.
+            if (head_sof && !win_rows && !holding)
                 begin armed <= 1; ever_armed <= 1; end
             if (armed && last_px) armed <= 1'b0;
+            // whether this frame shows is decided once, at its first pixel,
+            // from the lock as it stood -- the frame start being taken
+            // there may change it, but not for this frame
+            if (first_px) show_frame <= glocked;
             if (armed && in_win && !s_axis_tvalid) underflow <= 1;
             if (armed && first_px && s_axis_tvalid && !s_axis_tuser)
                 misalign <= 1;

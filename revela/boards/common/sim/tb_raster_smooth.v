@@ -4,16 +4,21 @@
 // tb_raster_smooth -- the raster genlocked to a source whose frame runs
 // DRIFT fine steps shorter than the raster's, the loop closed: every step
 // the raster makes moves the source's next arrival by one step the other
-// way, as the steered clock would. One line per frame -- where the frame
-// start arrived, the steps the raster made and how evenly -- for the
-// test to judge.
+// way, as the steered clock would. The source's first frame start comes
+// while the raster still holds after reset, and at frame JUMP_AT its phase
+// jumps JUMP_PX pixels. One line per frame -- where the frame start
+// arrived, the steps the raster made and how evenly, whether it held, any
+// line or frame cut short, and what reached the sink -- for the test to
+// judge.
 `timescale 1ns/1ps
 module tb_raster_smooth #(
     parameter STEER = 0,                // raster.v's steer
     parameter DRIFT = 20,               // steps a frame the source gains
     parameter START = 0,                // the first arrival, pixels late
     parameter FRAMES = 300,
-    parameter QUIET = 0                 // frames of raster.v's quiet
+    parameter QUIET = 0,                // frames of raster.v's quiet
+    parameter JUMP_AT = -1,             // the frame the source's phase jumps
+    parameter JUMP_PX = 0               // ...by this many pixels, later
 );
     localparam HT = 100, VT = 50, PS = 7, FPX = HT * VT, TARGET = 8;
     reg clk = 0, rst = 1;
@@ -47,13 +52,44 @@ module tb_raster_smooth #(
     // start at `due_at`. A retarding step makes the raster later, so the
     // source comes one step sooner by its clock.
     longint now = 0, due_at = 0;
-    integer frame = 0, steps = 0, jams = 0, since = 0, gap_min = 0, gap_max = 0;
-    integer err_px = 0;
-    // pixels of the stream's own (0) that reached the sink this frame: the
-    // fill is 101010
-    integer shown = 0;
-    always @(posedge clk) if (act && data == 24'h0) shown = shown + 1;
+    integer frame = 0, steps = 0, cuts = 0, since = 0, gap_min = 0, gap_max = 0;
+    integer err_px = 0, held = 0;
+    // pixels of the stream's own (0) that reached the sink this frame, and
+    // whether the first of them was not where the window begins -- a frame
+    // shown from somewhere in its middle. The fill is 101010.
+    integer shown = 0, astray = 0;
+    reg first_d = 0;
+    // clocks from reset, and the one the stream's first pixel reached the
+    // sink on
+    longint clocks = 0, first_seen = -1;
+    always @(posedge clk) if (!rst) clocks = clocks + 1;
+    always @(posedge clk) begin
+        if (act && data == 24'h0) begin
+            if (first_seen < 0) first_seen = clocks;
+            if (shown == 0 && !first_d) astray = astray + 1;
+            shown = shown + 1;
+        end
+        first_d <= dut.first_px;
+    end
+    // A CUT is what a sink would see as a broken line or frame: a line
+    // that does not run to its last pixel, or a line counter that moves
+    // other than on by one, round from the last line, or not at all (a
+    // hold repeating its blank line).
+    reg [11:0] x_d = 0;
     reg [10:0] y_d = 0;
+    reg run_d = 0;
+    always @(posedge clk) begin
+        if (run_d) begin
+            if (dut.x != x_d + 1 && !(dut.x == 0 && x_d == HT - 1))
+                cuts = cuts + 1;
+            if (dut.y != y_d && dut.y != y_d + 1
+                && !(dut.y == 0 && y_d == VT - 1))
+                cuts = cuts + 1;
+        end
+        if (dut.holding) held = 1;
+        x_d <= dut.x; y_d <= dut.y;
+        run_d <= !rst && !dut.held;
+    end
     always @(posedge clk) begin
         if (!rst) begin
             now = now + PS;
@@ -65,9 +101,6 @@ module tb_raster_smooth #(
                 if (since > gap_max) gap_max = since;
                 since = 0;
             end
-            y_d <= dut.y;
-            if (dut.y != y_d && dut.y != y_d + 1 && dut.y != 0)
-                jams = jams + 1;
             if (!tvalid && now >= due_at) begin
                 tvalid <= 1; tuser <= 1;
                 // where the raster is as the frame start arrives, past the
@@ -75,13 +108,16 @@ module tb_raster_smooth #(
                 err_px = (dut.y - TARGET) * HT + dut.x;
                 if (err_px > FPX / 2) err_px = err_px - FPX;
                 if (err_px < -FPX / 2) err_px = err_px + FPX;
-                $display("FRAME %0d err=%0d steps=%0d jams=%0d gap=%0d..%0d shown=%0d",
-                         frame, err_px, steps, jams, gap_min, gap_max, shown);
-                shown = 0;
+                $display("FRAME %0d err=%0d steps=%0d cuts=%0d gap=%0d..%0d shown=%0d astray=%0d held=%0d",
+                         frame, err_px, steps, cuts, gap_min, gap_max, shown,
+                         astray, held);
+                shown = 0; astray = 0; held = 0;
                 frame = frame + 1;
                 steps = 0; gap_min = 0; gap_max = 0;
-                due_at = due_at + FPX * PS - DRIFT;
+                due_at = due_at + FPX * PS - DRIFT
+                       + ((frame == JUMP_AT) ? JUMP_PX * PS : 0);
                 if (frame > FRAMES) begin
+                    $display("FIRST SHOWN at %0d", first_seen);
                     $display("smooth: done");
                     $finish;
                 end
@@ -98,7 +134,8 @@ module tb_raster_smooth #(
     initial begin
         repeat (10) @(negedge clk);
         rst = 0;
-        // the first arrival START pixels past the target, after two frames
-        due_at = (2 * FPX + TARGET * HT + START) * PS;
+        // the first arrival START pixels past the target, a frame in --
+        // while the raster still holds for it
+        due_at = (FPX + TARGET * HT + START) * PS;
     end
 endmodule

@@ -48,6 +48,7 @@ module tb;
   // the size of the frame arriving: the stream's, not the file's
   reg  [15:0] pic_w = 16'd1920, pic_h = 16'd1080;
   wire hs_pos, vs_pos, center, arm_req, arm_ack;
+  wire [1:0] clk_sel_req, clk_sel;
 
   scanout_regs regs (
       .aclk(aclk), .aresetn(aresetn),
@@ -66,7 +67,7 @@ module tb;
       .param_hs_pos(hs_pos), .param_vs_pos(vs_pos),
       .param_ps_per_px(ps_per_px),
       .param_win_x0(win_x0), .param_win_y0(win_y0),
-      .param_center(center), .param_arm());
+      .param_center(center), .param_clk_sel(clk_sel_req), .param_arm());
 
   scanout dut (
       .clk(clk), .rst(rst), .locked(locked),
@@ -77,8 +78,9 @@ module tb;
       .reg_hs_pos(hs_pos), .reg_vs_pos(vs_pos),
       .reg_ps_per_px(ps_per_px),
       .reg_win_x0(win_x0), .reg_win_y0(win_y0),
-      .reg_center(center), .pic_w(pic_w), .pic_h(pic_h),
-      .arm_req(arm_req), .arm_ack(arm_ack),
+      .reg_center(center), .reg_clk_sel(clk_sel_req),
+      .pic_w(pic_w), .pic_h(pic_h),
+      .arm_req(arm_req), .arm_ack(arm_ack), .clk_sel(clk_sel),
       .param_follow(1'b0), .param_steer(2'd0), .ps_en(ps_en), .ps_incdec(ps_incdec),
       .ps_done(1'b1),
       // The stream is not what is under test: the raster holds its mode
@@ -133,7 +135,8 @@ module tb;
   // move the picture halfway down itself. Watch the raster's own copies:
   // every time one changes, the raster must be in vertical blanking.
   reg [15:0] seen_x0, seen_w;
-  initial begin seen_x0 = 16'd0; seen_w = 16'd1920; end
+  reg [1:0] seen_sel;
+  initial begin seen_x0 = 16'd0; seen_w = 16'd1920; seen_sel = 2'd0; end
   // the line the raster scans, hsync edge to hsync edge
   integer line_len = 0, line_run = 0;
   reg hs_d = 0;
@@ -150,6 +153,15 @@ module tb;
         fails = fails + 1;
       end
       seen_x0 <= dut.win_x0;
+    end
+    // A CLOCK SWITCHES ONLY BETWEEN FRAMES, with the mode it is for: the
+    // row the clock select is driven from changes in vertical blanking
+    if (dut.have && clk_sel !== seen_sel) begin
+      if (!dut.in_vblank) begin
+        $display("FAIL: the clock's row changed outside vertical blanking");
+        fails = fails + 1;
+      end
+      seen_sel <= clk_sel;
     end
     if (dut.have && dut.win_w !== seen_w) begin
       if (!dut.in_vblank) begin
@@ -187,12 +199,14 @@ module tb;
 
     // A WRITE ALONE DOES NOT MOVE THE PICTURE. The frame in flight
     // keeps the placement it started with until the arm says take.
+    wr(A_CLK_SEL, 32'd1);  check(last_resp === OKAY, "clock row write accepted");
     wr(A_WIN_X0, 32'd100); check(last_resp === OKAY, "origin write accepted");
     wr(A_WIN_Y0, 32'd50);  check(last_resp === OKAY, "line write accepted");
     wr(A_CENTER, 32'd0);
     repeat (400) @(posedge clk);
     check(dut.win_x0 === 16'd0 && dut.center === 1'b1,
           "written but unarmed: the raster has not moved");
+    check(clk_sel === 2'd0, "written but unarmed: the clock has not switched");
 
     // ARMED, THE COPY IS TAKEN -- in blanking, which the monitor above
     // is watching for, and within a frame.
@@ -204,6 +218,7 @@ module tb;
     check(dut.win_x0 === 16'd100 && dut.win_y0 === 16'd50 &&
           dut.center === 1'b0,
           "armed: the raster took the new placement");
+    check(clk_sel === 2'd1, "armed: and the clock's row with it");
     check(waited < 2_475_000, "taken within one frame");
 
     // THE ARM CLEARS ITSELF, so software polls rather than guesses.

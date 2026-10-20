@@ -22,3 +22,11 @@ set_clock_groups -logically_exclusive \
 set_clock_groups -asynchronous \
     -group [get_clocks {clk_raster27_clk_out clk_raster_clk_out clk_raster_clk_out2}] \
     -group [get_clocks tmds_*]
+# The clock select's own select pins. The raster switches its clock from
+# the copy it takes in vertical blanking, on the clock being switched, so
+# the select is a path inside that clock -- but a BUFGMUX_CTRL is built to
+# take its select at any moment, glitch-free, waiting out both clocks
+# itself; timed, it is a half-period demand on an event that happens once
+# a mode change, between frames. S* is the macro's S in synthesis and the
+# BUFGCTRL's S0 and S1 after it, and no other pin of either.
+set_false_path -to [get_pins {clk_sel/first/S* clk_sel/second/S*}]

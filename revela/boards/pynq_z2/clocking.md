@@ -116,13 +116,23 @@ are the whole job (an fps change is a mode switch, and software's).
 Phase is measured where the stream itself provides it: the frame
 start's arrival at the queue head, in pixels, against a target a
 few lines ahead of the window — and that lead is *storage*, held in
-the crossing FIFO. The steering debt is re-targeted at every
-arrival and drained one PSDONE handshake at a time. An error past
-two lines is not steerable at 24 ps: the counters jam to target
-once, under a cooldown — the same price as a mode set. When the
-source disappears, the steering stops and the raster keeps running
-on its own; it never borrowed anything from the cable, so it has
-nothing to give back.
+the crossing FIFO. Each arrival's error feeds a loop -- an eighth
+of it a frame, and an integral that learns the two crystals'
+difference -- and its steps are spread evenly across the next frame,
+so the display's clock is a few ppm off nominal and constant, never
+pulsed at the frame rate. An error past two lines is not steerable
+at 24 ps, and the counters never jump to fix it: the frame on the
+cable is finished whole, and at its end the raster holds a blank
+line until the next frame start, then as many lines more as put the
+one after on target -- one long vertical blanking, under a cooldown.
+A raster starts the same way, from power-up or a clock switch, so
+its first frame is aligned and whole; and the clock switch itself is
+taken with the mode it is for, after a frame's last line (the clock's
+row is in the raster's armed copy). For 4 s after a raster starts it
+paints the fill, so a television trains its receiver on a dark
+picture (`raster.v`'s header says why). When the source disappears,
+the steering stops and the raster keeps running on its own; it never
+borrowed anything from the cable, so it has nothing to give back.
 
 Three configuration facts guard this design, each learned the hard
 way: the MMCM's recipe is forced, not requested (a wizard's nearest

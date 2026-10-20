@@ -29,8 +29,24 @@ Pre-1.0, so the block API and the map format can still change. See
   and constant, never pulsed at the frame rate. From a jam the error peaks
   near 200 pixels and settles in about two seconds. A control field,
   `ctrl_gpio.steer`, chooses it (0, the default), the error paid at once
-  (1), or no steering and no jam (2); it crosses to the raster's clock
+  (1), or no steering and no hold (2); it crosses to the raster's clock
   through two flops.
+- **Every frame on the cable is whole.** The raster's counters never
+  jump. A raster starts aligned: from power-up, reset or a clock switch it
+  holds a blank line until a frame start arrives, then as many lines more
+  as put the next frame start on the target, wherever the window sits. An
+  error past two lines finishes the frame on the cable and holds at its
+  end for the next frame start -- one long vertical blanking where the
+  counters used to jam, cutting a line and a frame short. A frame is shown
+  only from its own first pixel and only while the genlock is locked,
+  decided at that pixel: a frame start mid-window, or a stream whose frames
+  do not fit the raster, shows nothing but the fill.
+- **The display clock switches between frames, with its mode.** The
+  clock's row is one of the raster's armed numbers, so the clock select
+  switches as the raster takes them, after a frame's last line; the
+  firmware stages the serializer, arms, waits for the copy, then loads the
+  serializer on the new clock. The clock select's own select pins are not
+  timed (`raster-clocks.xdc` says why).
 
 - **The PYNQ-Z2 receives HDMI with bayerlink-fpga's own receiver.** The
   board's `front_end` chooses the HDMI input's implementation, `tmds_rx` by

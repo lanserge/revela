@@ -235,7 +235,7 @@
     },
     {
      "name": "raster_clk_sel",
-     "description": "The display clock's row, as software sets it: to the board's clock select."
+     "description": "The display clock's row, switched at a frame's end with the mode it is for: to the board's clock select."
     },
     {
      "name": "cable_board",
@@ -785,6 +785,10 @@
     ],
     [
      "scanout_regs.param_clk_sel",
+     "scanout.reg_clk_sel"
+    ],
+    [
+     "scanout.clk_sel",
      "raster_clk_sel"
     ],
     {

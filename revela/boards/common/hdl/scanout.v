@@ -18,7 +18,12 @@
 //
 // The copy is taken in VERTICAL BLANKING: mode and placement decide where
 // every pixel of a frame lands, so taking them mid-frame would tear the
-// frame in two. Before the first copy there is no mode to blank in, so
+// frame in two. The display clock's row is in the copy too, and the clock
+// select is driven from it: a clock switch is taken with the mode it is
+// for, after the frame's last line has gone out -- the frame on the cable
+// finished whole -- and the raster restarts on the new clock with the new
+// mode at once. The arm's acknowledgement is how software learns the
+// clock has switched. Before the first copy there is no mode to blank in, so
 // the first is taken at once and the raster is held until it has one --
 // the file resets armed, so a bitstream nobody writes to still takes the
 // mode it was built with. The copy is kept through a raster reset: the
@@ -56,8 +61,11 @@ module scanout #(
     input  wire [15:0]   reg_win_x0,
     input  wire [15:0]   reg_win_y0,
     input  wire          reg_center,
+    input  wire [1:0]    reg_clk_sel,   // the display clock's row
     input  wire          arm_req,
     output reg           arm_ack,
+    // the display clock's row, as the copy has it: to the clock select
+    output wire [1:0]    clk_sel,
     // the size of the frame arriving, on this clock
     input  wire [15:0]   pic_w,
     input  wire [15:0]   pic_h,
@@ -96,10 +104,14 @@ module scanout #(
     reg [YB-1:0] v_total, v_active, vs_beg, vs_end;
     reg          hs_pos, vs_pos, center;
     reg [15:0]   ps_per_px, win_x0, win_y0;
+    reg [1:0]    clk_sel_q = 2'd0;
     reg [15:0]   win_w = 16'd0, win_h = 16'd0;
     initial arm_ack = 1'b0;
 
     wire in_vblank = (vid_vsync == vs_pos) && !vid_active_video;
+    // before the first copy there is no frame to finish: the row the file
+    // holds, which its reset arms
+    assign clk_sel = have ? clk_sel_q : reg_clk_sel;
     always @(posedge clk) begin
         if (rst) begin
             req_s0 <= 1'b0; req_s1 <= 1'b0; arm_ack <= 1'b0;
@@ -119,6 +131,7 @@ module scanout #(
                 ps_per_px <= reg_ps_per_px;
                 win_x0 <= reg_win_x0; win_y0 <= reg_win_y0;
                 center <= reg_center;
+                clk_sel_q <= reg_clk_sel;
                 have    <= 1'b1;
                 arm_ack <= 1'b1;
             end else if (!req_s1) arm_ack <= 1'b0;
