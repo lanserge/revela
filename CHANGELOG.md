@@ -12,6 +12,26 @@ Pre-1.0, so the block API and the map format can still change. See
 
 ### Changed
 
+- **A new raster starts dark, for long enough that a TV trains on it.** A
+  TV trains its receiver to a bit rate the first time it meets it and
+  keeps the training; at 1.485 Gb/s, past the rated serializer of the
+  PYNQ-Z2's -1 part, a test chart left one searching for minutes after a
+  switch from 1080p30, where a dark picture let it find the same raster at
+  once. So for 4 s after the raster starts -- power-up, reset, a clock
+  switch -- it paints the fill while the stream is taken and the genlock
+  runs beneath (`raster.v`'s `G_QUIET_STEPS`, counted in fine phase steps
+  so it lasts as long at any clock). A new picture on the same raster
+  starts nothing and shows at once.
+- **The genlock steers smoothly.** Each frame start's error feeds a loop --
+  an eighth of the error a frame, and an integral that learns the two
+  crystals' difference -- and the steps it asks for are spread evenly
+  across the next frame, so the display's clock is a few ppm off nominal
+  and constant, never pulsed at the frame rate. From a jam the error peaks
+  near 200 pixels and settles in about two seconds. A control field,
+  `ctrl_gpio.steer`, chooses it (0, the default), the error paid at once
+  (1), or no steering and no jam (2); it crosses to the raster's clock
+  through two flops.
+
 - **The PYNQ-Z2 receives HDMI with bayerlink-fpga's own receiver.** The
   board's `front_end` chooses the HDMI input's implementation, `tmds_rx` by
   default: it aligns in a fraction of a second where Digilent's dvi2rgb

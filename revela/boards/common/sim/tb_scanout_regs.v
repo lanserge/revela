@@ -79,7 +79,7 @@ module tb;
       .reg_win_x0(win_x0), .reg_win_y0(win_y0),
       .reg_center(center), .pic_w(pic_w), .pic_h(pic_h),
       .arm_req(arm_req), .arm_ack(arm_ack),
-      .param_follow(1'b0), .ps_en(ps_en), .ps_incdec(ps_incdec),
+      .param_follow(1'b0), .param_steer(2'd0), .ps_en(ps_en), .ps_incdec(ps_incdec),
       .ps_done(1'b1),
       // The stream is not what is under test: the raster holds its mode
       // and paints fill, which still gives real blanking to land in.

@@ -64,6 +64,9 @@ module scanout #(
     // 1: the raster follows the stream (the direct picture is on); 0: it
     // holds its mode unsteered, painting the fill
     input  wire          param_follow,
+    // how it steers (raster.v's `steer`): 0 smooth, 1 at once, 2 not at
+    // all -- a register on the bus clock, taken across here
+    input  wire [1:0]    param_steer,
     output wire          ps_en,
     output wire          ps_incdec,
     input  wire          ps_done,
@@ -126,6 +129,12 @@ module scanout #(
             win_w <= pic_w; win_h <= pic_h;
         end
 
+    (* ASYNC_REG = "TRUE" *) reg [1:0] steer_s0 = 2'd0, steer_s1 = 2'd0;
+    always @(posedge clk) begin
+        steer_s0 <= param_steer;
+        steer_s1 <= steer_s0;
+    end
+
     wire [15:0] act_x0, act_y0;
     raster #(.DW(DW), .XB(XB), .YB(YB), .FILL(FILL), .G_LEAD(G_LEAD)) core (
         .clk(clk), .rst(rst || !have), .locked(locked),
@@ -138,7 +147,7 @@ module scanout #(
         .vs_beg(vs_beg), .vs_end(vs_end),
         .hs_pos(hs_pos), .vs_pos(vs_pos), .ps_per_px(ps_per_px),
         .win_x0(win_x0), .win_y0(win_y0), .win_w(win_w), .win_h(win_h),
-        .center(center), .follow(param_follow),
+        .center(center), .follow(param_follow), .steer(steer_s1),
         .ps_en(ps_en), .ps_incdec(ps_incdec), .ps_done(ps_done),
         .act_x0(act_x0), .act_y0(act_y0),
         .vid_active_video(vid_active_video), .vid_data(vid_data),

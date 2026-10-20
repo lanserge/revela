@@ -118,6 +118,10 @@
      "description": "Feed the direct picture branch of the tee."
     },
     {
+     "name": "steer",
+     "description": "How the raster steers to the stream: 0 smoothly, 1 a frame's correction at once, 2 not at all."
+    },
+    {
      "name": "broom",
      "description": "The software reset: clears the receiver's tallies, restarts the link supervisor and the raster."
     },
@@ -638,6 +642,10 @@
     [
      "isp_tee.en_a",
      "scanout.param_follow"
+    ],
+    [
+     "steer",
+     "scanout.param_steer"
     ],
     [
      "blrx.out",
