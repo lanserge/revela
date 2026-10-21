@@ -13,7 +13,7 @@ Pre-1.0, so the block API and the map format can still change. See
 ### Added
 
 - **The board builds a time-of-flight design.** `revela.boards.pynq_z2.tof:
-  revela_tof_core` is `tof_isp` then `depthview`, the new block that
+  revela_tof_core` is `tof_core` then `depthview`, the new block that
   makes depth a colour a display shows -- red near through green to blue
   far, two segments blended by the position's low bits, its range a
   power-of-two shift. `build.sh` takes a variant's settings of the design's
@@ -39,12 +39,25 @@ Pre-1.0, so the block API and the map format can still change. See
 - **The firmware sets the display's fields by name.** `set raster.<field>`
   and `get raster.<field>` reach every field of the display's file, for a
   bench to read or nudge one the firmware gives no value of.
-- **A standard ISP for a time-of-flight sensor,** `revela.pipelines.tof_isp`:
-  phase frames in, depth out -- `tofquad`, its loop place bound to each
-  header's frame count (`"frame_seq & 3"`), into `tofrange`. Built for a
-  depth, a widest and a tallest frame like `bayer_isp`; on the real
-  captures, through its RTL twin at the board's clock, bit exact with the
-  models.
+- **A standard ISP for a time-of-flight sensor.** `revela.pipelines.tof_core`
+  is its model blocks: phase frames in, depth out -- `tofquad`, its loop
+  place bound to each header's frame count (`"frame_seq & 3"`), into
+  `tofrange`. Built for a depth, a widest and a tallest frame like
+  `bayer_isp`; on the real captures, through its RTL twin at the board's
+  clock, bit exact with the models. `revela.pipelines.tof_isp` puts np2hw's
+  frame store before it, so phase frames that come in bursts -- four, then
+  a wait, as the sensor sends them -- go at the pace a display takes them:
+  the store keeps every frame, its frames in external memory (`mem`) or
+  block RAM, and hands the core the newest four side by side. The core is
+  a parameter (`pipeline`), so a design puts its own composite around
+  `tof_core` there. Proved as a design: the store's model and the blocks'
+  against the design's Verilog, over random bursts and a paced consumer.
+- **`tofquad` 3.0 reads the sensor's samples as they come:** two's
+  complement, below `headroom` bits that are always zero -- one for eleven
+  bits in a twelve-bit link word widened to sixteen, bound in the design --
+  each word's sign moved to the top of an int16 and read so. **Its input
+  changed meaning:** samples riding unsigned under an offset are no longer
+  what it takes.
 
 ### Changed
 

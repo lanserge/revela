@@ -20,13 +20,20 @@ frame and the three before it are four slices of one input::
     video[2:-1]    frame n - 1      video[:-3]     frame n - 3
 
 Nothing is held here and nothing declares how much is: the store that keeps
-three frames is how far back these reads reach, derived by np2hw. Every
-output frame is a measurement from four, so the first three frames of a
-stream make none.
+three frames is how far back these reads reach, derived by np2hw -- or, where
+a frame store upstream brings the four side by side, nothing is kept at all.
+Every output frame is a measurement from four, so where the history fills
+here the first three frames of a stream make none.
 
-The samples are signed correlations riding unsigned, offset by a constant the
-link adds. Every quantity below is a difference of two samples, so the offset
-cancels exactly and nothing here needs to know its value.
+The samples are signed correlations, two's complement as the sensor sends
+them. A sensor's sample may be narrower than the word it rides in -- eleven
+bits in a twelve-bit word, widened to the datapath's sixteen -- and the bits
+above its sign are then always zero: ``headroom`` says how many, and the model
+reads each word as the signed value it is by moving the sign to the top of an
+int16 and back, ``(video << headroom).view(np.int16) >> headroom`` at a
+16-bit datapath. Wires, in the hardware. The value keeps the scale the
+datapath gave it, which is what the angle and amplitude below were measured
+at.
 
 Which frame carries which phase
 -------------------------------
@@ -130,6 +137,9 @@ NORM_BITS = 20
 #: which must cover NORM_BITS.
 SHIFT_STAGES = 5
 
+#: Stages of the shift that reads a sample's sign: headroom up to three bits.
+HEADROOM_STAGES = 2
+
 #: Phases per measurement, and so frames in the window.
 PHASES = 4
 
@@ -145,17 +155,24 @@ ATAN = [8192, 4836, 2555, 1297, 651, 326, 163, 81, 41, 20, 10, 5]
 
 
 @ispblock(
-    version=(2, 0),
+    version=(3, 0),
     description="Last four ToF frames to phase and amplitude, by CORDIC.",
     inputs=(StreamPort("in",
                        "The sensor's phase frames, one reference phase a "
-                       "frame: signed correlation samples riding unsigned "
-                       "under a common offset.", history=True),),
+                       "frame: signed correlation samples, two's "
+                       "complement below `headroom` zero bits.",
+                       history=True),),
     outputs=(StreamPort("out",
                         "Two channels: [0] phase as an accumulator where "
                         "1 << 16 is one turn, [1] amplitude. One word, "
                         "because one CORDIC produced both."),),
     params=[
+        Param(name="headroom", bits=2, default=0,
+              description="Bits of each sample's word above its sign, always "
+                          "zero: the sample is two's complement below them. "
+                          "A sensor's eleven bits in a twelve-bit word, "
+                          "widened to the datapath, leave one; a design binds "
+                          "it to its sensor's"),
         Param(name="pos", bits=2, default=0,
               description="The live frame's place in the sensor's capture "
                           "loop. It moves every frame: a design binds it to "
@@ -166,9 +183,13 @@ ATAN = [8192, 4836, 2555, 1297, 651, 326, 163, 81, 41, 20, 10, 5]
     ],
 )
 def tofquad(video, p, bit_depth: int):
-    """THE model. Route by place, quadrature, pre-scale, vectoring CORDIC."""
-    s = video.astype(np.int64)
-    frame = [s[3:], s[2:-1], s[1:-2], s[:-3]]          # frame[k]: frame n - k
+    """THE model. Signed samples, route by place, quadrature, pre-scale,
+    vectoring CORDIC."""
+    # each frame n - k, its words read as the signed samples they are
+    frame = [_signed(video[3:], p.headroom, bit_depth),
+             _signed(video[2:-1], p.headroom, bit_depth),
+             _signed(video[1:-2], p.headroom, bit_depth),
+             _signed(video[:-3], p.headroom, bit_depth)]
     zero = frame[0] * 0
     # the phase frame n - k carries: its place, k back from the live one's
     carries = [p.tag[(p.pos + PHASES - k) % PHASES] for k in range(PHASES)]
@@ -213,6 +234,20 @@ def tofquad(video, p, bit_depth: int):
     # magnitude only: the angle never saw it.
     amp = _shift_right(x, shift)
     return np.stack([angle & MASK, amp & MASK], axis=-1)
+
+
+def _signed(word, headroom, bit_depth: int):
+    """A frame's words as the signed samples they are: each sign moved to
+    the top of an int16, read as one, and moved back -- shifts and wires."""
+    word = word.astype(np.uint16) << (16 - bit_depth)
+    for stage in range(HEADROOM_STAGES):            # a log shifter
+        word = np.where(((headroom >> stage) & 1) > 0,
+                        word << (1 << stage), word)
+    signed = word.view(np.int16)
+    for stage in range(HEADROOM_STAGES):
+        signed = np.where(((headroom >> stage) & 1) > 0,
+                          signed >> (1 << stage), signed)
+    return (signed >> (16 - bit_depth)).astype(np.int64)
 
 
 def _bit_length(v, zero):

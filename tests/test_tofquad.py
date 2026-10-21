@@ -23,8 +23,8 @@ from np2hw.blocks.stream import StreamSpec
 
 WIDTH = 16
 HEIGHT = 8
-BIT_DEPTH = 16                  # the link carries each phase as a Y16 sample
-OFFSET = 1 << 15                # signed correlations ride unsigned under this
+BIT_DEPTH = 16                  # the datapath's word for each phase sample
+OFFSET = 1 << 15                # the extremes of a 16-bit signed sample
 SPEC = StreamSpec(bit_depth=BIT_DEPTH, channels=1)
 ASCENDING = (0, 1, 2, 3)
 
@@ -42,11 +42,17 @@ def _phases(rng, height=HEIGHT, width=WIDTH):
     return planes
 
 
-def _frames(planes, start, order=ASCENDING, count=4):
+def _word(plane, headroom=0):
+    """Signed samples as the stream's words: two's complement below
+    `headroom` zero bits -- the sample's bits widened to the datapath, the
+    bits above its sign clear."""
+    return plane.astype(np.int64) & ((1 << (BIT_DEPTH - headroom)) - 1)
+
+
+def _frames(planes, start, order=ASCENDING, count=4, headroom=0):
     """The sensor's frames, the first at loop place ``start``: frame n sits
-    at place (start + n) mod 4 and was captured at phase ``order[place]``,
-    riding under the link's offset."""
-    return np.stack([planes[order[(start + n) % 4]] + OFFSET
+    at place (start + n) mod 4 and was captured at phase ``order[place]``."""
+    return np.stack([_word(planes[order[(start + n) % 4]], headroom)
                      for n in range(count)])
 
 
@@ -95,14 +101,29 @@ def test_a_pedestal_on_every_frame_changes_nothing(rng):
     """Ambient light adds the same amount to all four phases; it must vanish.
 
     Every quantity the block computes is a difference of two frames, so a
-    common offset cancels EXACTLY -- which is also why the link's own offset
-    needs no handling here.
+    common offset cancels EXACTLY.
     """
     planes = _phases(rng)
     planes[:, 0, 1:3] = 0                           # keep the extremes in range
     base = _measure(planes, 1)
     lifted = _measure(planes + 700, 1)
     np.testing.assert_array_equal(lifted, base)
+
+
+def test_a_sample_below_headroom_measures_as_a_whole_word_does(rng):
+    """Eleven bits in a twelve-bit word, widened to sixteen, leave the bit
+    above the sign clear: read with that headroom, each sample is the same
+    signed value, and the measurement the same, as the word read whole."""
+    planes = rng.integers(-1024, 1024, (4, HEIGHT, WIDTH)) << 4
+    values = {"pos": 3}
+    whole = tofquad.run(_frames(planes, 0), values, bit_depth=BIT_DEPTH)
+    short = tofquad.run(_frames(planes, 0, headroom=1),
+                        dict(values, headroom=1), bit_depth=BIT_DEPTH)
+    np.testing.assert_array_equal(short, whole)
+    # and read whole, a word whose sign is below the top is another value
+    wrong = tofquad.run(_frames(planes, 0, headroom=1), values,
+                        bit_depth=BIT_DEPTH)
+    assert (wrong != whole).any()
 
 
 def test_opposite_light_is_exactly_half_a_turn_away(rng):
@@ -176,7 +197,10 @@ def test_verilog_is_bit_exact_with_the_model(tmp_path, rng):
     which the history is filling, put out nothing.
     """
     order = (0, 2, 1, 3)
-    bound = tofquad.bind({"pos": "frame_seq & 3"}, VOCABULARY)
+    # the sensor's samples one bit short of the word, as a 12-bit link word
+    # of eleven bits widened to sixteen: headroom bound to the sensor's
+    bound = tofquad.bind({"pos": "frame_seq & 3", "headroom": "1"},
+                         VOCABULARY)
     generated = bound.generate(SPEC, WIDTH, HEIGHT,
                                module_name="revela_tofquad")
     planes = _phases(rng)
@@ -186,7 +210,8 @@ def test_verilog_is_bit_exact_with_the_model(tmp_path, rng):
         "label": f"frame_seq {first + n}",
         "context": {"frame_seq": first + n},
         "values": {f"tag_{i}": order[i] for i in range(4)},
-        "frame": (planes[order[(first + n) & 3]] + OFFSET).ravel().tolist(),
+        "frame": _word(planes[order[(first + n) & 3]] >> 1,
+                       headroom=1).ravel().tolist(),
     } for n in range(11)]
 
     run_cocotb(
@@ -199,7 +224,7 @@ def test_verilog_is_bit_exact_with_the_model(tmp_path, rng):
             "width": WIDTH,
             "height": HEIGHT,
             "bit_depth": BIT_DEPTH,
-            "bind": {"pos": "frame_seq & 3"},
+            "bind": {"pos": "frame_seq & 3", "headroom": "1"},
             "vocabulary": "revela.blocks.pipe:VOCABULARY",
             "trials": trials,
         },

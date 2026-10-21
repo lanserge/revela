@@ -3,9 +3,10 @@
 """The time-of-flight ISP, composed: phase to depth, as one pipeline.
 
 Each block is bit-exact with its own Verilog in its own test. This builds
-the shipped composite, ``revela.pipelines.tof_isp`` -- ``tofquad``, reading
-the stream's history, its place bound to the frame count each frame's
-header carries, into ``tofrange`` -- from its JSON, the way a design does,
+the shipped composite of model blocks, ``revela.pipelines.tof_core`` --
+``tofquad``, reading the stream's history, its place bound to the frame
+count each frame's header carries, into ``tofrange`` -- from its JSON, the
+way a design does,
 and holds the generated pipeline to the NumPy chain through the RTL twin
 over a run of phase frames sent back to back, from every alignment and in
 a scrambled phase order.
@@ -23,14 +24,13 @@ from np2hw.pipeline.run import pixel_chain, run_model, run_rtl
 WIDTH = 16
 HEIGHT = 8
 BIT_DEPTH = 16
-OFFSET = 1 << 15
 
 
 def _pipeline():
     """A design of the ToF ISP alone, built for this test's frames."""
     return build({"blocks": {"tof": {
         "inputs": [{"name": "in"}], "outputs": [{"name": "out"}],
-        "nodes": {"isp": {"block": "revela.pipelines.tof_isp:tof_isp",
+        "nodes": {"isp": {"block": "revela.pipelines.tof_core:tof_core",
                           "build": {"bit_depth": BIT_DEPTH,
                                     "max_width": WIDTH,
                                     "max_height": HEIGHT}}},
@@ -41,10 +41,10 @@ def _run(rng, first, order, count=9):
     """A ToF sensor's frames from count ``first`` on: frame n carries the
     phase of its place, ``order[(first + n) & 3]``, one static scene's.
     Correlations of a plausible size, bright enough that most pixels clear
-    the confidence gate."""
+    the confidence gate; each sample a 16-bit word of two's complement."""
     planes = rng.integers(-2400, 2400, (4, HEIGHT, WIDTH))
     seq = [first + n for n in range(count)]
-    return (np.stack([planes[order[q & 3]] + OFFSET for q in seq]), seq)
+    return (np.stack([planes[order[q & 3]] & 0xFFFF for q in seq]), seq)
 
 
 def test_the_chain_composes():

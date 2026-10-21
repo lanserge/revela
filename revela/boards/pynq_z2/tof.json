@@ -23,13 +23,14 @@
       ],
       "nodes": {
         "tof": {
-          "block": "revela.pipelines.tof_isp",
+          "block": "revela.pipelines.tof_core",
           "build": {
             "bit_depth": 16,
             "max_width": 240,
-            "max_height": 180
+            "max_height": 180,
+            "headroom": 1
           },
-          "description": "Phase frames in, depth out: what any four-phase ToF sensor on this board needs. Built for the reference sensor's whole frame, 240x180 of 16-bit samples; its phase history keeps three of them."
+          "description": "Phase frames in, depth out: what any four-phase ToF sensor on this board needs. Built for the reference sensor's whole frame, 240x180 of its samples -- eleven bits of two's complement in the link's twelve-bit word, widened to sixteen, so one bit of headroom above each sign; its phase history keeps three of them."
         },
         "view": {
           "block": "revela.blocks.depthview",

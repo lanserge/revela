@@ -1,0 +1,76 @@
+{
+  "blocks": {
+    "tof_core": {
+      "description": "A time-of-flight sensor's phase frames in, depth out: the four most recent reference phases to phase and amplitude, and phase to perpendicular depth in millimetres. For any four-phase sensor whose source counts its frames in the headers: which phase a frame carries is its place in the capture loop, read from that count; the sensor's phase order, its range and its optics arrive at run time, its samples' form at build. Made of generated blocks alone, it is proved from their models.",
+      "vocabulary": "revela.blocks.pipe:VOCABULARY",
+      "parameters": {
+        "bit_depth": {
+          "description": "Depth the phase samples arrive at: the word each signed sample rides in."
+        },
+        "max_width": {
+          "description": "Widest frame any sensor served may send: what the phase history keeps a frame of."
+        },
+        "max_height": {
+          "description": "Tallest frame any sensor served may send."
+        },
+        "frames": {
+          "default": 0,
+          "description": "Frames the stream brings side by side, from a frame store upstream; 0: the phase history is kept here."
+        },
+        "headroom": {
+          "default": 0,
+          "description": "Bits of each sample's word above its sign, always zero: the sensor's samples are two's complement below them."
+        }
+      },
+      "inputs": [
+        {
+          "name": "in",
+          "bits": "bit_depth",
+          "max_width": "max_width",
+          "max_height": "max_height",
+          "frames": "frames",
+          "context": [
+            "width",
+            "height",
+            "frame_seq"
+          ],
+          "description": "One reference phase a frame, up to max_width x max_height at bit_depth, each frame's count in its header -- or, from a frame store, the four latest side by side. The context facts ride with the stream, latched at each frame's start, never registers."
+        }
+      ],
+      "outputs": [
+        {
+          "name": "out",
+          "description": "Two channels: [0] perpendicular depth in millimetres, zero where the amplitude fell below its threshold, [1] the amplitude. Width traced, not declared."
+        }
+      ],
+      "nodes": {
+        "quad": {
+          "block": "revela.blocks.tofquad",
+          "bind": {
+            "pos": "frame_seq & 3",
+            "headroom": "headroom"
+          },
+          "description": "The last four frames to phase and amplitude. The live frame's place in the capture loop is the low bits of its count: the source anchors its loop there."
+        },
+        "range": {
+          "block": "revela.blocks.tofrange",
+          "description": "Phase to perpendicular depth, below-threshold amplitude zeroed."
+        }
+      },
+      "connections": [
+        [
+          "in",
+          "quad.in"
+        ],
+        [
+          "quad.out",
+          "range.in"
+        ],
+        [
+          "range.out",
+          "out"
+        ]
+      ]
+    }
+  }
+}

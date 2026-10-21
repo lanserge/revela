@@ -7,7 +7,8 @@ everything composed of them is here.
 ```
 revela/pipelines/
   bayer_isp.json   bayer_isp       the standard ISP for a Bayer sensor
-  tof_isp.json     tof_isp         the standard ISP for a time-of-flight sensor
+  tof_core.json    tof_core        the standard ISP for a time-of-flight sensor
+  tof_isp.json     tof_isp         tof_core behind a frame store
   stereo.json      revela_stereo   two eyes, each bayer_isp
 ```
 
@@ -28,12 +29,21 @@ beside it: this folder's, and the board's
 curve and the mark). A tone curve and anything else a product adds belong to
 the design, not to the ISP.
 
-`revela.pipelines.tof_isp` -- a time-of-flight sensor's phase frames in,
+`revela.pipelines.tof_core` -- a time-of-flight sensor's phase frames in,
 depth out: the four most recent reference phases to phase and amplitude
 (`tofquad`, reading the stream's history), and phase to perpendicular depth
 in millimetres (`tofrange`). Which phase a frame carries is its place in the
 capture loop, bound to the frame count each header carries; the sensor's
-phase order, range and optics are registers a sensor's tuning sets.
+phase order, range and optics are registers a sensor's tuning sets, and the
+form of its samples -- two's complement below `headroom` zero bits -- is a
+build parameter.
+
+`revela.pipelines.tof_isp` -- `tof_core` behind np2hw's frame store, for a
+sensor whose frames come in bursts and a display that takes them at its own
+pace. The store keeps every frame, in external memory or block RAM, and
+hands the core the newest four side by side as often as it asks; the core is
+the `pipeline` parameter, `tof_core` or a design's own composite around it.
+Of model blocks and a modelled leaf, it is proved as a design.
 
 ## What a design states, and what it does not
 
