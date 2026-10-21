@@ -10,6 +10,15 @@ Pre-1.0, so the block API and the map format can still change. See
 
 ## Unreleased
 
+### Added
+
+- **A standard ISP for a time-of-flight sensor,** `revela.pipelines.tof_isp`:
+  phase frames in, depth out -- `tofquad`, its loop place bound to each
+  header's frame count (`"frame_seq & 3"`), into `tofrange`. Built for a
+  depth, a widest and a tallest frame like `bayer_isp`; on the real
+  captures, through its RTL twin at the board's clock, bit exact with the
+  models.
+
 ### Changed
 
 - **A block knows only its own inputs; the design connects them.** A model

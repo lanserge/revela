@@ -1,27 +1,24 @@
 # Copyright 2026 Serge Rabyking
 # SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
-"""The time-of-flight chain, composed: phase to depth, as one pipeline.
+"""The time-of-flight ISP, composed: phase to depth, as one pipeline.
 
-Each block is bit-exact with its own Verilog in its own test. This composes
-them the way a design does -- ``tofquad``, reading the stream's history,
-into ``tofrange`` -- and holds the generated pipeline to the NumPy chain
-through the RTL twin over a run of phase frames sent back to back, the
-loop place bound to the frame count each frame's header carries, from every
-alignment and in a scrambled phase order.
+Each block is bit-exact with its own Verilog in its own test. This builds
+the shipped composite, ``revela.pipelines.tof_isp`` -- ``tofquad``, reading
+the stream's history, its place bound to the frame count each frame's
+header carries, into ``tofrange`` -- from its JSON, the way a design does,
+and holds the generated pipeline to the NumPy chain through the RTL twin
+over a run of phase frames sent back to back, from every alignment and in
+a scrambled phase order.
 """
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from conftest import requires_verilator
+from conftest import build, requires_verilator
 
-from revela.blocks.pipe import VOCABULARY
-from revela.blocks.tofquad import tofquad
 from revela.blocks.tofrange import tofrange
-from np2hw.design.composite import assemble
 from np2hw.pipeline.run import pixel_chain, run_model, run_rtl
-from np2hw.blocks.stream import StreamSpec
 
 WIDTH = 16
 HEIGHT = 8
@@ -30,13 +27,14 @@ OFFSET = 1 << 15
 
 
 def _pipeline():
-    return assemble(
-        "tof", {"quad": tofquad.bind({"pos": "frame_seq & 3"}, VOCABULARY),
-                "range": tofrange},
-        [("in", "quad.in"), ("quad.out", "range.in"), ("range.out", "out")],
-        vocabulary=VOCABULARY,
-        stream={"bits": BIT_DEPTH, "max_width": WIDTH, "max_height": HEIGHT,
-                "context": ["frame_seq"]})
+    """A design of the ToF ISP alone, built for this test's frames."""
+    return build({"blocks": {"tof": {
+        "inputs": [{"name": "in"}], "outputs": [{"name": "out"}],
+        "nodes": {"isp": {"block": "revela.pipelines.tof_isp:tof_isp",
+                          "build": {"bit_depth": BIT_DEPTH,
+                                    "max_width": WIDTH,
+                                    "max_height": HEIGHT}}},
+        "connections": [["in", "isp.in"], ["isp.out", "out"]]}}})
 
 
 def _run(rng, first, order, count=9):
@@ -51,7 +49,7 @@ def _run(rng, first, order, count=9):
 
 def test_the_chain_composes():
     chain = pixel_chain(_pipeline())
-    assert [stage.path for stage in chain] == ["quad", "range"]
+    assert [stage.path for stage in chain] == ["isp.quad", "isp.range"]
 
 
 @pytest.mark.verilog
@@ -63,8 +61,9 @@ def test_the_generated_chain_is_bit_exact_with_the_models(rng, first, order):
     a run, every frame's alignment its own, in any phase order -- the whole
     ISP side of time-of-flight, as hardware."""
     chain = pixel_chain(_pipeline())
-    values = {"quad": {f"tag_{i}": order[i] for i in range(4)},
-              "range": {p.name: p.default for p in tofrange.params.params}}
+    values = {"isp.quad": {f"tag_{i}": order[i] for i in range(4)},
+              "isp.range": {p.name: p.default
+                            for p in tofrange.params.params}}
     video, seq = _run(rng, first, order)
     context = {"frame_seq": seq}
 

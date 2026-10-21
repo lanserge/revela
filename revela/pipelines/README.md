@@ -6,7 +6,8 @@ everything composed of them is here.
 
 ```
 revela/pipelines/
-  bayer_isp.json   bayer_isp       the standard ISP
+  bayer_isp.json   bayer_isp       the standard ISP for a Bayer sensor
+  tof_isp.json     tof_isp         the standard ISP for a time-of-flight sensor
   stereo.json      revela_stereo   two eyes, each bayer_isp
 ```
 
@@ -17,14 +18,22 @@ Verilog. A standard ISP is named after its file -- `revela.pipelines.bayer_isp`
 -- and is not a top: its stream parameters have no defaults, and whatever
 instantiates it sets them.
 
-## The standard ISP
+## The standard ISPs
 
-There is one: `revela.pipelines.bayer_isp` -- pedestal, white balance,
-Hamilton-Adams demosaic, colour matrix; raw Bayer in, linear RGB out. Every
-design is built of it rather than spelling a chain out beside it: this folder's,
-and the board's (`revela.boards.pynq_z2.isp:revela_isp_core`, which follows it
-with a display curve and the mark). A tone curve and anything else a product
-adds belong to the design, not to the ISP.
+One for each kind of sensor. `revela.pipelines.bayer_isp` -- pedestal, white
+balance, Hamilton-Adams demosaic, colour matrix; raw Bayer in, linear RGB
+out. Every Bayer design is built of it rather than spelling a chain out
+beside it: this folder's, and the board's
+(`revela.boards.pynq_z2.isp:revela_isp_core`, which follows it with a display
+curve and the mark). A tone curve and anything else a product adds belong to
+the design, not to the ISP.
+
+`revela.pipelines.tof_isp` -- a time-of-flight sensor's phase frames in,
+depth out: the four most recent reference phases to phase and amplitude
+(`tofquad`, reading the stream's history), and phase to perpendicular depth
+in millimetres (`tofrange`). Which phase a frame carries is its place in the
+capture loop, bound to the frame count each header carries; the sensor's
+phase order, range and optics are registers a sensor's tuning sets.
 
 ## What a design states, and what it does not
 
