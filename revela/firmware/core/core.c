@@ -86,6 +86,11 @@ static int take(uint32_t addr) {
 static const struct revela_reg *find(const char *key) {
     for (size_t i = 0; i < REVELA_MAP_N; i++)
         if (!strcmp(REVELA_MAP[i].key, key)) return &REVELA_MAP[i];
+    /* the display's own file, raster.<field>: a bench's way to read or
+     * nudge any of its fields (a change takes with raster.arm) */
+    for (size_t i = 0; i < REVELA_RASTER_MAP_N; i++)
+        if (!strcmp(REVELA_RASTER_MAP[i].key, key))
+            return &REVELA_RASTER_MAP[i];
     return NULL;
 }
 

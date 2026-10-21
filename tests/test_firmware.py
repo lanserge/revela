@@ -494,3 +494,19 @@ def test_a_clock_the_display_already_runs_is_not_reloaded(tmp_path):
     armed, loaded = at[(reg["arm"], 1)], at[(pll + 0x25C, 3)]
     assert staged < row < armed < loaded, (staged, row, armed, loaded)
 
+
+
+def test_the_displays_fields_are_set_by_name(tmp_path):
+    """raster.<field> reaches the display's own file -- a field nudged from
+    a bench and armed: exactly those two words, nothing else moved."""
+    exe, _, cable = _build(tmp_path)
+    r = cable["scanout_regs"]
+    reg = {k: r["base"] + v for k, v in r["registers"].items()}
+    before, _ = _run(exe, f"init {FRAME_1080P30} {_display()}")
+    writes, out = _run(exe, f"init {FRAME_1080P30} {_display()}",
+                       "set raster.win_y0 12", "set raster.arm 1")
+    assert writes[len(before):] == [(reg["win_y0"], 12), (reg["arm"], 1)]
+    assert sum(l == "R ok" for l in out) == 3, out
+    _, out = _run(exe, f"init {FRAME_1080P30} {_display()}",
+                  "set raster.nothing 1")
+    assert any("no such parameter" in l for l in out), out

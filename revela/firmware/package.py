@@ -169,6 +169,15 @@ def core_map_h(regmap: dict, cable_map: dict,
         L.append(f"#define REVELA_LOGO_Y0 0x{where[marks[0] + '.y0'][0]:04X}u")
         L.append(f"#define REVELA_LOGO_INSET {INSET}u")
     L.append(f"#define REVELA_RASTER_BASE 0x{raster['base']:04X}u")
+    # Every field of the display's file by name, for set and get: the
+    # file keeps each field's own bits, so a row needs no width of its own.
+    L += ["/* the display raster's fields by name: raster.<field> */",
+          "static const struct revela_reg REVELA_RASTER_MAP[] = {"]
+    L += [f'    {{ "raster.{name}", 0x{raster["base"] + off:04X}u, 32 }},'
+          for name, off in sorted(raster["registers"].items(),
+                                  key=lambda kv: kv[1]) if name != "id"]
+    L += ["};", "#define REVELA_RASTER_MAP_N "
+          "(sizeof REVELA_RASTER_MAP / sizeof REVELA_RASTER_MAP[0])"]
     for f in RASTER_FIELDS:
         L.append(f"#define REVELA_R_{f.upper()} "
                  f"0x{raster['base'] + raster['registers'][f]:04X}u")

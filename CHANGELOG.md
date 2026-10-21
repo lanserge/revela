@@ -12,6 +12,9 @@ Pre-1.0, so the block API and the map format can still change. See
 
 ### Added
 
+- **The firmware sets the display's fields by name.** `set raster.<field>`
+  and `get raster.<field>` reach every field of the display's file, for a
+  bench to read or nudge one the firmware gives no value of.
 - **A standard ISP for a time-of-flight sensor,** `revela.pipelines.tof_isp`:
   phase frames in, depth out -- `tofquad`, its loop place bound to each
   header's frame count (`"frame_seq & 3"`), into `tofrange`. Built for a
