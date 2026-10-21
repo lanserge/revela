@@ -32,7 +32,7 @@ import json
 import sys
 from pathlib import Path
 
-from revela.boards.pynq_z2 import HERE, board, choices, default
+from revela.boards.pynq_z2 import HERE, board, choices, default, variant
 from np2hw.toolchain import vivado
 from np2hw.design.composite import block_name, load, write_generated
 
@@ -109,12 +109,13 @@ def main(argv=None) -> int:
     parser.add_argument("--out", required=True, type=Path)
     args = parser.parse_args(argv)
     out = args.out.resolve()
-    check_board(choices())
+    build = variant(out)
+    check_board(choices(build))
     # The layout's checksum is built into the fabric, where software reads
     # it back; the layout does not depend on it, so a first load finds it.
     from revela.boards.zynq7.gpio import digest
-    layout_id = digest(gpio_layout(load(DESIGN)))
-    design = load(DESIGN, build={"layout_id": layout_id})
+    layout_id = digest(gpio_layout(load(DESIGN, build=build)))
+    design = load(DESIGN, build={**build, "layout_id": layout_id})
     check_link(design)
     layout = gpio_layout(design)
     if digest(layout) != layout_id:

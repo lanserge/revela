@@ -419,14 +419,21 @@
      "isp_entry.ctx_height",
      "isp.ctx_height"
     ],
-    [
-     "isp_entry.ctx_bayer_phase",
-     "isp.ctx_bayer_phase"
-    ],
-    [
-     "isp_entry.ctx_bit_depth",
-     "isp.ctx_bit_depth"
-    ],
+    {
+     "from": "isp_entry.ctx_bayer_phase",
+     "to": "isp.ctx_bayer_phase",
+     "when": "'bayer_phase' in isp.isp_in.context"
+    },
+    {
+     "from": "isp_entry.ctx_bit_depth",
+     "to": "isp.ctx_bit_depth",
+     "when": "'bit_depth' in isp.isp_in.context"
+    },
+    {
+     "from": "isp_entry.ctx_frame_seq",
+     "to": "isp.ctx_frame_seq",
+     "when": "'frame_seq' in isp.isp_in.context"
+    },
     [
      "isp_clk",
      "isp_tee.clk"

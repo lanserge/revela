@@ -12,6 +12,16 @@ Pre-1.0, so the block API and the map format can still change. See
 
 ### Added
 
+- **The board builds a time-of-flight design.** `revela.boards.pynq_z2.tof:
+  revela_tof_core` is `tof_isp` then `depthview`, the new block that
+  makes depth a colour a display shows -- red near through green to blue
+  far, two segments blended by the position's low bits, its range a
+  power-of-two shift. `build.sh` takes a variant's settings of the design's
+  parameters on its command line and records them beside the bitstream
+  (`out/build.json`): `build.sh
+  pipeline=@revela.boards.pynq_z2.tof:revela_tof_core`. The design wires
+  each context fact to its ISP only where the ISP's input carries it, the
+  frame count among them.
 - **A sink connecting meets the dark start too.** The HDMI-out jack's
   hot-plug line reaches the raster (`hdmi_out`'s `sink`; the pin, TUL's
   `hdmi_tx_hpdn`, is inverted), and its rise paints the fill for the

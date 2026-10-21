@@ -38,37 +38,46 @@ def default(block: str, parameter: str):
     return evaluate(parse(raw, f"{block}.{parameter}"), lambda name: None)
 
 
-def choices() -> dict:
+def variant(out) -> dict:
+    """The build's settings of the design's parameters -- a variant, as
+    build.sh recorded it beside the build (``generated/build.json``): {}
+    for the design as it stands."""
+    path = Path(out) / "generated" / "build.json"
+    return json.loads(path.read_text()) if path.exists() else {}
+
+
+def choices(build: dict | None = None) -> dict:
     """The demo's own choices -- its parameters that the build does not
-    supply -- as the design states them."""
+    supply -- as the design states them, with a variant's settings."""
     from np2hw.design.composite import load
     # what the ISP's facts would say, which only building it can answer
     placeholder = {"sample_bits": 0, "isp_out_bits": 0,
                    "fabric.sample_bits": 0, "fabric.isp_width": 0,
                    "fabric.isp_out_bits": 0}
-    params = load("revela.boards.pynq_z2.pynq_demo", build=placeholder,
+    params = load("revela.boards.pynq_z2.pynq_demo",
+                  build={**(build or {}), **placeholder},
                   generate=False).parameters
     return {k: v for k, v in params.items()
             if k not in placeholder}
 
 
-def isp_ref() -> str:
+def isp_ref(build: dict | None = None) -> str:
     """The ISP this design builds, by reference."""
-    return choices()["pipeline"]
+    return choices(build)["pipeline"]
 
 
-def isp_name() -> str:
+def isp_name(build: dict | None = None) -> str:
     """The ISP's name: its generated modules and pack are named after it."""
     from np2hw.design.composite import block_name
-    return block_name(isp_ref())
+    return block_name(isp_ref(build))
 
 
-def isp_stream() -> dict:
+def isp_stream(build: dict | None = None) -> dict:
     """The facts of the stream entering the ISP -- bits, max_width,
     max_height, context -- as the composite states them where it enters."""
     from np2hw.design.composite import load
-    streams = load(isp_ref()).streams
+    streams = load(isp_ref(build)).streams
     if len(streams) != 1:
-        raise ValueError(f"{isp_ref()}: this board feeds one stream, and the "
+        raise ValueError(f"{isp_ref(build)}: this board feeds one stream, and the "
                          f"ISP takes {sorted(streams)}")
     return next(iter(streams.values()))

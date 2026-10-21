@@ -18,10 +18,12 @@
 #       revela/boards/pynq_z2/build.sh
 #
 # The design is revela.boards.pynq_z2.pynq_demo, JSON through and
-# through; its block design is GENERATED from it. A variant build is an
-# EDIT to its parameters, not an environment variable: a different raster
-# is a different design, and this way the bitstream corresponds to
-# something you can diff.
+# through; its block design is GENERATED from it. A variant build sets its
+# parameters, on the command line, not in the environment, and the build
+# records them beside the bitstream (out/build.json), so a bitstream
+# corresponds to the design plus what it says it was built with:
+#
+#   ... build.sh pipeline=@revela.boards.pynq_z2.tof:revela_tof_core
 #
 # Needs: vivado on PATH; python3 with revela, np2hw, bayerlink and
 # bayerlink_fpga importable; and the two vendor trees, found at
@@ -44,10 +46,28 @@ done
 mkdir -p "$OUT/generated" "$OUT/hdl"
 OUT=$(cd "$OUT" && pwd)
 
-read_build() { python3 -c "import sys; from revela.boards.pynq_z2 import choices; print(choices()[sys.argv[1]])" "$1"; }
+# The variant: key=value for any of the design's own parameters, a value
+# JSON where it parses as JSON and the design's expression otherwise --
+# recorded first, so every later step reads the same answer.
+python3 - "$OUT" "$@" <<'EOF'
+import json, pathlib, sys
+out, settings = sys.argv[1], sys.argv[2:]
+build = {}
+for setting in settings:
+    key, eq, value = setting.partition("=")
+    if not eq:
+        raise SystemExit(f"build.sh: {setting!r} is not key=value")
+    try:
+        build[key] = json.loads(value)
+    except ValueError:
+        build[key] = value
+(pathlib.Path(out) / "generated" / "build.json").write_text(
+    json.dumps(build, indent=1) + "\n")
+EOF
+read_build() { python3 -c "import sys; from revela.boards.pynq_z2 import choices, variant; print(choices(variant(sys.argv[2]))[sys.argv[1]])" "$1" "$OUT"; }
 # The ISP this design builds, by reference: its geometry and depth are
 # stated on its input port, where the stream enters.
-ISP=$(python3 -c "from revela.boards.pynq_z2 import isp_ref; print(isp_ref())")
+ISP=$(python3 -c "import sys; from revela.boards.pynq_z2 import isp_ref, variant; print(isp_ref(variant(sys.argv[1])))" "$OUT")
 # 155, not 148.5: cutting for a few MHz more than the clock will run
 # is what makes the cut placement DETERMINISTIC -- at exactly 148.5
 # the estimator's 70ps of optimism decided whether a register moved,
@@ -102,6 +122,8 @@ cp "$OUT/generated/gpio_layout.json" "$OUT/out/gpio_layout.json"
 cp "$OUT/generated/address_map.json" "$OUT/out/address_map.json"
 # the fabric clocks load.py sets before it programs the fabric
 cp "$OUT/generated/clocks.json" "$OUT/out/clocks.json"
+# what this bitstream was built with: the variant's settings, {} for none
+cp "$OUT/generated/build.json" "$OUT/out/build.json"
 
 echo
 echo "artifacts: $OUT/out/rx.bit, gpio_layout.json, address_map.json and clocks.json"

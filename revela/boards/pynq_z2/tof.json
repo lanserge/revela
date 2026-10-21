@@ -1,0 +1,55 @@
+{
+  "blocks": {
+    "revela_tof_core": {
+      "description": "The board's time-of-flight pipeline: the ToF ISP -- the four most recent reference phases to phase and amplitude, phase to depth in millimetres -- then a depth view a television shows, red near through green to blue far. The frame count rides the bayerlink header as stream context, and each frame's place in the sensor's capture loop is read from it.",
+      "vocabulary": "revela.blocks.pipe:VOCABULARY",
+      "parameters": {
+        "clock_mhz": {
+          "default": 155,
+          "description": "The clock the datapath is CUT for, above the clock it runs at: generation margin makes the cut placement deterministic. Whatever builds this ISP sets it."
+        }
+      },
+      "inputs": [
+        {
+          "name": "isp_in",
+          "description": "One reference phase a frame from the bayerlink receiver: signed correlations riding unsigned under a common offset, each frame's count in its header."
+        }
+      ],
+      "outputs": [
+        {
+          "name": "isp_out",
+          "description": "The depth view: three 8-bit channels in one word, R low, G mid, B high. The word's width is TRACED, not declared."
+        }
+      ],
+      "nodes": {
+        "tof": {
+          "block": "revela.pipelines.tof_isp",
+          "build": {
+            "bit_depth": 16,
+            "max_width": 240,
+            "max_height": 180
+          },
+          "description": "Phase frames in, depth out: what any four-phase ToF sensor on this board needs. Built for the reference sensor's whole frame, 240x180 of 16-bit samples; its phase history keeps three of them."
+        },
+        "view": {
+          "block": "revela.blocks.depthview",
+          "description": "Depth as a colour, red near through green to blue far, black where nothing was measured: this design's output encoding for HDMI. Its range resets to 4.1 m."
+        }
+      },
+      "connections": [
+        [
+          "isp_in",
+          "tof.in"
+        ],
+        [
+          "tof.out",
+          "view.in"
+        ],
+        [
+          "view.out",
+          "isp_out"
+        ]
+      ]
+    }
+  }
+}

@@ -484,10 +484,12 @@ revela/          (np2hw holds the machinery: np2hw.blocks -- the framework,
                   is data rather than coefficients, and the first to prove
                   Rom() lands in block RAM
     tofquad.py    complete; time-of-flight phase + amplitude by CORDIC from
-                  the last four frames as channels of one word, each routed
-                  onto the quadrature by the phase tag it carries
+                  the last four frames of the stream's history, each routed
+                  onto the quadrature by its place in the capture loop
     tofrange.py   complete; phase to perpendicular depth, the lens as
                   registers over the raster's own counters (coords())
+    depthview.py  complete; depth to a red-green-blue ramp, red near, two
+                  segments blended by the position's low bits
     demosaic/
       bilinear.py complete; CFA-position-selected taps on one shared window,
                   three channels out via np.stack -- the model never packs
