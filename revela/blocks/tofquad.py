@@ -9,20 +9,20 @@ differences of those four. This block does that arctangent. What the angle is
 worth in millimetres belongs to the sensor and lives in
 :mod:`revela.blocks.tofrange`.
 
-The input is one stream's recent history
+The input is the stream's recent history
 ----------------------------------------
 
-The sensor delivers one reference phase per frame. A frame history upstream
-hands this block the current frame and the three before it, and with each one
-the TAG saying which phase it was captured at:
+The sensor delivers one reference phase per frame, and this block reads the
+stream's history -- the frames as they came, newest last -- so the live
+frame and the three before it are four slices of one input::
 
-    pixel[..., k]        the sample from frame n - k   (k = 0 is the live frame)
-    pixel[..., 4 + k]    that frame's phase, 0 .. 3
+    video[3:]      frame n          video[1:-2]    frame n - 2
+    video[2:-1]    frame n - 1      video[:-3]     frame n - 3
 
-Four frames of ONE stream at ONE width, so a time axis on one input rather than
-four inputs -- and the block is pointwise: no line buffers, nothing held here
-at all. A frame's age lives in its index; the memory is the history's
-business, and so is knowing what each frame was.
+Nothing is held here and nothing declares how much is: the store that keeps
+three frames is how far back these reads reach, derived by np2hw. Every
+output frame is a measurement from four, so the first three frames of a
+stream make none.
 
 The samples are signed correlations riding unsigned, offset by a constant the
 link adds. Every quantity below is a difference of two samples, so the offset
@@ -31,27 +31,29 @@ cancels exactly and nothing here needs to know its value.
 Which frame carries which phase
 -------------------------------
 
-The index says how OLD a frame is; the tag says which phase it carries. The
-tags come from the history's tag table, one entry per position in the sensor's
-capture loop, so a sensor that steps its phases in any order -- 0, 1, 2, 3 or
-0, 2, 1, 3 -- is a table, not a different block. This block finds, for each
-phase j, the frame whose tag is j, so it assumes nothing about the order: the
-four frames in the window must simply carry the four phases between them. It
-routes them onto the quadrature by their tags, so EVERY
-frame yields a measurement -- from the four most recent phases, whichever one
-arrived last -- and the output runs at the sensor's full frame rate. Measured on
-a static scene, the three windows that straddle a measurement boundary agree
-with the aligned one to 0.26-0.35 mm in the mean, with the same noise. What
-straddling costs is temporal: a moving target is seen across four instants, as a
-sequential-exposure HDR sees it. Keeping only aligned windows is a frame gate
-downstream, and a choice of rate against coherence.
+A frame's index says how OLD it is; which phase it carries is its place in
+the sensor's capture loop. Two inputs say that: ``pos``, the live frame's
+place, which a design binds to the frame count the headers carry
+(``frame_seq & 3`` for a source that anchors its loop there), and ``tag``,
+the phase each place captures -- so a sensor that steps its phases in any
+order, 0, 1, 2, 3 or 0, 2, 1, 3, is a table, not a different block. Frame
+n - k sits ``k`` places back, so it carries ``tag[(pos - k) mod 4]``, and
+this block takes, for each phase j, the frame that carries it: it assumes
+nothing about the order but that four places hold four phases. EVERY frame
+yields a measurement -- from the four most recent phases, whichever one
+arrived last -- and the output runs at the sensor's full frame rate. Measured
+on a static scene, the three windows that straddle a measurement boundary
+agree with the aligned one to 0.26-0.35 mm in the mean, with the same noise.
+What straddling costs is temporal: a moving target is seen across four
+instants, as a sequential-exposure HDR sees it. Keeping only aligned windows
+is a frame gate downstream, and a choice of rate against coherence.
 
 The routing is on the INPUTS, not a correction added to the output angle.
 Relabelling by one phase is exactly a quarter turn of the vector, so adding
 quarter turns to the angle would be equivalent in exact arithmetic -- but the
 CORDIC's rounding depends on where the vector starts, the two would differ in
 the last bits, and every calibration and noise figure for this sensor was
-measured on the arithmetic below. Selecting each phase's sample by its tag
+measured on the arithmetic below. Selecting each phase's sample by its place
 keeps it bit-exact with that history.
 
 The arithmetic, exactly as the hardware does it
@@ -100,16 +102,16 @@ Written the way the hardware is built
 
 The model is ordinary NumPy -- run it on real frames and it returns phase and
 amplitude -- and it is also what np2hw traces, so every construct is one the
-tracer lowers: matching a tag is a pair of comparisons multiplied
-(``_is``, since the tracer compares only by order), the variable shifts are
-log shifters of fixed shifts (``_shift_left``, ``_shift_right``), the bit
-length is a comparison ladder. Each is what the gates are, written out.
+tracer lowers: a frame chosen by its place is a select on the phase table,
+the variable shifts are log shifters of fixed shifts (``_shift_left``,
+``_shift_right``), the bit length is a comparison ladder. Each is what the gates are, written out.
 """
 from __future__ import annotations
 
 import numpy as np
 
 from np2hw.blocks import StreamPort
+from np2hw.blocks.params import Param
 from revela.blocks import ispblock
 
 #: Rounds of CORDIC. Each adds about one bit of angle; 12 puts the error two
@@ -143,32 +145,40 @@ ATAN = [8192, 4836, 2555, 1297, 651, 326, 163, 81, 41, 20, 10, 5]
 
 
 @ispblock(
-    version=(1, 0),
+    version=(2, 0),
     description="Last four ToF frames to phase and amplitude, by CORDIC.",
     inputs=(StreamPort("in",
-                       "A frame history's word: [k] is the sample from frame "
-                       "n-k, [0] the live frame, and [4+k] that frame's "
-                       "phase tag. Signed correlation samples riding "
-                       "unsigned under a common offset."),),
+                       "The sensor's phase frames, one reference phase a "
+                       "frame: signed correlation samples riding unsigned "
+                       "under a common offset.", history=True),),
     outputs=(StreamPort("out",
                         "Two channels: [0] phase as an accumulator where "
                         "1 << 16 is one turn, [1] amplitude. One word, "
                         "because one CORDIC produced both."),),
-    params=[],
+    params=[
+        Param(name="pos", bits=2, default=0,
+              description="The live frame's place in the sensor's capture "
+                          "loop. It moves every frame: a design binds it to "
+                          "the frame count the headers carry"),
+        Param(name="tag", bits=2, shape=(PHASES,), resets=(0, 1, 2, 3),
+              description="The reference phase each place of the capture "
+                          "loop captures. Reset: the phases in order"),
+    ],
 )
-def tofquad(pixel, p, bit_depth: int):
-    """THE model. Route by tag, quadrature, pre-scale, vectoring CORDIC."""
-    s = pixel.astype(np.int64)
-    sample = [s[..., k] for k in range(PHASES)]
-    tag = [s[..., PHASES + k] for k in range(PHASES)]
-    zero = sample[0] * 0
+def tofquad(video, p, bit_depth: int):
+    """THE model. Route by place, quadrature, pre-scale, vectoring CORDIC."""
+    s = video.astype(np.int64)
+    frame = [s[3:], s[2:-1], s[1:-2], s[:-3]]          # frame[k]: frame n - k
+    zero = frame[0] * 0
+    # the phase frame n - k carries: its place, k back from the live one's
+    carries = [p.tag[(p.pos + PHASES - k) % PHASES] for k in range(PHASES)]
 
-    # p[j]: the sample from whichever frame carries phase j.
+    # p_[j]: the sample from whichever frame carries phase j.
     p_ = []
     for j in range(PHASES):
-        picked = zero
-        for k in range(PHASES):
-            picked = picked + _is(tag[k], j, zero) * sample[k]
+        picked = frame[PHASES - 1]
+        for k in reversed(range(PHASES - 1)):
+            picked = np.where(carries[k] == j, frame[k], picked)
         p_.append(picked)
 
     x = p_[0] - p_[2]                      # I
@@ -203,18 +213,6 @@ def tofquad(pixel, p, bit_depth: int):
     # magnitude only: the angle never saw it.
     amp = _shift_right(x, shift)
     return np.stack([angle & MASK, amp & MASK], axis=-1)
-
-
-def _is(value, constant, zero):
-    """1 where ``value`` equals ``constant``, else 0 -- an equality comparator.
-
-    Written as two ordered comparisons multiplied, because the tracer
-    compares by order (``<`` ``<=`` ``>`` ``>=``) and not by equality; the
-    product is the same gate.
-    """
-    d = value - constant
-    one = zero + 1
-    return np.where(d >= 0, one, zero) * np.where(d <= 0, one, zero)
 
 
 def _bit_length(v, zero):

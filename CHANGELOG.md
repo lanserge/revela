@@ -22,6 +22,14 @@ Pre-1.0, so the block API and the map format can still change. See
   ISP's ports and register map are as they were. Unbound, the phase is the
   block's own register: a block run alone takes it in its values.
   `ispblock` binds nothing: it is np2hw's `block`.
+- **tofquad reads the stream's history** (version 2.0). Its input is the
+  sensor's phase frames as they come, the live one and the three before
+  it slices of one history input, where it was a frame history's
+  eight-channel word of four samples and four tags; nothing declares the
+  three frames kept. Which phase each frame carries is its place in the
+  capture loop: `pos`, the live frame's, bound in a design to the frame
+  count (`"frame_seq & 3"`), and `tag`, the phase each place captures. Bit
+  exact with the version before on the real captures, at every alignment.
 - **The frame count rides with the stream.** `frame_seq`, the count each
   bayerlink header carries, is a stream context fact, latched by
   `isp_entry` with the frame's geometry; a block following a capture loop
