@@ -352,3 +352,17 @@ def test_a_gpio_the_build_leaves_out_is_not_in_its_layout():
         f"x.{c}": SimpleNamespace(build={"VALUE": 0}) for c in cells})
     layout = gpio_layout(design)
     assert "rx_gpio" not in layout and "status_gpio" in layout
+
+
+def test_the_raster_times_its_quiet_by_each_rows_own_clock():
+    """The quiet lasts until a bit of a count of the row's own cycles
+    sets: the least power of two of them that is a second or more -- 1.24 s
+    at 27 MHz, 1.81 s at 74.25 and 148.5 -- from the clocks the board
+    makes, so a quiet is a time whatever the frame rate."""
+    from np2hw.design.composite import load
+    design = load("revela.boards.pynq_z2.pynq_demo")
+    word = design.instances["fabric.scanout"].build["QUIET_BITS"]
+    bits = [(word >> (8 * i)) & 0xFF for i in range(3)]
+    assert bits == [25, 27, 28]
+    for khz, bit in zip((27_000, 74_250, 148_500), bits):
+        assert 1.0 <= 2 ** bit / (khz * 1000) < 2.0

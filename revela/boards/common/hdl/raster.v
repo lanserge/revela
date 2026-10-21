@@ -79,14 +79,17 @@
 // the chart, and found it again at once off and on, until a 30 Hz mode
 // retrained it (bench-paid, the genlock steering throughout). A raster
 // starts when its clock does -- power-up, reset, a clock switch -- so for
-// G_QUIET_STEPS of time after it starts the fill is painted, the stream
-// taken and the genlock running beneath; the picture comes in on a
-// television already trained. A new picture on the same raster starts
-// nothing and shows at once.
+// a while after it starts the fill is painted, the stream taken and the
+// genlock running beneath; the picture comes in on a television already
+// trained. A sink connecting to a raster already running -- the jack's
+// hot-plug line rising -- meets the same quiet, the raster untouched. A
+// new picture on the same raster starts nothing and shows at once.
 //
-// The time is counted in fine phase steps, the one unit of time this
-// block is given: a frame lasts frame_px * ps_per_px of them, whatever
-// the clock, so the quiet is as long at 30 Hz as at 60.
+// The quiet is counted in this clock's own cycles, a time whatever the
+// frame rate or the blanking: it lasts until bit `quiet_bit` of the count
+// sets -- 2**quiet_bit cycles, which the design picks for each clock it
+// makes -- and ends at the next frame's end, so no frame is part fill.
+// About a second was measured enough, half of one not.
 module raster #(
     parameter DW = 24,                  // one pixel, on the stream and the sink (<= 32)
     parameter XB = 12,                  // bits of a line's total
@@ -95,11 +98,7 @@ module raster #(
     // How early the frame start should arrive, in lines. THIS IS
     // STORAGE: with no frame store, every line of lead is a line the
     // elastic upstream must hold.
-    parameter G_LEAD = 2,
-    // How long the fill is painted after the raster starts, in fine
-    // phase steps -- 1/56 of the clock's VCO period, 24.05 ps on a
-    // 742.5 MHz VCO: the default is 4 s of it. Taken as whole frames.
-    parameter [47:0] G_QUIET_STEPS = 48'd166320166320
+    parameter G_LEAD = 2
 ) (
     input  wire          clk,
     input  wire          rst,
@@ -124,6 +123,11 @@ module raster #(
     // fine phase-shift steps in one pixel of this clock: a fact of the
     // MMCM that makes it (56 per VCO period, times its output divider)
     input  wire [15:0]   ps_per_px,
+    // how long the fill is painted after the raster starts or a sink
+    // connects: until bit quiet_bit of a count of this clock's cycles sets
+    input  wire [4:0]    quiet_bit,
+    // the output jack's hot-plug line, as the pin has it: a sink there
+    input  wire          sink,
     // WHERE the picture goes, and how big it is
     input  wire [15:0]   win_x0,
     input  wire [15:0]   win_y0,
@@ -176,8 +180,6 @@ module raster #(
     reg [PB-1:0] s_max = 0;             // the most steps one frame spreads:
                                         // one each 16 clocks, PSDONE's ~12
                                         // inside it
-    reg [47:0] frame_steps = 0;         // a frame's length in fine steps
-    reg [31:0] line_steps = 0;          // ...and a line's
     reg [17:0] x_last = 18'd0, y_last = 18'd0;   // the window's last pixel
     reg [XB-1:0] h_last = 0;            // the line's last pixel
     reg [YB-1:0] v_last = 0;            // the frame's last line
@@ -194,8 +196,6 @@ module raster #(
         two_lines <= {h_total, 1'b0};
         owed_cap  <= {h_total, 1'b0} * ps_per_px;
         s_max     <= frame_px >> 4;
-        frame_steps <= frame_px * ps_per_px;
-        line_steps  <= h_total * ps_per_px;
     end
     // the counters start once those have settled after reset, so they
     // are worked out from the mode the raster starts on, not the one
@@ -235,11 +235,22 @@ module raster #(
     reg [YB+1:0] held_lines;            // how long the hold has lasted
     reg glocked;                        // STATUS, not a control state
     reg [2:0] lock_run;
-    // the time since the raster started, in fine steps, a frame at a
-    // time, until it passes the quiet's; a frame's steps are frame-
-    // constant, worked out once like the rest
-    reg [47:0] quiet_t;
+    // this clock's cycles since the quiet began, stopped once the bit
+    // that ends it is set
+    reg [31:0] quiet_n;
     reg quiet;                          // painting the fill
+    wire quiet_done = quiet_n[quiet_bit];
+    // A sink connecting -- the hot-plug line rising -- meets a raster
+    // already running, and trains on whatever it shows first: the quiet
+    // again, the raster untouched. The line is asynchronous: synchronised
+    // here, and its rise is the edge.
+    (* ASYNC_REG = "TRUE" *) reg [1:0] sink_s = 2'b00;
+    reg sink_q = 1'b0;
+    always @(posedge clk) begin
+        sink_s <= {sink_s[0], sink};
+        sink_q <= sink_s[1];
+    end
+    wire connected = sink_s[1] && !sink_q;
     wire steering = follow;
     wire holding = wait_sof && steering;
     // the loop: the arrival's error in signed steps (positive:
@@ -334,7 +345,7 @@ module raster #(
             vid_data <= FILL; vsyncs <= 0; vs_d <= 0;
             underflow <= 0; misalign <= 0; refused <= 0;
             sof_run <= 0; sof_cnt <= 0;
-            quiet_t <= 0; quiet <= (G_QUIET_STEPS != 0);
+            quiet_n <= 0; quiet <= 1'b1;
         end else begin
             x <= line_end ? {XB{1'b0}} : x + 1'b1;
             if (line_end) begin
@@ -372,10 +383,9 @@ module raster #(
             if (line_end) begin
                 in_period <= (in_period == 16'hFFFF) ? in_period
                                                      : in_period + 1'b1;
-                // a held line is a line, not a frame: the quiet counts the
-                // hold's time as it passes, a line's worth at a time
-                if (quiet && (holding || frame_end))
-                    quiet_t <= quiet_t + (holding ? line_steps : frame_steps);
+                // the quiet ends with a frame, never inside one
+                if (quiet && quiet_done && frame_end && !holding)
+                    quiet <= 1'b0;
                 if (frame_end && !holding && realign_cool != 0)
                     realign_cool <= realign_cool - 1'b1;
             end
@@ -397,7 +407,10 @@ module raster #(
                 due <= due - 4'd1;
             else if (!steering)
                 due <= 0;
-            if (quiet && quiet_t >= G_QUIET_STEPS) quiet <= 1'b0;
+            if (quiet && !quiet_done) quiet_n <= quiet_n + 1'b1;
+            if (connected) begin
+                quiet <= 1'b1; quiet_n <= 32'd0;
+            end
             // the stepper: one PSEN pulse, then wait for PSDONE
             ps_en <= 1'b0;
             if (ps_busy) begin

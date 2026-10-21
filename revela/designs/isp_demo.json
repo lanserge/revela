@@ -33,6 +33,9 @@
     "ps_per_pixel": {
      "description": "The fine phase steps one pixel of the raster's clock is: the fact of the clock the board makes, from the board."
     },
+    "quiet_bits": {
+     "description": "At each display clock row, in the board's clock table's order, the bit of a count of that clock's cycles that ends the raster's quiet: the fact of the clocks the board makes, from the board."
+    },
     "clk_sel": {
      "default": 0,
      "description": "The display clock's row in the board's clock table, at reset: the board's, for the default mode."
@@ -108,6 +111,10 @@
     {
      "name": "raster_ps_done",
      "description": "The display clock's fine phase step is done."
+    },
+    {
+     "name": "sink",
+     "description": "The display jack's hot-plug line: a sink connecting meets the raster's quiet."
     },
     {
      "name": "en_grab",
@@ -314,7 +321,8 @@
     "scanout": {
      "block": "revela.boards.common.modules:scanout",
      "build": {
-      "FILL": "fill"
+      "FILL": "fill",
+      "QUIET_BITS": "@revela.boards.common.clocking:rows_word(quiet_bits, 8)"
      }
     },
     "scanout_regs": {
@@ -791,7 +799,11 @@
      "from": "cable_bus.m02_axi",
      "to": "cable_board",
      "when": "board_window"
-    }
+    },
+    [
+     "sink",
+     "scanout.sink"
+    ]
    ]
   }
  }

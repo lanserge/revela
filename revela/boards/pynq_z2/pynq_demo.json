@@ -59,6 +59,10 @@
      ],
      "description": "The display clocks this board makes, row by row of its clock select: 480p's, the 720p/1080p family's, and 1080p50/60's. Rows 1 and 2 share one clock manager's VCO."
     },
+    "quiet_ms": {
+     "default": 1000,
+     "description": "The least the display paints the fill for after its raster starts or a sink connects, so a television trains its receiver on a dark picture: about a second was measured enough, half of one not. Each clock row's quiet is the least power of two of its cycles this long or longer."
+    },
     "raster27_divclk": {
      "default": 8,
      "description": "Row 0's recipe: 200 MHz / 8 x 27, a 675 MHz VCO, divides to 27 MHz."
@@ -129,6 +133,11 @@
       "lane_map": "hdmi_in.lane_map",
       "vsync_active_high": "hdmi_in.vsync_active_high",
       "ps_per_pixel": "@revela.boards.common.clocking:fine_steps(fclk1_khz, raster27_divclk, raster27_mult8, out_khz) if out_khz == tv_khz_rows[0] else @revela.boards.common.clocking:fine_steps(fclk1_khz, raster_divclk, raster_mult8, out_khz)",
+      "quiet_bits": [
+       "@revela.boards.common.clocking:quiet_bit(tv_khz_rows[0], quiet_ms)",
+       "@revela.boards.common.clocking:quiet_bit(tv_khz_rows[1], quiet_ms)",
+       "@revela.boards.common.clocking:quiet_bit(tv_khz_rows[2], quiet_ms)"
+      ],
       "clk_sel": "@revela.boards.common.clocking:row(tv_khz_rows, out_khz)",
       "board_window": 2048
      }
@@ -347,6 +356,10 @@
             "description": "The CFA phase the last header declared."
            }
           ]
+         },
+         {
+          "name": "sink",
+          "description": "The display jack's hot-plug line, as the raster reads it: a sink connected."
          }
         ]
        },
@@ -1354,7 +1367,15 @@
      "from": "hdmi_in.survey_lane_aligned",
      "to": "rx.survey_lane_aligned",
      "when": "front_end == 'tmds_rx'"
-    }
+    },
+    [
+     "hdmi_out.sink",
+     "fabric.sink"
+    ],
+    [
+     "hdmi_out.sink",
+     "status.sink"
+    ]
    ],
    "pins": [
     {

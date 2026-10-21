@@ -44,6 +44,10 @@
     {
      "name": "hdmi_tx",
      "interface": true
+    },
+    {
+     "name": "hdmi_tx_hpdn",
+     "dir": "I"
     }
    ],
    "constraints": [
@@ -56,6 +60,10 @@
       "pixel_khz": "out_khz",
       "serial_clock": "serial_clock"
      }
+    },
+    "hpd_inv": {
+     "block": "np2hw.hdl.glue:not",
+     "description": "The jack's hot-plug line reaches the pin inverted (TUL names it hdmi_tx_hpdn): high at the pin is no sink."
     }
    },
    "connections": [
@@ -79,7 +87,21 @@
     [
      "hdmi_tx.TMDS",
      "hdmi_tx"
+    ],
+    [
+     "hdmi_tx_hpdn",
+     "hpd_inv.a"
+    ],
+    [
+     "hpd_inv.y",
+     "sink"
     ]
+   ],
+   "outputs": [
+    {
+     "name": "sink",
+     "description": "The jack's hot-plug line: high while a sink is connected and ready to read the EDID."
+    }
    ]
   }
  }

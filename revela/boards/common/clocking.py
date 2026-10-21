@@ -72,6 +72,30 @@ def fine_steps(in_khz: int, divclk: int, mult8: int, out_khz: int) -> int:
 fine_steps.expression = True
 
 
+def quiet_bit(khz: int, ms: int) -> int:
+    """The bit of a count of a `khz` clock's cycles that sets once at least
+    `ms` milliseconds have passed: how a raster times its quiet with a
+    counter and no arithmetic -- 2**bit cycles, the least such power."""
+    return max(0, (khz * ms - 1).bit_length())
+
+
+quiet_bit.expression = True
+
+
+def rows_word(values, bits: int = 32) -> int:
+    """One value a display clock row, `bits` a row, row 0 lowest: a table
+    a Verilog parameter carries."""
+    word = 0
+    for i, v in enumerate(values):
+        if not 0 <= int(v) < 1 << bits:
+            raise ValueError(f"row {i}: {v} is not a {bits}-bit value")
+        word |= int(v) << (bits * i)
+    return word
+
+
+rows_word.expression = True
+
+
 def pixel_khz(mode: str) -> int:
     """A raster's pixel clock by its name (``1080p30``), from bayerlink's
     rasters: for a design's expression,

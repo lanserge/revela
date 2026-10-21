@@ -12,6 +12,20 @@ Pre-1.0, so the block API and the map format can still change. See
 
 ### Added
 
+- **A sink connecting meets the dark start too.** The HDMI-out jack's
+  hot-plug line reaches the raster (`hdmi_out`'s `sink`; the pin, TUL's
+  `hdmi_tx_hpdn`, is inverted), and its rise paints the fill for the
+  quiet again on a raster already running -- a television switched on or
+  plugged in trains on a dark picture, the raster untouched. Its level is
+  in the status word (`sink`).
+- **The dark start is about a second, counted by a counter.** It lasted
+  4 s; one second was measured enough on the bench, half of one not. The
+  raster counts its own clock's cycles and ends the quiet at the frame
+  end after one bit of the count sets -- the least power of two of each
+  clock row's cycles that is `quiet_ms` (1000) or longer, worked out by the
+  design from the rows it makes (`clocking:quiet_bit`): 1.24 s at 27 MHz,
+  1.81 s at 74.25 and 148.5. A time whatever the frame rate or the
+  blanking, with no arithmetic in the raster, and no frame part fill.
 - **The firmware sets the display's fields by name.** `set raster.<field>`
   and `get raster.<field>` reach every field of the display's file, for a
   bench to read or nudge one the firmware gives no value of.

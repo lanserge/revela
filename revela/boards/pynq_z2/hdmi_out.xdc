@@ -9,3 +9,8 @@ set_property -dict { PACKAGE_PIN K19 IOSTANDARD TMDS_33 } [get_ports {hdmi_tx_da
 set_property -dict { PACKAGE_PIN J19 IOSTANDARD TMDS_33 } [get_ports {hdmi_tx_data_n[1]}]
 set_property -dict { PACKAGE_PIN J18 IOSTANDARD TMDS_33 } [get_ports {hdmi_tx_data_p[2]}]
 set_property -dict { PACKAGE_PIN H18 IOSTANDARD TMDS_33 } [get_ports {hdmi_tx_data_n[2]}]
+## The jack's hot-plug line, inverted on its way to the pin (TUL names it
+## hdmi_tx_hpdn): asynchronous, and synchronised
+## where the raster reads it, so no path from the pin is timed.
+set_property -dict { PACKAGE_PIN R19 IOSTANDARD LVCMOS33 } [get_ports hdmi_tx_hpdn]
+set_false_path -from [get_ports hdmi_tx_hpdn]

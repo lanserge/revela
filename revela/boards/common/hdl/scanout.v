@@ -39,7 +39,11 @@ module scanout #(
     parameter XB = 12,
     parameter YB = 11,
     parameter [DW-1:0] FILL = 24'h101010,
-    parameter G_LEAD = 2
+    parameter G_LEAD = 2,
+    // the bit of a count of the display clock's cycles that ends the
+    // quiet, at each clock row, 8 bits a row, row 0 lowest: the design's,
+    // from the clocks it makes -- 27 at 74.25 MHz is 1.81 s
+    parameter [31:0] QUIET_BITS = {4{8'd27}}
 ) (
     (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 clk CLK", X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axis:vid, ASSOCIATED_RESET rst" *)
     input  wire          clk,
@@ -72,6 +76,8 @@ module scanout #(
     // 1: the raster follows the stream (the direct picture is on); 0: it
     // holds its mode unsteered, painting the fill
     input  wire          param_follow,
+    // the output jack's hot-plug line: a sink connecting meets the quiet
+    input  wire          sink,
     output wire          ps_en,
     output wire          ps_incdec,
     input  wire          ps_done,
@@ -101,6 +107,7 @@ module scanout #(
     reg [YB-1:0] v_total, v_active, vs_beg, vs_end;
     reg          hs_pos, vs_pos, center;
     reg [15:0]   ps_per_px, win_x0, win_y0;
+    reg [4:0]    quiet_bit = QUIET_BITS[4:0];
     reg [1:0]    clk_sel_q = 2'd0;
     reg [15:0]   win_w = 16'd0, win_h = 16'd0;
     initial arm_ack = 1'b0;
@@ -128,6 +135,8 @@ module scanout #(
                 ps_per_px <= reg_ps_per_px;
                 win_x0 <= reg_win_x0; win_y0 <= reg_win_y0;
                 center <= reg_center;
+                // the quiet's length on the row the copy brings
+                quiet_bit <= QUIET_BITS[reg_clk_sel * 8 +: 5];
                 clk_sel_q <= reg_clk_sel;
                 have    <= 1'b1;
                 arm_ack <= 1'b1;
@@ -150,6 +159,7 @@ module scanout #(
         .v_total(v_total), .v_active(v_active),
         .vs_beg(vs_beg), .vs_end(vs_end),
         .hs_pos(hs_pos), .vs_pos(vs_pos), .ps_per_px(ps_per_px),
+        .quiet_bit(quiet_bit), .sink(sink),
         .win_x0(win_x0), .win_y0(win_y0), .win_w(win_w), .win_h(win_h),
         .center(center), .follow(param_follow),
         .ps_en(ps_en), .ps_incdec(ps_incdec), .ps_done(ps_done),

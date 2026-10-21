@@ -16,7 +16,8 @@ module tb_raster_smooth #(
     parameter DRIFT = 20,               // steps a frame the source gains
     parameter START = 0,                // the first arrival, pixels late
     parameter FRAMES = 300,
-    parameter QUIET = 0,                // frames of raster.v's quiet
+    parameter QUIET_BIT = 0,            // raster.v's quiet: 2**QUIET_BIT clocks
+    parameter SINK_AT = -1,             // the frame a sink connects at
     parameter JUMP_AT = -1,             // the frame the source's phase jumps
     parameter JUMP_PX = 0               // ...by this many pixels, later
 );
@@ -33,15 +34,17 @@ module tb_raster_smooth #(
     wire act, hs, vs;
     wire [23:0] data;
     wire [14:0] status;
-    raster #(.XB(12), .YB(11), .G_LEAD(2),
-             .G_QUIET_STEPS(QUIET * FPX * PS)) dut (
+    // the sink's hot-plug line rises at frame SINK_AT
+    reg sink = 0;
+    raster #(.XB(12), .YB(11), .G_LEAD(2)) dut (
         .clk(clk), .rst(rst), .locked(1'b1),
         .s_axis_tdata(24'h0), .s_axis_tvalid(tvalid),
         .s_axis_tready(tready), .s_axis_tuser(tuser), .s_axis_tlast(1'b0),
         .h_total(12'd100), .h_active(12'd80), .hs_beg(12'd84),
         .hs_end(12'd90), .v_total(11'd50), .v_active(11'd40),
         .vs_beg(11'd42), .vs_end(11'd44), .hs_pos(1'b1), .vs_pos(1'b1),
-        .ps_per_px(16'd7), .win_x0(16'd0), .win_y0(16'd10),
+        .ps_per_px(16'd7), .quiet_bit(QUIET_BIT[4:0]), .sink(sink),
+        .win_x0(16'd0), .win_y0(16'd10),
         .win_w(16'd80), .win_h(16'd30), .center(1'b0), .follow(FOLLOW[0]),
         .ps_en(ps_en), .ps_incdec(ps_incdec), .ps_done(ps_done),
         .act_x0(ax0), .act_y0(ay0), .vid_active_video(act),
@@ -77,6 +80,16 @@ module tb_raster_smooth #(
     reg [11:0] x_d = 0;
     reg [10:0] y_d = 0;
     reg run_d = 0;
+    // The quiet ends with a frame: the fill gives way to the stream only
+    // as a frame's last pixel passes, never part-way through one (x_d and
+    // y_d, below, are where the raster was as the quiet fell).
+    reg quiet_d = 1;
+    integer quiet_cuts = 0;
+    always @(posedge clk) begin
+        if (quiet_d && !dut.quiet && !(x_d == HT - 1 && y_d == VT - 1))
+            quiet_cuts = quiet_cuts + 1;
+        quiet_d <= dut.quiet;
+    end
     always @(posedge clk) begin
         if (run_d) begin
             if (dut.x != x_d + 1 && !(dut.x == 0 && x_d == HT - 1))
@@ -112,11 +125,13 @@ module tb_raster_smooth #(
                          astray, held);
                 shown = 0; astray = 0; held = 0;
                 frame = frame + 1;
+                if (frame == SINK_AT) sink <= 1;
                 steps = 0; gap_min = 0; gap_max = 0;
                 due_at = due_at + FPX * PS - DRIFT
                        + ((frame == JUMP_AT) ? JUMP_PX * PS : 0);
                 if (frame > FRAMES) begin
-                    $display("FIRST SHOWN at %0d", first_seen);
+                    $display("FIRST SHOWN at %0d quiet_cuts=%0d", first_seen,
+                             quiet_cuts);
                     $display("smooth: done");
                     $finish;
                 end

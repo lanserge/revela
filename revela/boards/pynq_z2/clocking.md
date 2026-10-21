@@ -128,9 +128,12 @@ one after on target -- one long vertical blanking, under a cooldown.
 A raster starts the same way, from power-up or a clock switch, so
 its first frame is aligned and whole; and the clock switch itself is
 taken with the mode it is for, after a frame's last line (the clock's
-row is in the raster's armed copy). For 4 s after a raster starts it
-paints the fill, so a television trains its receiver on a dark
-picture (`raster.v`'s header says why). When the source disappears,
+row is in the raster's armed copy). For about a second after a raster
+starts -- and after a sink connects to one already running, the jack's
+hot-plug line rising -- it paints the fill, so a television trains its
+receiver on a dark picture (`raster.v`'s header says why); the time is a
+power of two of the row's own clock cycles, the least that is a second
+or more, ended at a frame's end. When the source disappears,
 the steering stops and the raster keeps running on its own; it never
 borrowed anything from the cable, so it has nothing to give back.
 

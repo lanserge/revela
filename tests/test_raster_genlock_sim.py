@@ -46,23 +46,25 @@ def test_the_raster_steers_by_the_arrival_error_and_holds_once(tmp_path):
     assert all(got[n][3] == 0 for n in got)             # never a cut
 
 
-def _smooth(tmp_path, follow=1, drift=20, start=0, frames=160, quiet=0,
-            jump_at=-1, jump_px=0):
+def _smooth(tmp_path, follow=1, drift=20, start=0, frames=160, quiet_bit=0,
+            jump_at=-1, jump_px=0, sink_at=-1):
     """The closed-loop bench: each frame's arrival error (pixels), the
     steps the raster made over it (positive retards), the cuts so far, the
     closest and widest gaps between its steps, how many of the stream's
     pixels reached the sink, whether the first of them was astray of the
     window's first pixel, and whether the raster held; and the clock the
     stream's first pixel reached the sink on."""
-    vvp = tmp_path / f"smooth_{follow}_{drift}_{start}_{quiet}_{jump_at}.vvp"
+    vvp = tmp_path / (f"smooth_{follow}_{drift}_{start}_{quiet_bit}"
+                      f"_{jump_at}_{sink_at}.vvp")
     subprocess.run(["iverilog", "-g2012", "-o", str(vvp),
                     f"-Ptb_raster_smooth.FOLLOW={follow}",
                     f"-Ptb_raster_smooth.DRIFT={drift}",
                     f"-Ptb_raster_smooth.START={start}",
                     f"-Ptb_raster_smooth.FRAMES={frames}",
-                    f"-Ptb_raster_smooth.QUIET={quiet}",
+                    f"-Ptb_raster_smooth.QUIET_BIT={quiet_bit}",
                     f"-Ptb_raster_smooth.JUMP_AT={jump_at}",
                     f"-Ptb_raster_smooth.JUMP_PX={jump_px}",
+                    f"-Ptb_raster_smooth.SINK_AT={sink_at}",
                     str(COMMON / "sim" / "tb_raster_smooth.v"),
                     str(COMMON / "hdl" / "raster.v")],
                    check=True, capture_output=True, text=True)
@@ -72,8 +74,10 @@ def _smooth(tmp_path, follow=1, drift=20, start=0, frames=160, quiet=0,
     rows = [tuple(int(v) for v in row) for row in re.findall(
         r"FRAME \d+ err=(-?\d+) steps=(-?\d+) cuts=(\d+) gap=(\d+)\.\.(\d+) "
         r"shown=(\d+) astray=(\d+) held=(\d+)", run.stdout)]
-    first = int(re.search(r"FIRST SHOWN at (-?\d+)", run.stdout).group(1))
-    return rows, first
+    shown = re.search(r"FIRST SHOWN at (-?\d+) quiet_cuts=(\d+)", run.stdout)
+    # the fill gives way to the stream only where a frame begins
+    assert shown.group(2) == "0", "the quiet ended inside a frame"
+    return rows, int(shown.group(1))
 
 
 # the bench's frame, in clocks
@@ -149,17 +153,37 @@ def test_follow_off_neither_steps_nor_holds(tmp_path):
 
 
 def test_a_new_raster_paints_the_fill_while_the_television_finds_it(tmp_path):
-    """G_QUIET_STEPS of time after the raster starts -- counted from
-    reset, its hold included -- show none of the stream: a television
-    trains on a dark picture at once and on a dense one in minutes. The
-    first pixel shown comes on the first frame past that time, and every
-    frame after shows, as every frame does with no quiet at all, once the
-    genlock has locked."""
-    loud, loud_first = _smooth(tmp_path, quiet=0, frames=16)
-    rows, first = _smooth(tmp_path, quiet=10, frames=16)
+    """2**quiet_bit clocks after the raster starts -- counted from reset,
+    its hold included -- show none of the stream: a television trains on a
+    dark picture at once and on a dense one in minutes. The first pixel
+    shown comes on the first frame past that time, and every frame after
+    shows, as every frame does with no quiet at all, once the genlock has
+    locked."""
+    loud, loud_first = _smooth(tmp_path, quiet_bit=0, frames=18)
+    rows, first = _smooth(tmp_path, quiet_bit=16, frames=18)
     assert loud_first < 7 * FRAME
-    assert 10 * FRAME <= first < 11 * FRAME + 11 * H_TOTAL, first
+    assert 2 ** 16 <= first < 2 ** 16 + FRAME + 11 * H_TOTAL, first
     shown = [r[5] for r in rows]
     start = next(i for i, n in enumerate(shown) if n)
     assert all(n > 0 for n in shown[start:]), shown
     assert all(r[2] == 0 for r in rows)
+    # the quiet ends with a frame: none is shown from inside itself
+    assert all(r[6] == 0 for r in rows), rows
+
+
+def test_a_sink_connecting_meets_the_quiet_on_a_raster_already_running(
+        tmp_path):
+    """The jack's hot-plug line rising -- a television switched on, or
+    plugged in, to a raster long since showing the stream -- paints the
+    fill again for the quiet, the raster untouched: no cut, the genlock
+    held, and every frame after the quiet shows again."""
+    rows, _ = _smooth(tmp_path, quiet_bit=15, frames=40, sink_at=25)
+    shown = [r[5] for r in rows]
+    assert all(shown[n] > 0 for n in range(14, 25)), shown
+    dark = [n for n in range(25, 40) if shown[n] == 0]
+    # 2**15 clocks is 6.6 of the bench's frames, ended at a frame's end
+    assert dark and 6 <= len(dark) <= 8 and dark[0] <= 26, shown
+    assert all(n > 0 for n in shown[dark[-1] + 1:]), shown
+    assert all(r[2] == 0 for r in rows), "a cut"
+    assert all(r[6] == 0 for r in rows), "a frame shown from its middle"
+    assert not any(r[7] for r in rows[25:]), "the raster held for a connect"

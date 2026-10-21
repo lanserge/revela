@@ -81,7 +81,7 @@ module tb;
       .reg_center(center), .reg_clk_sel(clk_sel_req),
       .pic_w(pic_w), .pic_h(pic_h),
       .arm_req(arm_req), .arm_ack(arm_ack), .clk_sel(clk_sel),
-      .param_follow(1'b0), .ps_en(ps_en), .ps_incdec(ps_incdec),
+      .param_follow(1'b0), .sink(1'b0), .ps_en(ps_en), .ps_incdec(ps_incdec),
       .ps_done(1'b1),
       // The stream is not what is under test: the raster holds its mode
       // and paints fill, which still gives real blanking to land in.
@@ -207,6 +207,8 @@ module tb;
     check(dut.win_x0 === 16'd0 && dut.center === 1'b1,
           "written but unarmed: the raster has not moved");
     check(clk_sel === 2'd0, "written but unarmed: the clock has not switched");
+    check(dut.quiet_bit === 5'd27,
+          "the reset copy's quiet: its row's bit of the clock's count");
 
     // ARMED, THE COPY IS TAKEN -- in blanking, which the monitor above
     // is watching for, and within a frame.

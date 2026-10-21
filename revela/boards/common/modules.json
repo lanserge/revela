@@ -300,6 +300,10 @@
      "description": "1: follow the stream; 0: hold the mode unsteered, painting the fill."
     },
     {
+     "name": "sink",
+     "description": "The output jack's hot-plug line, as the pin has it: a sink connecting meets the quiet again."
+    },
+    {
      "name": "ps_done",
      "description": "The raster clock's fine phase step is made."
     },
@@ -371,6 +375,10 @@
     "G_LEAD": {
      "default": 2,
      "description": "How many lines early a frame's start should arrive: storage the elastic before the raster holds."
+    },
+    "QUIET_BITS": {
+     "default": 454761243,
+     "description": "The bit of a count of the display clock's cycles that ends the raster's quiet, at each clock row, 8 bits a row, row 0 lowest: from the clocks the design makes."
     }
    }
   },
