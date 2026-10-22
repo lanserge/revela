@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "name": "arducam_tof",
+  "vendor": "Arducam",
+  "part_number": "Arducam ToF Camera (Sony IMX316)",
+  "description": "A time-of-flight camera module: a Sony IMX316 behind the module's own microcontroller, which sets the sensor up, so the source selects nothing over I2C. It measures distance as the correlation of the returning light with four reference phases, one phase a frame: 240x180 twelve-bit mono words, each an eleven-bit two's complement sample, four frames a few milliseconds apart and then a wait, on the module's own clock.",
+  "provenance": {
+    "derived_from": [
+      {
+        "kind": "measurement",
+        "reference": "This project's bench: the module on a Raspberry Pi 2 over V4L2, 2026-10-21, compared against the vendor SDK's own raw buffers (correlation >= 0.996).",
+        "notes": "The SDK sends nothing over I2C (traced): it sets the driver's trigger_mode control to 0 and streams 240x180 Y12. Each word is an eleven-bit two's complement sample in twelve bits. Frames come four 3.86 ms apart, then a ~21.8 ms gap, about 30 measurements a second; the frame after the gap is the first reference phase."
+      },
+      {
+        "kind": "measurement",
+        "reference": "This project's bench, 2026-10-22: the bridge carrying the module, 120.044 phase frames a second timed between loop starts."
+      }
+    ],
+    "gpl_driver_transcribed": false
+  },
+  "format": {
+    "bit_depth": 12,
+    "packing": "mipi_raw12",
+    "color": "mono",
+    "csi_data_type": 44
+  },
+  "frames": {
+    "loop": 4
+  },
+  "controls": {
+    "trigger_mode": 0
+  },
+  "modes": [
+    {
+      "name": "phases_240x180",
+      "width": 240,
+      "height": 180,
+      "display": "480p60"
+    }
+  ]
+}

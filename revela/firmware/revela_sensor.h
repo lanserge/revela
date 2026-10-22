@@ -14,7 +14,7 @@
 
 #include <stdint.h>
 
-#define REVELA_SENSOR_API 5
+#define REVELA_SENSOR_API 7
 
 /* fitted ISP parameters, keyed <composite>/<path relative to it>
  * ("revela.pipelines.bayer_isp:bayer_isp/ccm.m_0_0") -- semantic keys,
@@ -44,6 +44,15 @@ struct revela_sensor_write {
     uint8_t value;
 };
 
+/* A display raster: totals, sync windows, polarities, pixel clock.
+ * Positions count from the first active pixel (line). */
+struct revela_raster {
+    uint32_t pixel_khz;
+    uint32_t h_total, v_total, h_active, v_active;
+    uint32_t hs_beg, hs_end, vs_beg, vs_end;
+    uint8_t  hsync_positive, vsync_positive;
+};
+
 /* A readout mode: the frame it delivers, its timing at its defaults (line
  * and frame length are the run-time controls' from there), and the writes
  * that select it. bayer_phase is the order this mode reads out: 0 RGGB,
@@ -55,6 +64,16 @@ struct revela_sensor_mode {
     uint32_t pixel_rate_hz, line_length_pck, frame_length_lines;
     const struct revela_sensor_write *writes;
     uint32_t n_writes;
+    /* the display a board that keeps the pictures shows this mode on;
+     * NULL: the board's own */
+    const struct revela_raster *display;
+};
+
+/* a control its driver is to be set to before the sensor streams, by the
+ * name V4L2 tools print */
+struct revela_sensor_control {
+    const char *name;
+    int32_t value;
 };
 
 struct revela_sensor {
@@ -64,6 +83,11 @@ struct revela_sensor {
     const struct revela_sensor_facts *facts;    /* NULL: unstated */
     const struct revela_sensor_mode *modes;     /* n_modes of them */
     uint32_t n_modes;
+    uint32_t loop;              /* frames to one measurement, each its own
+                                   frame on the wire; 0: one picture a
+                                   frame */
+    const struct revela_sensor_control *controls;   /* n_controls */
+    uint32_t n_controls;
 };
 
 /* implemented by the sensor module, weak in the core: absent, NULL */

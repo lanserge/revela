@@ -183,11 +183,17 @@ def main(argv=None) -> int:
         entry = {"base": window["base"], "size": window["size"]}
         if "offsets" in facts:
             entry.update(registers=facts["offsets"], id=facts["id"])
+        if "resets" in facts:
+            entry["resets"] = facts["resets"]
         if in_isp(path):
             # the clock the ISP takes a sample a cycle on: how fast a
             # source may hand it samples, traced to the fabric clock
             # that drives it
             entry["clock_khz"] = isp_khz(path)
+            # whether the ISP keeps frames: its pictures then come at the
+            # display's pace, so the far end chooses the display's mode
+            # rather than genlocking it to the link
+            entry["keeps_frames"] = bool(design.parameters["frame_store"])
         return entry
     # The ISP is the design's ISP slot, whatever sits inside it: the
     # register window within it -- the slot itself for a pipeline of

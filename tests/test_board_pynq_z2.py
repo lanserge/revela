@@ -384,6 +384,8 @@ def test_the_cable_map_publishes_the_display_clocks(built):
     # it, as the processor is told to make it
     fabric = json.loads((built / "generated" / "clocks.json").read_text())
     assert cable["isp"]["clock_khz"] == round(fabric["fclk0_mhz"] * 1000)
+    # the camera's ISP keeps none: its display is genlocked to the link
+    assert cable["isp"]["keeps_frames"] is False
     assert "clk_sel" in cable["scanout_regs"]["registers"]
 
 
@@ -449,3 +451,17 @@ def test_the_far_end_finds_the_isp_wherever_it_sits(tmp_path):
     assert "isp" in cable and "core" not in cable
     fabric = json.loads((out / "generated" / "clocks.json").read_text())
     assert cable["isp"]["clock_khz"] == round(fabric["fclk0_mhz"] * 1000)
+    # it keeps frames: the far end chooses its display's mode
+    assert cable["isp"]["keeps_frames"] is True
+    # and the display the board starts in is the build's mode, its clock
+    # the row that makes it: what the firmware holds until told another
+    from bayerlink.rasters import raster
+    from np2hw.design.composite import load
+    mode = raster(load(blockdesign.DESIGN, build=blockdesign.variant(out))
+                  .parameters["mode"])
+    scan = cable["scanout_regs"]
+    boot = scan["resets"]
+    assert scan["clocks"][boot["clk_sel"]]["khz"] == mode.pixel_khz
+    for f in ("h_total", "v_total", "h_active", "v_active", "hs_beg",
+              "hs_end", "vs_beg", "vs_end"):
+        assert boot[f] == getattr(mode, f), f

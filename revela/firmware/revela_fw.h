@@ -27,15 +27,6 @@ struct revela_frame {
 };                              /* its timing is the sensor's own mode's:
                                    nothing downstream is told a rate */
 
-/* A display raster: totals, sync windows, polarities, pixel clock.
- * Positions count from the first active pixel (line). */
-struct revela_raster {
-    uint32_t pixel_khz;
-    uint32_t h_total, v_total, h_active, v_active;
-    uint32_t hs_beg, hs_end, vs_beg, vs_end;
-    uint8_t  hsync_positive, vsync_positive;
-};
-
 /* Where the picture sits in the raster; center derives the offsets. */
 struct revela_window {
     uint32_t x0, y0, width, height;

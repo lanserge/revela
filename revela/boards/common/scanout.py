@@ -62,7 +62,10 @@ def scanout_regs(mode: str, ps_per_pixel: int, clk_sel: int = 0) -> dict:
                       # where software finds each field, and the word
                       # that says the file is this layout
                       "offsets": regs["offsets"],
-                      "id": layout_id(fields)}}
+                      "id": layout_id(fields),
+                      # what each field holds in an unwritten bitstream:
+                      # the display the board starts in
+                      "resets": defaults}}
 
 
 scanout_regs.leaf = True

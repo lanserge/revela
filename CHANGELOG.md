@@ -12,6 +12,35 @@ Pre-1.0, so the block API and the map format can still change. See
 
 ### Added
 
+- **A mono sensor, a loop of frames and driver controls are sensor
+  facts.** The sensor schema takes `format.color: mono`, with the colour
+  filter array, gain, exposure, black level and timing required only of a
+  Bayer sensor; `frames.loop`, the frames to one measurement; and
+  `controls`, the driver controls a source sets before streaming.
+  `arducam_tof` describes the Arducam time-of-flight module from bench
+  measurement. A sensor module carries its loop and its controls as data
+  (`revela_sensor.h` API 6), and on a Pi the glue hands them to the
+  bridge, so the source learns how the sensor's frames come from the one
+  description; a sensor with no tuning profile packages too. The
+  firmware's status says whether the board's ISP keeps frames (`keeps=`,
+  from the cable map), so a source chooses the display's mode where it
+  does rather than genlocking it.
+
+- **The firmware holds the display the board starts in.** The cable map
+  states the display registers' resets (`scanout_regs.resets`, published
+  by the register file itself), the core is cut with them as its
+  configuration until an `init` names another display, and its status
+  reports that display before anything is written. An `init` that names
+  no display arms the board's own.
+
+- **A sensor mode states its display.** A mode in `sensor.json` may name
+  the display its pictures are shown on (`"display": "480p60"`, from
+  bayerlink's raster table); the sensor module carries it as numbers
+  (`revela_sensor.h` API 7, which now defines `revela_raster`), and on a
+  board that keeps the pictures, choosing the mode arms it unless the init
+  names another display. `arducam_tof` shows its 120 phase frames a second
+  at 480p60.
+
 - **The board builds a time-of-flight design.** `revela.boards.pynq_z2.tof:
   revela_tof_core` is `tof_core` then `depthview`, the new block that
   makes depth a colour a display shows -- red near through green to blue

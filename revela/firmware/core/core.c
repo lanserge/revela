@@ -31,7 +31,9 @@ __attribute__((weak)) const struct revela_algo *revela_awb(void);
 __attribute__((weak)) const struct revela_algo *revela_af(void);
 
 static const struct revela_hal *H;
-static struct revela_config cur;
+/* the configuration in force: the display the board starts in, until an
+ * init names another */
+static struct revela_config cur = {.display = REVELA_BOOT_DISPLAY};
 static int map_ok;                      /* the ISP proved it is this build */
 static int configured;
 static char last_err[160] = "not initialised";
@@ -580,6 +582,11 @@ int revela_fw_status(char *line, uint32_t cap) {
      * a line faster than that */
     if (n > 0 && (uint32_t)n < cap)
         n += snprintf(line + n, cap - n, " isp_khz=%u", (unsigned)REVELA_ISP_KHZ);
+    /* whether the ISP keeps frames: a display then runs at the mode
+     * chosen for it, not at the link's rate */
+    if (n > 0 && (uint32_t)n < cap)
+        n += snprintf(line + n, cap - n, " keeps=%u",
+                      (unsigned)REVELA_KEEPS_FRAMES);
     /* the display's counters, in bits: the longest raster it scans */
     if (n > 0 && (uint32_t)n < cap)
         n += snprintf(line + n, cap - n, " counters=%ux%u",
@@ -664,6 +671,10 @@ static int parse(const char *text, struct revela_config *c, char *err,
             c->frame.height = m->height;
             c->frame.bits = m->bits;
             c->frame.bayer_phase = m->bayer_phase;
+            /* a board that keeps the pictures shows them on the display
+             * the mode states, unless the line goes on to name another;
+             * one genlocked to the link shows the link's timing */
+            if (REVELA_KEEPS_FRAMES && m->display) c->display = *m->display;
             continue;
         }
         size_t i = 0;

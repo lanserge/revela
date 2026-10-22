@@ -19,6 +19,11 @@ from revela import sensors
 from revela.blocks import pipe
 
 SENSOR_NAMES = sensors.available()
+# the sensors whose samples sit on a colour filter array, and so state its
+# order, a gain and an exposure law and their timing; a mono sensor states
+# those it has
+BAYER_NAMES = [n for n in SENSOR_NAMES
+               if sensors.load(n)["format"].get("color", "bayer") == "bayer"]
 
 
 def test_there_are_sensors_to_check():
@@ -80,7 +85,7 @@ def test_no_per_unit_calibration_is_committed(name):
         "calibration output, loaded at runtime, and must not live in the repo.")
 
 
-@pytest.mark.parametrize("name", SENSOR_NAMES)
+@pytest.mark.parametrize("name", BAYER_NAMES)
 def test_stated_max_gain_matches_the_code_range(name):
     """A stated maximum must agree with the mapping and the code limit.
 
@@ -103,7 +108,7 @@ def test_stated_max_gain_matches_the_code_range(name):
             f"gives {derived}")
 
 
-@pytest.mark.parametrize("name", SENSOR_NAMES)
+@pytest.mark.parametrize("name", BAYER_NAMES)
 def test_stated_line_time_matches_the_derivation(name):
     """If line_time_ns is stated, it must agree with line_length / pixel_rate."""
     description = sensors.load(name)
@@ -123,7 +128,7 @@ def test_mode_names_are_unique(name):
     assert len(modes) == len(set(modes)), f"{name}: duplicate mode names in {modes}"
 
 
-@pytest.mark.parametrize("name", SENSOR_NAMES)
+@pytest.mark.parametrize("name", BAYER_NAMES)
 def test_coarse_integration_fits_the_shortest_mode(name):
     """The exposure clamp must leave at least one usable line in every mode."""
     description = sensors.load(name)
@@ -137,7 +142,7 @@ def test_coarse_integration_fits_the_shortest_mode(name):
 # What the rest of the library does with a description
 # --------------------------------------------------------------------------- #
 
-@pytest.mark.parametrize("name", SENSOR_NAMES)
+@pytest.mark.parametrize("name", BAYER_NAMES)
 def test_the_cfa_order_names_a_bayer_phase(name):
     """Bayer phase reaches the hardware with the stream or as a register,
     never as a build option -- and every sensor's CFA order names one."""
@@ -152,7 +157,9 @@ def test_the_cfa_order_names_a_bayer_phase(name):
 # --------------------------------------------------------------------------- #
 
 def _valid_description() -> dict:
-    return json.loads(sensors.path_for(SENSOR_NAMES[0]).read_text())
+    """A Bayer sensor's description, whose every field the tests below
+    can break one at a time."""
+    return json.loads(sensors.path_for(BAYER_NAMES[0]).read_text())
 
 
 def test_schema_rejects_committed_calibration():
@@ -223,3 +230,18 @@ def test_every_mode_names_a_sequence_that_exists():
             seq = mode.get("register_sequence")
             if seq:
                 assert seq in d.get("register_sequences", {}), (name, seq)
+
+
+def test_a_mono_sensor_states_no_colour_filter_and_its_frames_loop():
+    """A mono sensor -- a time-of-flight module -- needs no CFA, gain law
+    or timing; a Bayer one does; and a loop of frames is at least two."""
+    tof = sensors.load("arducam_tof")
+    assert tof["format"]["color"] == "mono" and "cfa" not in tof
+    assert tof["frames"]["loop"] == 4
+    bayer = _valid_description()
+    del bayer["cfa"]
+    with pytest.raises(jsonschema.ValidationError, match="cfa"):
+        sensors.validate(bayer)
+    tof["frames"]["loop"] = 1
+    with pytest.raises(jsonschema.ValidationError):
+        sensors.validate(tof)

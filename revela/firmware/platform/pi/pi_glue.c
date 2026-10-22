@@ -17,6 +17,8 @@
  *   link up         the last configuration, replayed -- the board forgets
  *                   its registers when the cable or its power goes, and
  *                   putting them back is this harness's policy
+ *   each run        the sensor module's description of how its frames
+ *                   come and what its driver is set to, to the bridge
  */
 #include <stdint.h>
 #include <stdio.h>
@@ -28,6 +30,9 @@
 
 #include "../../bridge.h"
 #include "revela_fw.h"
+#include "revela_sensor.h"
+
+__attribute__((weak)) const struct revela_sensor *revela_sensor(void);
 
 static int sensor_fd = -1;
 static struct bridge_mode mode;         /* the bridge's, at the last edge */
@@ -130,4 +135,18 @@ void bridge_command_hook(const char *cmd, char *reply, size_t cap) {
     int rc = revela_fw_command(cmd, reply, (uint32_t)cap);
     if (rc == 0 && (!strncmp(cmd, "init", 4) || !strncmp(cmd, "configure", 9)))
         remember();
+}
+
+void bridge_source_hook(struct bridge_source *src) {
+    static struct bridge_control controls[16];
+    const struct revela_sensor *s = revela_sensor ? revela_sensor() : NULL;
+    if (!s || s->api != REVELA_SENSOR_API) return;
+    uint32_t n = 0;
+    for (; n < s->n_controls && n < sizeof controls / sizeof *controls; n++) {
+        controls[n].name = s->controls[n].name;
+        controls[n].value = s->controls[n].value;
+    }
+    src->loop = s->loop;
+    src->controls = controls;
+    src->n_controls = (int)n;
 }

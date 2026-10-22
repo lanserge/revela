@@ -110,11 +110,13 @@ def _maps():
     from revela.boards.common.scanout import scanout_regs
     regmap = compose.register_map(pipelines.load(
         "revela.boards.pynq_z2.isp:revela_isp_core"))
-    regs = scanout_regs("1080p30", 560)
+    # the board starts in 1080p30, on its 74.25 MHz row
+    regs = scanout_regs("1080p30", 560, clk_sel=1)
     cable = {"isp": {"base": 0, "size": 0x8000, "clock_khz": 142857},
              "scanout_regs": {"base": 0x8000, "size": 0x1000,
                               "registers": regs["facts"]["offsets"],
                               "id": regs["facts"]["id"],
+                              "resets": regs["facts"]["resets"],
                               "counter_bits": [12, 11],
                               "clocks": [
                                   {"khz": khz, "ps_per_px": ps,
@@ -134,8 +136,13 @@ def _sensor():
     return fitted, values, sensors.load("ov5647")
 
 
-def _build(tmp_path, design=None, sensor=True, loops=("ae", "awb", "af")):
+def _build(tmp_path, design=None, sensor=True, loops=("ae", "awb", "af"),
+           keeps=False):
+    """The firmware cut for a build, with the sensor module of `sensor` --
+    the reference sensor's fitted one for True, a description's own by
+    name -- on a board that keeps the pictures or not."""
     regmap, cable = _maps()
+    cable["isp"]["keeps_frames"] = keeps
     for h in package.HEADERS:
         shutil.copy(FW / h, tmp_path / h)
     (tmp_path / "core_map.h").write_text(
@@ -144,9 +151,12 @@ def _build(tmp_path, design=None, sensor=True, loops=("ae", "awb", "af")):
     sources = [FW / "core" / "core.c", tmp_path / "fake.c"]
     sources += [FW / loop / f"{loop}.c" for loop in loops]
     if sensor:
-        _, values, description = _sensor()
+        from revela import sensors
+        name, (_, values, description) = (
+            ("ov5647", _sensor()) if sensor is True
+            else (sensor, (None, {}, sensors.load(sensor))))
         (tmp_path / "sensor.c").write_text(
-            package.sensor_c("ov5647", values, description))
+            package.sensor_c(name, values, description))
         sources.append(tmp_path / "sensor.c")
     # an absent module is a weak symbol nothing defines: NULL on Linux,
     # and on macOS only once the linker is told it may stay undefined
@@ -337,6 +347,41 @@ def test_each_part_packages_for_its_slot(tmp_path):
     assert "sensor_ov5647.c" in sensor
 
 
+def test_a_sensor_module_carries_how_its_frames_come(tmp_path):
+    """A sensor whose frames come in loops, with driver controls to set:
+    its module carries both as its description states them, for the
+    source to act on -- and a sensor that states neither carries none."""
+    from revela import sensors
+    for h in package.HEADERS:
+        shutil.copy(FW / h, tmp_path / h)
+    for name in ("arducam_tof", "ov5647"):
+        (tmp_path / f"{name}.c").write_text(
+            package.sensor_c(name, {}, sensors.load(name)))
+    (tmp_path / "main.c").write_text(
+        '#include <stdio.h>\n#include "revela_sensor.h"\n'
+        "int main(void) {\n"
+        "    const struct revela_sensor *s = revela_sensor();\n"
+        '    printf("%u", (unsigned)s->loop);\n'
+        "    for (uint32_t i = 0; i < s->n_controls; i++)\n"
+        '        printf(" %s=%d", s->controls[i].name,\n'
+        "               (int)s->controls[i].value);\n"
+        "    return 0;\n}\n")
+    said = {}
+    for name in ("arducam_tof", "ov5647"):
+        exe = tmp_path / name
+        subprocess.run([CC, "-std=c99", "-Wall", "-Wextra", "-Werror",
+                        f"-I{tmp_path}", "-o", str(exe),
+                        str(tmp_path / "main.c"), str(tmp_path / f"{name}.c")],
+                       check=True, capture_output=True, text=True)
+        said[name] = subprocess.run([str(exe)], capture_output=True,
+                                    text=True, check=True).stdout
+    tof = sensors.load("arducam_tof")
+    assert said["arducam_tof"] == " ".join(
+        [str(tof["frames"]["loop"])]
+        + [f"{k}={v}" for k, v in tof["controls"].items()])
+    assert said["ov5647"] == "0"
+
+
 def test_a_commit_the_isp_has_not_taken_yet_is_not_a_refusal(tmp_path):
     """While a link comes up the ISP may have no frame to take a commit
     at, and refuses writes until it does. The firmware says the batch is
@@ -510,3 +555,57 @@ def test_the_displays_fields_are_set_by_name(tmp_path):
     _, out = _run(exe, f"init {FRAME_1080P30} {_display()}",
                   "set raster.nothing 1")
     assert any("no such parameter" in l for l in out), out
+
+
+def test_an_init_naming_no_display_keeps_the_one_the_board_starts_in(
+        tmp_path):
+    """The display an unwritten bitstream shows is the build's: the
+    firmware reports it before anything is written, and an init that
+    names no display -- a source whose pictures the board keeps, on a
+    display no link timing chooses -- arms that one."""
+    exe, _, cable = _build(tmp_path)
+    r = cable["scanout_regs"]
+    reg = {k: r["base"] + v for k, v in r["registers"].items()}
+    _, out = _run(exe, "status")
+    assert any(" display=1920x1080/74250kHz" in l for l in out), out
+    named, _ = _run(exe, f"init {FRAME_1080P30} {_display()} window.center=1")
+    unnamed, out = _run(exe, f"init {FRAME_1080P30} window.center=1")
+    assert "R ok" in out, out
+    assert unnamed == named
+    boot = r["resets"]
+    for f in ("h_total", "v_total", "h_active", "v_active", "hs_beg",
+              "hs_end", "vs_beg", "vs_end", "clk_sel"):
+        assert (reg[f], boot[f]) in unnamed, f
+
+
+def test_a_mode_brings_its_display_where_the_board_keeps_the_pictures(
+        tmp_path):
+    """A mode states the display its pictures are shown on: where the
+    board keeps the pictures, choosing the mode arms it, and a display the
+    line goes on to name wins; where the board genlocks its display to the
+    link, the mode's display is not the firmware's to arm."""
+    from bayerlink.rasters import raster
+    from revela import sensors
+    mode = next(m for m in sensors.load("arducam_tof")["modes"]
+                if m.get("display"))
+    want = raster(mode["display"])
+    shown = f" display={want.h_active}x{want.v_active}/{want.pixel_khz}kHz"
+    line = f"init mode={mode['name']} window.center=1"
+    (tmp_path / "kept").mkdir()
+    kept, _, cable = _build(tmp_path / "kept", sensor="arducam_tof",
+                            loops=(), keeps=True)
+    r = cable["scanout_regs"]
+    reg = {k: r["base"] + v for k, v in r["registers"].items()}
+    writes, out = _run(kept, line, "status")
+    assert "R ok" in out, out
+    assert any(shown in l for l in out), out
+    for f in ("h_total", "v_total", "h_active", "v_active", "hs_beg",
+              "hs_end", "vs_beg", "vs_end"):
+        assert (reg[f], getattr(want, f)) in writes, f
+    _, out = _run(kept, f"{line} {_display('1080p30')}", "status")
+    assert any(" display=1920x1080/74250kHz" in l for l in out), out
+    (tmp_path / "held").mkdir()
+    held, _, _ = _build(tmp_path / "held", sensor="arducam_tof", loops=())
+    _, out = _run(held, line, "status")
+    assert "R ok" in out, out
+    assert not any(shown in l for l in out), out

@@ -9,14 +9,16 @@
     "name",
     "vendor",
     "provenance",
-    "cfa",
     "format",
-    "black_level",
-    "gain",
-    "exposure",
-    "timing",
     "modes"
   ],
+  "if": {
+    "required": ["format"],
+    "properties": {"format": {"required": ["color"], "properties": {"color": {"const": "mono"}}}}
+  },
+  "else": {
+    "required": ["cfa", "black_level", "gain", "exposure", "timing"]
+  },
   "additionalProperties": false,
 
   "properties": {
@@ -94,6 +96,12 @@
       "additionalProperties": false,
       "properties": {
         "bit_depth": { "type": "integer", "minimum": 8, "maximum": 16 },
+        "color": {
+          "description": "What one sample is: a site of a Bayer colour filter array (the default), or a single channel -- a monochrome or time-of-flight sensor. A Bayer sensor states its cfa, black level, gain, exposure and timing; a mono one states those it has.",
+          "type": "string",
+          "enum": ["bayer", "mono"],
+          "default": "bayer"
+        },
         "packing": {
           "description": "How pixels are packed on the link. MIPI CSI-2 RAW10/RAW12 pack 4 or 2 pixels plus a shared low-bits byte.",
           "type": "string",
@@ -205,6 +213,27 @@
       }
     },
 
+    "frames": {
+      "description": "How the sensor's frames come, where they are not one picture each: a loop of frames makes one measurement -- a time-of-flight sensor's reference phases -- taken close together and then a wait. A loop starts after the long gap, so a frame's place in it is its distance from that gap.",
+      "type": "object",
+      "required": ["loop"],
+      "additionalProperties": false,
+      "properties": {
+        "loop": {
+          "description": "Frames to one measurement.",
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 16
+        }
+      }
+    },
+
+    "controls": {
+      "description": "Driver controls the source sets before the sensor streams, by the name V4L2 tools print -- lower case, words joined by underscores -- for a part whose driver needs a mode of its own selected (a time-of-flight module free-running, say).",
+      "type": "object",
+      "additionalProperties": { "type": "integer" }
+    },
+
     "modes": {
       "description": "Readout modes: the sensor's own statement of each, so a system with no sensor driver -- an MCU, an ASIC, mipi_in -- selects one from this file alone. Only width (line buffer sizing) and bit depth are build-time; everything else is selected at runtime.",
       "type": "array",
@@ -248,6 +277,11 @@
           "register_sequence": {
             "description": "Name of the entry in register_sequences that selects this mode.",
             "type": "string"
+          },
+          "display": {
+            "description": "The display a board that keeps the pictures shows this mode on, by its name in bayerlink's raster table (\"480p60\"): its rate is the one the mode's pictures want, which no link timing decides. Absent: the board's own. A board that genlocks its display to the link shows the link's timing whatever this says.",
+            "type": "string",
+            "pattern": "^[0-9a-z]+$"
           }
         }
       }
