@@ -19,9 +19,16 @@ Pre-1.0, so the block API and the map format can still change. See
   power-of-two shift. `build.sh` takes a variant's settings of the design's
   parameters on its command line and records them beside the bitstream
   (`out/build.json`): `build.sh
-  pipeline=@revela.boards.pynq_z2.tof:revela_tof_core`. The design wires
-  each context fact to its ISP only where the ISP's input carries it, the
-  frame count among them.
+  pipeline=@revela.boards.pynq_z2.tof:revela_tof_core`.
+- **Each frame's context rides the ISP's stream.** The entry packs the
+  header's facts into the stream's context, np2hw's `ctx` member, at the
+  bits the ISP's input lays them out at -- the design reads where each
+  goes from the ISP's port (`isp.isp_in.context_at`), so the layout is the
+  vocabulary's alone -- and the tee and the crossing carry the ISP's
+  output context to the raster, which reads the picture's size out of it
+  (`pic_ctx`). **Board modules' ports change:** `isp_entry`'s `ctx_*`
+  outputs, the ISP's size outputs and the raster's `pic_w`/`pic_h` are
+  gone.
 - **A sink connecting meets the dark start too.** The HDMI-out jack's
   hot-plug line reaches the raster (`hdmi_out`'s `sink`; the pin, TUL's
   `hdmi_tx_hpdn`, is inverted), and its rise paints the fill for the

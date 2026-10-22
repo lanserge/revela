@@ -21,7 +21,8 @@ import pytest
 
 from np2hw.design import composite
 from np2hw.hdl.models import Stimulus, frame_store
-from np2hw.pipeline import proof
+from np2hw.pipeline import compose, proof
+from np2hw.stream import pack_context
 
 pytestmark = pytest.mark.skipif(shutil.which("verilator") is None,
                                 reason="verilator not on PATH")
@@ -83,9 +84,12 @@ def test_the_tof_isp_is_its_models_frame_for_frame(seed):
     # each word the twelve-bit link word widened to sixteen
     planes = rng.integers(-1024, 1024, (4, H, W))
     frames = [(planes[k % 4] & 0x7FF) << 4 for k in range(count)]
-    ports = [{"in_frame_width": W, "in_frame_height": H, "ctx_frame_seq": k}
+    # each frame's size and count, in its context, as the stream lays it out
+    layout = compose.carried_layout(design.pipelines["core"])
+    ports = [{"in_ctx": pack_context(layout, {"width": W, "height": H,
+                                              "frame_seq": k})}
              for k in range(count)]
-    stim = _draw(rng, frames, [{"in_ctx": p["ctx_frame_seq"]} for p in ports])
+    stim = _draw(rng, frames, ports)
     model = proof.run_model(design, frames, ports, stim)
     rtl = proof.run_rtl(design, frames, ports, stim)
     assert len(rtl.frames) == len(model.frames) == len(stim.waits) + 1
@@ -93,6 +97,7 @@ def test_the_tof_isp_is_its_models_frame_for_frame(seed):
         assert got.tolist() == proof.words(want, rtl.word_bits).tolist(), \
             f"depth frame {i}"
     for i, (got, want) in enumerate(zip(rtl.ports, model.ports)):
-        assert got["out_source"] == want["out_source"], f"depth frame {i}"
+        for name in ("out_source", "out_ctx"):
+            assert got[name] == want[name], f"depth frame {i}: {name}"
     # and the depth is a depth: something measured, somewhere
     assert any((np.asarray(f)[..., 0] > 0).any() for f in model.frames)

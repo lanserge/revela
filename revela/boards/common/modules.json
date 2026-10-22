@@ -1,7 +1,7 @@
 {
  "blocks": {
   "isp_entry": {
-   "description": "The ISP's entry: each frame's header facts latched as its SOF enters, and every line cropped to the width the ISP was built for.",
+   "description": "The ISP's entry: each frame's header facts latched as its SOF enters and handed on in the stream's context, and every line cropped to the width the ISP was built for.",
    "vivado": {
     "module": "isp_entry"
    },
@@ -50,29 +50,11 @@
      "stream": [
       "sof",
       "eol",
-      "last"
-     ]
-    },
-    {
-     "name": "ctx_width",
-     "width": 16
-    },
-    {
-     "name": "ctx_height",
-     "width": 16
-    },
-    {
-     "name": "ctx_bayer_phase",
-     "width": 2
-    },
-    {
-     "name": "ctx_bit_depth",
-     "width": 5
-    },
-    {
-     "name": "ctx_frame_seq",
-     "width": 32,
-     "description": "Which frame this is, as the source counts, held for the frame."
+      "last",
+      "ctx"
+     ],
+     "context_bits": "CTX_BITS",
+     "description": "The frames, each one's header facts in its context, packed as the ISP's input lays them out."
     },
     {
      "name": "truncated"
@@ -87,6 +69,29 @@
     },
     "WIDTH": {
      "description": "The widest line the ISP was built for; a wider line is cropped to it."
+    },
+    "CTX_BITS": {
+     "description": "The width of the ISP's input context: its CTX member, as the design reads it from the ISP's input port."
+    },
+    "AT_WIDTH": {
+     "default": -1,
+     "description": "The low bit the header's width is packed at in the context, -1 where the ISP's stream does not carry it: the design reads it from the ISP's input port."
+    },
+    "AT_HEIGHT": {
+     "default": -1,
+     "description": "The low bit the header's height is packed at in the context, -1 where the ISP's stream does not carry it: the design reads it from the ISP's input port."
+    },
+    "AT_PHASE": {
+     "default": -1,
+     "description": "The low bit the header's Bayer phase is packed at in the context, -1 where the ISP's stream does not carry it: the design reads it from the ISP's input port."
+    },
+    "AT_BIT_DEPTH": {
+     "default": -1,
+     "description": "The low bit the header's bit depth is packed at in the context, -1 where the ISP's stream does not carry it: the design reads it from the ISP's input port."
+    },
+    "AT_FRAME_SEQ": {
+     "default": -1,
+     "description": "The low bit the header's frame count is packed at in the context, -1 where the ISP's stream does not carry it: the design reads it from the ISP's input port."
     }
    }
   },
@@ -152,8 +157,10 @@
      "stream": [
       "sof",
       "eol",
-      "last"
-     ]
+      "last",
+      "ctx"
+     ],
+     "context_bits": "CTX_BITS"
     },
     {
      "name": "en_a"
@@ -169,8 +176,10 @@
      "stream": [
       "sof",
       "eol",
-      "last"
-     ]
+      "last",
+      "ctx"
+     ],
+     "context_bits": "CTX_BITS"
     },
     {
      "name": "b",
@@ -179,7 +188,8 @@
       "sof",
       "eol",
       "last"
-     ]
+     ],
+     "description": "The store branch: the pixels and their framing, no context -- what it feeds keeps pixels."
     },
     {
      "name": "torn_a"
@@ -200,6 +210,9 @@
    "parameters": {
     "DATA_BITS": {
      "description": "The ISP's traced output word, from its published contract."
+    },
+    "CTX_BITS": {
+     "description": "The width of the ISP's output context, carried whole to the direct branch: the design reads it from the ISP's output port."
     }
    },
    "constraints": [
@@ -274,14 +287,9 @@
      "width": 16
     },
     {
-     "name": "pic_w",
-     "width": 16,
-     "description": "The width of the frame arriving, on the raster's clock: the stream's, taken in vertical blanking."
-    },
-    {
-     "name": "pic_h",
-     "width": 16,
-     "description": "Its height."
+     "name": "pic_ctx",
+     "width": "CTX_BITS",
+     "description": "The context of the frame arriving, on this clock: its size is read out of it."
     },
     {
      "name": "reg_center"
@@ -379,6 +387,15 @@
     "QUIET_BITS": {
      "default": 454761243,
      "description": "The bit of a count of the display clock's cycles that ends the raster's quiet, at each clock row, 8 bits a row, row 0 lowest: from the clocks the design makes."
+    },
+    "CTX_BITS": {
+     "description": "The width of the picture's context, as the ISP hands it on: the design reads it from the ISP's output port."
+    },
+    "AT_WIDTH": {
+     "description": "The low bit the picture's width is packed at in its context: the design reads it from the ISP's output port."
+    },
+    "AT_HEIGHT": {
+     "description": "The low bit the picture's height is packed at in its context: the design reads it from the ISP's output port."
     }
    }
   },

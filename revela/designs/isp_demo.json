@@ -290,7 +290,13 @@
      "block": "revela.boards.common.modules:isp_entry",
      "build": {
       "SAMPLE_BITS": "sample_bits",
-      "WIDTH": "isp_width"
+      "WIDTH": "isp_width",
+      "CTX_BITS": "isp.isp_in.context_bits",
+      "AT_WIDTH": "isp.isp_in.context_at['width']",
+      "AT_HEIGHT": "isp.isp_in.context_at['height']",
+      "AT_PHASE": "isp.isp_in.context_at['bayer_phase']",
+      "AT_BIT_DEPTH": "isp.isp_in.context_at['bit_depth']",
+      "AT_FRAME_SEQ": "isp.isp_in.context_at['frame_seq']"
      }
     },
     "isp": {
@@ -302,7 +308,8 @@
     "isp_tee": {
      "block": "revela.boards.common.modules:tee_shim",
      "build": {
-      "DATA_BITS": "isp_out_bits"
+      "DATA_BITS": "isp_out_bits",
+      "CTX_BITS": "isp.isp_out.context_bits"
      }
     },
     "isp_dir": {
@@ -322,7 +329,10 @@
      "block": "revela.boards.common.modules:scanout",
      "build": {
       "FILL": "fill",
-      "QUIET_BITS": "@revela.boards.common.clocking:rows_word(quiet_bits, 8)"
+      "QUIET_BITS": "@revela.boards.common.clocking:rows_word(quiet_bits, 8)",
+      "CTX_BITS": "isp.isp_out.context_bits",
+      "AT_WIDTH": "isp.isp_out.context_at['width']",
+      "AT_HEIGHT": "isp.isp_out.context_at['height']"
      }
     },
     "scanout_regs": {
@@ -335,10 +345,11 @@
     },
     "out_cdc": {
      "block": "np2hw.hdl.stream:frame_cdc",
-     "description": "The ISP's picture into the raster's clock, each frame's size crossing with it. Its depth is the raster's lead: with no frame store, the lines a frame's start arrives early are lines this holds.",
+     "description": "The ISP's picture into the raster's clock, each frame's context crossing with it. Its depth is the raster's lead: with no frame store, the lines a frame's start arrives early are lines this holds.",
      "build": {
       "DATA_BITS": "isp_out_bits",
-      "A": 13
+      "A": 13,
+      "CTX_BITS": "isp.isp_out.context_bits"
      }
     }
    },
@@ -411,29 +422,6 @@
      "blrx.hdr_frame_seq",
      "isp_entry.hdr_frame_seq"
     ],
-    [
-     "isp_entry.ctx_width",
-     "isp.ctx_width"
-    ],
-    [
-     "isp_entry.ctx_height",
-     "isp.ctx_height"
-    ],
-    {
-     "from": "isp_entry.ctx_bayer_phase",
-     "to": "isp.ctx_bayer_phase",
-     "when": "'bayer_phase' in isp.isp_in.context"
-    },
-    {
-     "from": "isp_entry.ctx_bit_depth",
-     "to": "isp.ctx_bit_depth",
-     "when": "'bit_depth' in isp.isp_in.context"
-    },
-    {
-     "from": "isp_entry.ctx_frame_seq",
-     "to": "isp.ctx_frame_seq",
-     "when": "'frame_seq' in isp.isp_in.context"
-    },
     [
      "isp_clk",
      "isp_tee.clk"
@@ -691,20 +679,8 @@
      "isp_dir.in"
     ],
     [
-     "isp.isp_out_frame_width",
-     "out_cdc.in_frame_width"
-    ],
-    [
-     "isp.isp_out_frame_height",
-     "out_cdc.in_frame_height"
-    ],
-    [
-     "out_cdc.out_frame_width",
-     "scanout.pic_w"
-    ],
-    [
-     "out_cdc.out_frame_height",
-     "scanout.pic_h"
+     "out_cdc.out_ctx",
+     "scanout.pic_ctx"
     ],
     [
      "raster_clk",

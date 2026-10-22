@@ -43,7 +43,13 @@ module scanout #(
     // the bit of a count of the display clock's cycles that ends the
     // quiet, at each clock row, 8 bits a row, row 0 lowest: the design's,
     // from the clocks it makes -- 27 at 74.25 MHz is 1.81 s
-    parameter [31:0] QUIET_BITS = {4{8'd27}}
+    parameter [31:0] QUIET_BITS = {4{8'd27}},
+    // the picture's context, as the ISP hands it on: its width, and the
+    // low bit its width and height are packed at -- the design's, read
+    // from the ISP's output port, so the layout is the vocabulary's alone
+    parameter CTX_BITS = 32,
+    parameter AT_WIDTH = 0,
+    parameter AT_HEIGHT = 16
 ) (
     (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 clk CLK", X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axis:vid, ASSOCIATED_RESET rst" *)
     input  wire          clk,
@@ -70,9 +76,9 @@ module scanout #(
     output reg           arm_ack,
     // the display clock's row, as the copy has it: to the clock select
     output wire [1:0]    clk_sel,
-    // the size of the frame arriving, on this clock
-    input  wire [15:0]   pic_w,
-    input  wire [15:0]   pic_h,
+    // the context of the frame arriving, on this clock: its size is read
+    // out of it
+    input  wire [CTX_BITS-1:0] pic_ctx,
     // 1: the raster follows the stream (the direct picture is on); 0: it
     // holds its mode unsteered, painting the fill
     input  wire          param_follow,
@@ -145,7 +151,8 @@ module scanout #(
     end
     always @(posedge clk)
         if (in_vblank || !have) begin
-            win_w <= pic_w; win_h <= pic_h;
+            win_w <= pic_ctx[AT_WIDTH +: 16];
+            win_h <= pic_ctx[AT_HEIGHT +: 16];
         end
 
     wire [15:0] act_x0, act_y0;

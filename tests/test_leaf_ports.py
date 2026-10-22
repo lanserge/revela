@@ -28,7 +28,7 @@ PRIMITIVES = (Path(__file__).resolve().parents[1] / "revela" / "boards"
 
 # Values no module defaults to, so a width that ignores its parameter shows.
 VALUES = {"SAMPLE_BITS": 13, "DATA_BITS": 27, "WIDTH": 640, "DW": 24,
-          "FB_WORD": 0}
+          "FB_WORD": 0, "CTX_BITS": 37}
 
 
 def _hand_written():
@@ -47,10 +47,12 @@ def _declared(obj: dict, values: dict) -> dict:
     want = {}
     for side in ("inputs", "outputs"):
         for port in obj.get(side, []):
-            raw = port.get("width", 1)
-            width = (raw if isinstance(raw, int) else composite.evaluate(
-                composite.parse(raw, port["name"]), lambda n: values[n]))
-            want.update(expand(port, side, width))
+            def value(raw):
+                return raw if not isinstance(raw, str) else \
+                    composite.evaluate(composite.parse(raw, port["name"]),
+                                       lambda n: values[n])
+            want.update(expand(port, side, value(port.get("width", 1)),
+                               value(port.get("context_bits"))))
     return want
 
 

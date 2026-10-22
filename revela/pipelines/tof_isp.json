@@ -36,18 +36,13 @@
       "inputs": [
         {"name": "clk"},
         {"name": "rst", "description": "Active high."},
-        {"name": "in", "description": "The sensor's phase frames, one reference phase a frame, as they come."},
-        {"name": "in_frame_width", "description": "The width of the frame whose first beat is going in."},
-        {"name": "in_frame_height", "description": "Its height."},
-        {"name": "ctx_frame_seq", "description": "Its count, as its header carries it."},
+        {"name": "in", "description": "The sensor's phase frames, one reference phase a frame, as they come, each frame's size and count in its context."},
         {"name": "s_axil", "description": "The core's registers."},
         {"name": "s_axil_aclk"},
         {"name": "s_axil_aresetn"}
       ],
       "outputs": [
-        {"name": "out", "description": "What the core makes of the four latest frames, as often as it is taken."},
-        {"name": "out_frame_width"},
-        {"name": "out_frame_height"},
+        {"name": "out", "description": "What the core makes of the four latest frames, as often as it is taken, with the newest's context."},
         {"name": "out_source", "description": "Which frame in the frames out were computed at, counted from reset."},
         {"name": "cold", "description": "Fewer than four frames of one history are whole: nothing goes out."},
         {"name": "overrun", "description": "Sticky: a frame came into a slot being read."},
@@ -61,11 +56,11 @@
             "FRAMES": "core.in.frames",
             "BITS": "core.in.bits",
             "SLOTS": "slots",
-            "CTX_BITS": 32,
+            "CTX_BITS": "core.in.context_bits",
             "PIXELS": "max_width * max_height",
             "BASE": "base"
           },
-          "description": "Every frame kept as it comes; the newest four handed on side by side, with the newest's size and count."
+          "description": "Every frame kept as it comes; the newest four handed on side by side, with the newest's context."
         },
         "core": {
           "block": "pipeline",
@@ -85,16 +80,8 @@
         ["s_axil", "core.s_axil"], ["s_axil_aclk", "core.s_axil_aclk"],
         ["s_axil_aresetn", "core.s_axil_aresetn"],
         ["in", "store.in"],
-        ["in_frame_width", "store.in_frame_width"],
-        ["in_frame_height", "store.in_frame_height"],
-        ["ctx_frame_seq", "store.in_ctx"],
         ["store.out", "core.in"],
-        ["store.out_frame_width", "core.ctx_width"],
-        ["store.out_frame_height", "core.ctx_height"],
-        ["store.out_ctx", "core.ctx_frame_seq"],
         ["core.out", "out"],
-        ["core.out_frame_width", "out_frame_width"],
-        ["core.out_frame_height", "out_frame_height"],
         ["store.out_source", "out_source"],
         ["store.cold", "cold"], ["store.overrun", "overrun"],
         {"from": "store.mem", "to": "mem", "when": "implementation == 'axi'"}

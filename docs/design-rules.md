@@ -126,8 +126,10 @@ kept apart deliberately:
   single `pipe` block at base 0. A block takes what it needs as a scalar
   input; the design **binds** the input to an expression over these facts
   (`"bind": {"bayer_phase": "bayer_phase"}`, `{"pos": "frame_seq & 3"}`),
-  folded into the block's core, and the facts reach it as **WIRES**, never
-  duplicated as per-block CSRs. An input left unbound is the block's own
+  folded into the block's core, and the facts reach it **WITH THE FRAME**,
+  in the stream's context (np2hw's `ctx` member, latched with each frame's
+  first beat and handed on core to core), never duplicated as per-block
+  CSRs. An input left unbound is the block's own
   register. One phase per pipeline, read by everyone. The alternative — a width register in every block — makes a
   resolution change N writes that must all land in the same frame, and any block
   whose write is missed corrupts the image in a way that looks like a bug in that

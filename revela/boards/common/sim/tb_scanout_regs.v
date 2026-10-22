@@ -69,7 +69,9 @@ module tb;
       .param_win_x0(win_x0), .param_win_y0(win_y0),
       .param_center(center), .param_clk_sel(clk_sel_req), .param_arm());
 
-  scanout dut (
+  // the picture's size read out of its context where the layout puts it:
+  // here not at the bottom, so the offsets are what places it
+  scanout #(.CTX_BITS(40), .AT_WIDTH(24), .AT_HEIGHT(8)) dut (
       .clk(clk), .rst(rst), .locked(locked),
       .reg_h_total(h_total), .reg_h_active(h_active),
       .reg_hs_beg(hs_beg), .reg_hs_end(hs_end),
@@ -79,7 +81,7 @@ module tb;
       .reg_ps_per_px(ps_per_px),
       .reg_win_x0(win_x0), .reg_win_y0(win_y0),
       .reg_center(center), .reg_clk_sel(clk_sel_req),
-      .pic_w(pic_w), .pic_h(pic_h),
+      .pic_ctx({pic_w, pic_h, 8'h5a}),
       .arm_req(arm_req), .arm_ack(arm_ack), .clk_sel(clk_sel),
       .param_follow(1'b0), .sink(1'b0), .ps_en(ps_en), .ps_incdec(ps_incdec),
       .ps_done(1'b1),

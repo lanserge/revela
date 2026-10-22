@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
 //
 // The ISP's entry on this board: each frame's header facts latched as its
-// SOF enters, and every line cropped to the width the ISP was built for.
+// SOF enters and handed on in the stream's context, and every line cropped
+// to the width the ISP was built for.
 // The ISP itself is generated and verified by revela from its composite;
 // this only stands in front of it, so the design wires the two together
 // and the ISP's widths reach this block as parameters, never as literals.
@@ -25,13 +26,23 @@ module isp_entry #(
     // arrives here perfectly well formed. Guarding it is this block's
     // job, because it is the only thing that knows both the line boundary
     // and what the ISP was built for.
-    parameter WIDTH       = 1920
+    parameter WIDTH       = 1920,
+    // The stream's context, its CTX member, as the ISP's input lays it
+    // out: its width, and the low bit each header fact is packed at, -1
+    // for one the ISP's stream does not carry. The design reads them from
+    // the ISP's input port, so the layout is the vocabulary's alone.
+    parameter CTX_BITS     = 32,
+    parameter AT_WIDTH     = 0,
+    parameter AT_HEIGHT    = 16,
+    parameter AT_PHASE     = -1,
+    parameter AT_BIT_DEPTH = -1,
+    parameter AT_FRAME_SEQ = -1
 ) (
     (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 clk CLK", X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in_stream:out_stream, ASSOCIATED_RESET rst" *)
     input  wire        clk,
     (* X_INTERFACE_INFO = "xilinx.com:signal:reset:1.0 rst RST", X_INTERFACE_PARAMETER = "POLARITY ACTIVE_HIGH" *)
     input  wire        rst,
-    // The header's facts, straight from the receiver, latched as each
+    // The header's facts, straight from the receiver, taken as each
     // frame's SOF enters so a change lands on a frame boundary. NOT the
     // depth: the receiver has already aligned samples to this build's,
     // so hdr_bits is carried for software only.
@@ -65,33 +76,66 @@ module isp_entry #(
     output wire        out_eol,
     (* X_INTERFACE_INFO = "lanserge:interface:np2hw_stream_rtl:1.0 out_stream LAST" *)
     output wire        out_last,
-    // The frame's geometry and phase as the ISP is to be told them: its
-    // stream context, held for the frame.
-    output reg  [15:0] ctx_width = WIDTH,
-    output reg  [15:0] ctx_height = 16'd0,
-    output reg  [1:0]  ctx_bayer_phase = 2'd0,
-    output reg  [4:0]  ctx_bit_depth = 5'd0,
-    // which frame this is, as the source counts: a block following a
-    // capture loop reads its place in it through an expression over this
-    output reg  [31:0] ctx_frame_seq = 32'd0,
+    // The frame's geometry, phase, depth and count as the ISP is to be
+    // told them: its stream context, held for the frame.
+    (* X_INTERFACE_INFO = "lanserge:interface:np2hw_stream_rtl:1.0 out_stream CTX" *)
+    output wire [CTX_BITS-1:0] out_ctx,
     // Sticky: a line arrived wider than the ISP was built for and was
     // cropped to it. VISIBLE and stated, rather than refused into a dark
     // screen -- a picture that is merely narrow can be recognised and
     // tuned; a black one is indistinguishable from a dead cable.
     output reg         truncated
 );
+    reg [15:0] ctx_width = WIDTH;
+    reg [15:0] ctx_height = 16'd0;
+    reg [1:0]  ctx_bayer_phase = 2'd0;
+    reg [4:0]  ctx_bit_depth = 5'd0;
+    // which frame this is, as the source counts: a block following a
+    // capture loop reads its place in it through an expression over this
+    reg [31:0] ctx_frame_seq = 32'd0;
+    // The facts of the frame entering. The stream's context rides a
+    // frame's first beat, so on that beat they are the header's, as it
+    // passes through; latched there, the copy holds them for the rest of
+    // the frame. Handing on only the latched copy would put the frame
+    // before's on the first beat -- every frame told its predecessor's
+    // count. The ISP cannot process more than it was built for, so the
+    // geometry it is TOLD is clamped to that, and everything downstream
+    // stays self-consistent: the window, the phase and the line buffers
+    // all agree on the same width.
+    wire [15:0] f_width       = !in_sof ? ctx_width
+                              : (hdr_width > WIDTH) ? WIDTH[15:0] : hdr_width;
+    wire [15:0] f_height      = in_sof ? hdr_height    : ctx_height;
+    wire [1:0]  f_bayer_phase = in_sof ? hdr_phase     : ctx_bayer_phase;
+    wire [4:0]  f_bit_depth   = in_sof ? hdr_bits      : ctx_bit_depth;
+    wire [31:0] f_frame_seq   = in_sof ? hdr_frame_seq : ctx_frame_seq;
     always @(posedge clk)
         if (in_valid && in_ready && in_sof) begin
-            // The ISP cannot process more than it was built for, so the
-            // geometry it is TOLD is clamped to that. Everything
-            // downstream stays self-consistent: the window, the phase and
-            // the line buffers all agree on the same width.
-            ctx_width       <= (hdr_width > WIDTH) ? WIDTH[15:0] : hdr_width;
-            ctx_height      <= hdr_height;
-            ctx_bayer_phase <= hdr_phase;
-            ctx_bit_depth   <= hdr_bits;
-            ctx_frame_seq   <= hdr_frame_seq;
+            ctx_width       <= f_width;
+            ctx_height      <= f_height;
+            ctx_bayer_phase <= f_bayer_phase;
+            ctx_bit_depth   <= f_bit_depth;
+            ctx_frame_seq   <= f_frame_seq;
         end
+
+    // Each fact the ISP's stream carries, where its layout puts it; the
+    // facts it does not carry are not handed on.
+    generate
+        if (AT_WIDTH >= 0) begin : at_width
+            assign out_ctx[AT_WIDTH +: 16] = f_width;
+        end
+        if (AT_HEIGHT >= 0) begin : at_height
+            assign out_ctx[AT_HEIGHT +: 16] = f_height;
+        end
+        if (AT_PHASE >= 0) begin : at_phase
+            assign out_ctx[AT_PHASE +: 2] = f_bayer_phase;
+        end
+        if (AT_BIT_DEPTH >= 0) begin : at_bit_depth
+            assign out_ctx[AT_BIT_DEPTH +: 5] = f_bit_depth;
+        end
+        if (AT_FRAME_SEQ >= 0) begin : at_frame_seq
+            assign out_ctx[AT_FRAME_SEQ +: 32] = f_frame_seq;
+        end
+    endgenerate
 
     // CROP, not refuse. Count this line's samples; hand the first WIDTH of
     // them to the ISP and swallow the rest until the stream's own
@@ -111,7 +155,7 @@ module isp_entry #(
     // last line carries the frame end.
     wire       line_end = keep && ((lcol == WIDTH - 16'd1)
                                    || in_eol || in_last);
-    wire       frame_end = line_end && (lrow == ctx_height - 16'd1);
+    wire       frame_end = line_end && (lrow == f_height - 16'd1);
     // A dropped sample is ACCEPTED, not stalled: the surplus has to leave
     // the receiver or the line never reaches its end and the frame stops.
     // Only the kept samples wait on the ISP.

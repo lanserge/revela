@@ -8,8 +8,15 @@
 //
 // DATA_BITS is the width the ISP traced, handed down by the block design
 // rather than written here: this shim owns the LAYOUT, not the width.
+//
+// The stream's context, CTX_BITS of it, rides above the flags through the
+// skid and the tee, so the direct branch hands each frame's context on
+// with its first beat, carried whole and never read. The store branch
+// carries none: what it feeds keeps pixels, and a context in its FIFO
+// would be a block RAM's worth of bits held for every beat.
 module tee_shim #(
-    parameter DATA_BITS = 24
+    parameter DATA_BITS = 24,
+    parameter CTX_BITS = 32
 ) (
     (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 clk CLK", X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in_stream:a:b, ASSOCIATED_RESET rst" *)
     input  wire        clk,
@@ -27,6 +34,8 @@ module tee_shim #(
     input  wire        in_eol,
     (* X_INTERFACE_INFO = "lanserge:interface:np2hw_stream_rtl:1.0 in_stream LAST" *)
     input  wire        in_last,
+    (* X_INTERFACE_INFO = "lanserge:interface:np2hw_stream_rtl:1.0 in_stream CTX" *)
+    input  wire [CTX_BITS-1:0] in_ctx,
     input  wire        en_a,       // direct display branch
     input  wire        en_b,       // framebuffer store branch
     (* X_INTERFACE_INFO = "lanserge:interface:np2hw_stream_rtl:1.0 a VALID" *)
@@ -41,6 +50,8 @@ module tee_shim #(
     output wire        a_eol,
     (* X_INTERFACE_INFO = "lanserge:interface:np2hw_stream_rtl:1.0 a LAST" *)
     output wire        a_last,
+    (* X_INTERFACE_INFO = "lanserge:interface:np2hw_stream_rtl:1.0 a CTX" *)
+    output wire [CTX_BITS-1:0] a_ctx,
     (* X_INTERFACE_INFO = "lanserge:interface:np2hw_stream_rtl:1.0 b VALID" *)
     output wire        b_valid,
     (* X_INTERFACE_INFO = "lanserge:interface:np2hw_stream_rtl:1.0 b READY" *)
@@ -59,31 +70,33 @@ module tee_shim #(
     output wire        torn_a,
     output wire        torn_b
 );
-    // Every width below is DATA_BITS + 3: the ISP's traced word plus
-    // the three flags. The skid was instantiated at a literal 33 and
+    // Every width below is DATA_BITS + 3, the ISP's traced word plus
+    // the three flags -- and through the skid and the tee, the context
+    // above them, TW. The skid was instantiated at a literal 33 and
     // the FIFO took its default of the same, which is a 30-bit RGB
     // from when the pipeline was 10-bit. Nothing failed, because the
     // payload sits in the low bits and the extra ones zero-extend and
     // truncate back -- so it read as working while carrying six dead
     // bits through a 4096-deep block RAM, and it would have cut the
     // flags off the top the first time an ISP traced wider than 30.
-    wire [DATA_BITS+2:0] packed_in = {in_sof, in_last, in_eol, in_data};
-    wire [DATA_BITS+2:0] a_packed, b_packed;
+    localparam TW = CTX_BITS + DATA_BITS + 3;
+    wire [TW-1:0] packed_in = {in_ctx, in_sof, in_last, in_eol, in_data};
+    wire [TW-1:0] a_packed, b_packed;
 
     // The skid FIRST: the ISP's in_ready ripples combinationally from
     // its sink through every block (the boundary_report finding), and
     // the tee's lockstep fork below would add its own levels to that
     // cone. The skid's registered ready is where the cone ends -- the
     // ISP sees a flop whatever is wired past this point.
-    wire [DATA_BITS+2:0] sk_data;
+    wire [TW-1:0] sk_data;
     wire        sk_valid, sk_ready;
-    np2hw_skid #(.W(DATA_BITS + 3)) u_skid (
+    np2hw_skid #(.W(TW)) u_skid (
         .clk(clk), .rst(rst),
         .s_data(packed_in), .s_valid(in_valid), .s_ready(in_ready),
         .m_data(sk_data), .m_valid(sk_valid), .m_ready(sk_ready));
 
     wire        bt_valid, bt_ready;
-    np2hw_tee #(.W(DATA_BITS + 3)) u_tee (
+    np2hw_tee #(.W(TW)) u_tee (
         .clk(clk), .rst(rst),
         .in_valid(sk_valid), .in_ready(sk_ready),
         .in_data(sk_data), .in_sof(sk_data[DATA_BITS + 2]),
@@ -92,7 +105,7 @@ module tee_shim #(
         .b_valid(bt_valid), .b_ready(bt_ready), .b_data(b_packed),
         .torn_a(torn_a), .torn_b(torn_b));
 
-    assign {a_sof, a_last, a_eol, a_data} = a_packed;
+    assign {a_ctx, a_sof, a_last, a_eol, a_data} = a_packed;
 
     // The grabber's elastic, INSIDE the tap: the tee never stalls,
     // so branch B's ready at the tee must be as smooth as the
@@ -105,7 +118,8 @@ module tee_shim #(
     // 4096 slots: two lines of the widest picture, and headroom.
     np2hw_cdc_fifo #(.W(DATA_BITS + 3), .A(12)) u_bfifo (
         .wclk(clk), .wrst(rst),
-        .in_data(b_packed), .in_valid(bt_valid), .in_ready(bt_ready),
+        .in_data(b_packed[DATA_BITS+2:0]), .in_valid(bt_valid),
+        .in_ready(bt_ready),
         .rclk(clk), .rrst(rst),
         .out_data(bq_data), .out_valid(b_valid),
         .out_ready(b_ready));

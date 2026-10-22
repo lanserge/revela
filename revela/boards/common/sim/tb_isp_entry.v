@@ -35,6 +35,11 @@
 module tb;
   localparam W = 64;                 // the ISP's built width, scaled down
   localparam H = 4;
+  // the context every fact rides in, as the vocabulary lays it out: the
+  // test that runs this sets them from it
+  parameter CTX_BITS = 71;
+  parameter AT_WIDTH = 0, AT_HEIGHT = 16, AT_PHASE = 32, AT_BIT_DEPTH = 34,
+            AT_FRAME_SEQ = 39;
 
   reg clk = 0, rst = 1;
   always #5 clk = ~clk;
@@ -47,10 +52,13 @@ module tb;
   reg  [11:0] in_data = 0;
   wire        in_ready, out_valid, out_sof, out_eol, out_last, truncated;
   wire [11:0] out_data;
-  wire [15:0] ctx_width, ctx_height;
-  wire [1:0]  ctx_bayer_phase;
-  wire [4:0]  ctx_bit_depth;
-  wire [31:0] ctx_frame_seq;
+  wire [CTX_BITS-1:0] out_ctx;
+  // the facts, read back out of the context where the layout puts them
+  wire [15:0] ctx_width  = out_ctx[AT_WIDTH +: 16];
+  wire [15:0] ctx_height = out_ctx[AT_HEIGHT +: 16];
+  wire [1:0]  ctx_bayer_phase = out_ctx[AT_PHASE +: 2];
+  wire [4:0]  ctx_bit_depth = out_ctx[AT_BIT_DEPTH +: 5];
+  wire [31:0] ctx_frame_seq = out_ctx[AT_FRAME_SEQ +: 32];
 
   // The ISP MUST push back, in bursts. Without it `out_ready` never
   // falls, `in_ready` is high whatever drives it, and the drain check
@@ -65,7 +73,10 @@ module tb;
     out_ready <= !(stall >= 3'd4 && stall < 3'd7);
   end
 
-  isp_entry #(.SAMPLE_BITS(12), .WIDTH(W)) dut (
+  isp_entry #(.SAMPLE_BITS(12), .WIDTH(W), .CTX_BITS(CTX_BITS),
+              .AT_WIDTH(AT_WIDTH), .AT_HEIGHT(AT_HEIGHT),
+              .AT_PHASE(AT_PHASE), .AT_BIT_DEPTH(AT_BIT_DEPTH),
+              .AT_FRAME_SEQ(AT_FRAME_SEQ)) dut (
       .clk(clk), .rst(rst),
       .hdr_width(hdr_w), .hdr_height(hdr_h),
       .hdr_phase(hdr_ph), .hdr_bits(hdr_bits), .hdr_frame_seq(hdr_seq),
@@ -73,9 +84,7 @@ module tb;
       .in_sof(in_sof), .in_eol(in_eol), .in_last(in_last),
       .out_valid(out_valid), .out_ready(out_ready), .out_data(out_data),
       .out_sof(out_sof), .out_eol(out_eol), .out_last(out_last),
-      .ctx_width(ctx_width), .ctx_height(ctx_height),
-      .ctx_bayer_phase(ctx_bayer_phase), .ctx_bit_depth(ctx_bit_depth),
-      .ctx_frame_seq(ctx_frame_seq),
+      .out_ctx(out_ctx),
       .truncated(truncated));
 
   integer fails = 0;
@@ -118,6 +127,17 @@ module tb;
     if (entered) in_frame <= 1;
     else if (left) in_frame <= 0;
   end
+
+  // The facts on the beat that carries them: the stream's context rides
+  // a frame's first beat, so on the first beat the ISP takes they must be
+  // the header's for THIS frame -- the width clamped to the built one --
+  // never the frame before's.
+  integer stale = 0;
+  wire [69:0] header = {(hdr_w > W) ? W[15:0] : hdr_w, hdr_h, hdr_ph,
+                        hdr_bits, hdr_seq};
+  always @(posedge clk)
+    if (!rst && out_valid && out_ready && out_sof && facts !== header)
+      stale = stale + 1;
 
   // `scramble` moves every header fact once the frame's SOF is in, as
   // a header that follows the cable may.
@@ -203,6 +223,8 @@ module tb;
     check(eols == H, "the line end was re-timed onto a kept sample");
     check(lasts == 1,
           "and so was the frame end -- the coefficient commit survives");
+    check(stale == 0,
+          "every frame's first beat carried that frame's facts, not the last");
 
     if (fails) $display("\n%0d FAILED", fails);
     else $display("\nisp entry: all checks passed");
