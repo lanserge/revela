@@ -409,7 +409,7 @@
     {
      "name": "sel",
      "width": 2,
-     "description": "The build's clock table row: 0, 1 or 2."
+     "description": "The build's clock table row: 0 to 3."
     },
     {
      "name": "clk_0"
@@ -437,6 +437,15 @@
     },
     {
      "name": "psdone_2"
+    },
+    {
+     "name": "clk_3"
+    },
+    {
+     "name": "locked_3"
+    },
+    {
+     "name": "psdone_3"
     }
    ],
    "outputs": [

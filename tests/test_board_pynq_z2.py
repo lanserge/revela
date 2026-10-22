@@ -305,8 +305,10 @@ def test_the_time_of_flight_board_keeps_its_frames_in_memory(capture, port):
     assert not joined(f"{store}.mem_rst", "rst_isp.rst")
     assert joined(f"{store}.clk", f"mem.{port}_ACLK")
     assert joined("fabric.free_run.q", "fabric.scanout.param_follow")
-    # its pictures wait for the raster: the display's branch holds them
+    # its pictures wait for the raster: the display's branch holds them,
+    # and the raster runs the television's own mode, not the input's
     assert design.instances["fabric.isp_tee"].build["HOLD_A"] == 1
+    assert design.parameters["mode"] == "720p60"
 
 
 def test_a_sensors_stream_is_never_held():
@@ -315,22 +317,27 @@ def test_a_sensors_stream_is_never_held():
     from np2hw.design.composite import load
     design = load("revela.boards.pynq_z2.pynq_demo", build={})
     assert design.instances["fabric.isp_tee"].build["HOLD_A"] == 0
+    # and its raster is the input's, genlocked to it
+    assert design.parameters["mode"] == design.parameters["link_mode"]
 
 
 
-@pytest.mark.parametrize("mode, row, steps", [("480p60", 0, 1400),
+@pytest.mark.parametrize("mode, row, steps", [("480p60", 0, 2240),
                                                ("1080p30", 1, 560),
-                                               ("1080p60", 2, 280)])
+                                               ("1080p60", 2, 280),
+                                               ("480p120", 3, 1120)])
 def test_the_display_clock_resets_to_its_modes_row(mode, row, steps):
-    """Two clock managers make the board's three display clocks -- row 0
-    27 MHz from 675 MHz, rows 1 and 2 74.25 and 148.5 MHz from 742.5 MHz
-    -- and the raster's register file resets the select to the default
-    mode's row, with the fine steps that row's pixel is."""
+    """Two clock managers make the board's four display clocks -- rows 0
+    and 3 27 and 54 MHz from 1080 MHz, rows 1 and 2 74.25 and 148.5 MHz
+    from 742.5 MHz, every divider whole, so each keeps its fine phase
+    shift -- and the raster's register file resets the select to the
+    default mode's row, with the fine steps that row's pixel is."""
     from np2hw.design.composite import load
     design = load("revela.boards.pynq_z2.pynq_demo",
                   build={"mode": repr(mode)})
-    assert design.instances["clk_raster27"].config[
-        "MMCM_CLKOUT0_DIVIDE_F"] == "25.000"
+    low = design.instances["clk_raster27"].config
+    assert low["MMCM_CLKOUT0_DIVIDE_F"] == "40.000"
+    assert int(low["MMCM_CLKOUT1_DIVIDE"]) == 20
     raster = design.instances["clk_raster"].config
     assert raster["MMCM_CLKOUT0_DIVIDE_F"] == "10.000"
     assert int(raster["MMCM_CLKOUT1_DIVIDE"]) == 5
@@ -363,12 +370,14 @@ def test_the_cable_map_publishes_the_display_clocks(built):
     of the clock select, each with the fine steps its pixel is."""
     cable = json.loads((built / "generated" / "cable_map.json").read_text())
     assert cable["scanout_regs"]["clocks"] == [
-        {"khz": 27000, "ps_per_px": 1400,
+        {"khz": 27000, "ps_per_px": 2240,
          "pll": {"divclk": 1, "mult": 25, "out0": 5}},
         {"khz": 74250, "ps_per_px": 560,
          "pll": {"divclk": 1, "mult": 10, "out0": 2}},
         {"khz": 148500, "ps_per_px": 280,
-         "pll": {"divclk": 1, "mult": 5, "out0": 1}}]
+         "pll": {"divclk": 1, "mult": 5, "out0": 1}},
+        {"khz": 54000, "ps_per_px": 1120,
+         "pll": {"divclk": 1, "mult": 15, "out0": 3}}]
     # the serializer MMCM's registers are on the cable's bus too
     assert "tmds_pll" in cable
     # and the clock the ISP takes its samples on: the fabric clock driving
@@ -404,3 +413,21 @@ def test_the_raster_times_its_quiet_by_each_rows_own_clock():
     assert bits == [25, 27, 28]
     for khz, bit in zip((27_000, 74_250, 148_500), bits):
         assert 1.0 <= 2 ** bit / (khz * 1000) < 2.0
+
+
+def test_every_display_clock_is_in_the_raster_clock_constraints():
+    """The raster's constraints name each display clock -- asynchronous to
+    the board's, exclusive of each other through the clock select -- by
+    the clock manager output that makes it. A row added to the design and
+    not to them has its paths timed against the other rows', which never
+    meet one: a build that fails timing on paths that cannot happen."""
+    from np2hw.design.composite import load
+    design = load("revela.boards.pynq_z2.pynq_demo", build={})
+    rows = sorted(source for source, sink in design.edges
+                  if sink.startswith("clk_sel.clk_"))
+    assert len(rows) == len(design.parameters["tv_khz_rows"])
+    xdc = (pynq_z2.HERE / "raster-clocks.xdc").read_text()
+    for source in rows:
+        clock = source.replace(".", "_")
+        # in all three groups: against the board, each other, the serializer
+        assert xdc.count(clock) >= 3, f"{clock} is not constrained"

@@ -129,3 +129,6 @@ def tmds_recipe(khz: int) -> dict:
         if VCO_KHZ[0] <= khz * mult <= VCO_KHZ[1]:
             return {"divclk": 1, "mult": mult, "out0": mult // 5}
     raise ValueError(f"no serializer PLL recipe makes 5 x {khz} kHz")
+
+
+tmds_recipe.expression = True

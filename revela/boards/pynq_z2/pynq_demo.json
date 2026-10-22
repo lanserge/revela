@@ -8,8 +8,8 @@
      "description": "The ISP this demo builds, by reference: a composite of revela's blocks, generated and proved as part of this design."
     },
     "mode": {
-     "default": "link_mode",
-     "description": "The output raster. By default the one the input arrives in, so the output runs at the input's rate, genlocked to it."
+     "default": "'720p60' if frame_store else link_mode",
+     "description": "The output raster. By default the one the input arrives in, so the output runs at the input's rate, genlocked to it -- unless the ISP keeps frames: its pictures then come at the raster's pace, not the input's, so it runs whatever mode the display takes -- 720p60 by default, which televisions take; mode='480p120' gives a display that takes it a picture for each of up to 120 frames a second."
     },
     "link_mode": {
      "default": "'1080p60'",
@@ -59,17 +59,18 @@
      "default": [
       27000,
       74250,
-      148500
+      148500,
+      54000
      ],
-     "description": "The display clocks this board makes, row by row of its clock select: 480p's, the 720p/1080p family's, and 1080p50/60's. Rows 1 and 2 share one clock manager's VCO."
+     "description": "The display clocks this board makes, row by row of its clock select: 480p's, the 720p/1080p family's, 1080p50/60's, and 480p120's. Rows 1 and 2 share one clock manager's VCO, rows 0 and 3 another's."
     },
     "quiet_ms": {
      "default": 1000,
      "description": "The least the display paints the fill for after its raster starts or a sink connects, so a television trains its receiver on a dark picture: about a second was measured enough, half of one not. Each clock row's quiet is the least power of two of its cycles this long or longer."
     },
     "raster27_divclk": {
-     "default": 8,
-     "description": "Row 0's recipe: 200 MHz / 8 x 27, a 675 MHz VCO, divides to 27 MHz."
+     "default": 5,
+     "description": "Rows 0 and 3's recipe: 200 MHz / 5 x 27, a 1080 MHz VCO, divides to 27 and 54 MHz."
     },
     "raster27_mult8": {
      "default": 216,
@@ -136,11 +137,12 @@
       "fill": "fill",
       "lane_map": "hdmi_in.lane_map",
       "vsync_active_high": "hdmi_in.vsync_active_high",
-      "ps_per_pixel": "@revela.boards.common.clocking:fine_steps(fclk1_khz, raster27_divclk, raster27_mult8, out_khz) if out_khz == tv_khz_rows[0] else @revela.boards.common.clocking:fine_steps(fclk1_khz, raster_divclk, raster_mult8, out_khz)",
+      "ps_per_pixel": "@revela.boards.common.clocking:fine_steps(fclk1_khz, raster27_divclk, raster27_mult8, out_khz) if out_khz == tv_khz_rows[0] or out_khz == tv_khz_rows[3] else @revela.boards.common.clocking:fine_steps(fclk1_khz, raster_divclk, raster_mult8, out_khz)",
       "quiet_bits": [
        "@revela.boards.common.clocking:quiet_bit(tv_khz_rows[0], quiet_ms)",
        "@revela.boards.common.clocking:quiet_bit(tv_khz_rows[1], quiet_ms)",
-       "@revela.boards.common.clocking:quiet_bit(tv_khz_rows[2], quiet_ms)"
+       "@revela.boards.common.clocking:quiet_bit(tv_khz_rows[2], quiet_ms)",
+       "@revela.boards.common.clocking:quiet_bit(tv_khz_rows[3], quiet_ms)"
       ],
       "clk_sel": "@revela.boards.common.clocking:row(tv_khz_rows, out_khz)",
       "board_window": 2048
@@ -169,13 +171,14 @@
     },
     "clk_raster27": {
      "block": "revela.boards.common.clock",
-     "description": "The display clock's row 0: 27 MHz, steered by the genlock while chosen.",
+     "description": "The display clock's rows 0 and 3: 27 MHz and 54 MHz from one VCO, steered by the genlock while chosen.",
      "build": {
       "in_khz": "fclk1_khz",
       "out_khz": "tv_khz_rows[0]",
       "divclk": "raster27_divclk",
       "mult8": "raster27_mult8",
       "fine_phase_shift": 1,
+      "out2_khz": "tv_khz_rows[3]",
       "unbuffered": 1
      }
     },
@@ -1226,6 +1229,18 @@
     [
      "clk_raster.psdone",
      "clk_sel.psdone_2"
+    ],
+    [
+     "clk_raster27.clk_out2",
+     "clk_sel.clk_3"
+    ],
+    [
+     "clk_raster27.locked",
+     "clk_sel.locked_3"
+    ],
+    [
+     "clk_raster27.psdone",
+     "clk_sel.psdone_3"
     ],
     [
      "fabric.raster_ps_en",

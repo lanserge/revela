@@ -1,8 +1,8 @@
 // Copyright 2026 Serge Rabyking
 // SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
 //
-// clock_select -- the display's pixel clock, one of three at run time,
-// through two cascaded glitch-free global multiplexers, chosen by one
+// clock_select -- the display's pixel clock, one of four at run time,
+// through two levels of glitch-free global multiplexers, chosen by one
 // register.
 //
 // The clock managers run their recipes all the time -- one VCO per family
@@ -19,7 +19,7 @@ module clock_select #(
     // settling, with margin
     parameter HOLD = 1024
 ) (
-    input  wire [1:0] sel,       // the build's clock table row: 0, 1 or 2
+    input  wire [1:0] sel,       // the build's clock table row: 0 to 3
     input  wire       clk_0,
     input  wire       locked_0,
     input  wire       psdone_0,
@@ -29,13 +29,18 @@ module clock_select #(
     input  wire       clk_2,
     input  wire       locked_2,
     input  wire       psdone_2,
+    input  wire       clk_3,
+    input  wire       locked_3,
+    input  wire       psdone_3,
     output wire       clk,       // the display's pixel clock
     output wire       locked,
     output wire       psdone
 );
-    wire low;
+    // rows 0/1 and 2/3 by the low bit, then the pair by the high one
+    wire low, high;
     BUFGMUX_CTRL first (.O(low), .I0(clk_0), .I1(clk_1), .S(sel[0]));
-    BUFGMUX_CTRL second (.O(clk), .I0(low), .I1(clk_2), .S(sel[1]));
+    BUFGMUX_CTRL third (.O(high), .I0(clk_2), .I1(clk_3), .S(sel[0]));
+    BUFGMUX_CTRL second (.O(clk), .I0(low), .I1(high), .S(sel[1]));
 
     // the choice, as the display clock sees it
     (* ASYNC_REG = "TRUE" *) reg [1:0] sel_s0 = 2'd0, sel_s1 = 2'd0;
@@ -49,7 +54,9 @@ module clock_select #(
         else if (hold != 0) hold <= hold - 1'b1;
     end
 
-    wire lock_sel = sel_s1[1] ? locked_2 : sel_s1[0] ? locked_1 : locked_0;
-    assign psdone = sel_s1[1] ? psdone_2 : sel_s1[0] ? psdone_1 : psdone_0;
+    wire lock_sel = sel_s1[1] ? (sel_s1[0] ? locked_3 : locked_2)
+                              : (sel_s1[0] ? locked_1 : locked_0);
+    assign psdone = sel_s1[1] ? (sel_s1[0] ? psdone_3 : psdone_2)
+                              : (sel_s1[0] ? psdone_1 : psdone_0);
     assign locked = lock_sel && hold == 0;
 endmodule

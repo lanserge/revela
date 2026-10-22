@@ -21,7 +21,7 @@
       ],
       "implementations": {
         "clk_wiz": {
-          "description": "AMD's clocking wizard as an MMCM with dynamic reconfiguration over AXI4-Lite, which keeps the lock and filter tables for each recipe it is given. An MMCM, not a PLL: only an MMCM's outputs reach a BUFIO, over the region's high-performance clock lines.",
+          "description": "AMD's clocking wizard as an MMCM with dynamic reconfiguration over AXI4-Lite, which keeps the lock and filter tables for each recipe it is given. Its reset recipe is the one the firmware loads for the reset clock (revela.boards.common.clocking.tmds_recipe), never one the wizard chooses: one recipe a clock, at power-on as after a switch. An MMCM, not a PLL: only an MMCM's outputs reach a BUFIO, over the region's high-performance clock lines.",
           "vivado": {"ip": "xilinx.com:ip:clk_wiz"},
           "config": {
             "PRIMITIVE": "'MMCM'",
@@ -31,7 +31,10 @@
             "USE_LOCKED": "'true'",
             "USE_RESET": "'false'",
             "PRIM_IN_FREQ": "@np2hw.toolchain.vivado:mhz(in_khz)",
-            "CLKOUT1_REQUESTED_OUT_FREQ": "@np2hw.toolchain.vivado:mhz(in_khz * 5)"
+            "CLKOUT1_REQUESTED_OUT_FREQ": "@np2hw.toolchain.vivado:mhz(in_khz * 5)",
+            "MMCM_DIVCLK_DIVIDE": "@revela.boards.common.clocking:tmds_recipe(in_khz)['divclk']",
+            "MMCM_CLKFBOUT_MULT_F": "@revela.boards.common.clocking:multiplier(@revela.boards.common.clocking:tmds_recipe(in_khz)['mult'] * 8)",
+            "MMCM_CLKOUT0_DIVIDE_F": "@revela.boards.common.clocking:multiplier(@revela.boards.common.clocking:tmds_recipe(in_khz)['out0'] * 8)"
           },
           "ports": {"ctrl": "s_axi_lite", "ctrl_clk": "s_axi_aclk", "ctrl_resetn": "s_axi_aresetn",
                     "clk_in": "clk_in1", "clk_x5": "clk_out1", "clkfb_in": "clkfb_in",

@@ -28,8 +28,10 @@ pytestmark = pytest.mark.skipif(shutil.which("verilator") is None,
                                 reason="verilator not on PATH")
 
 W, H, SLOTS = 16, 8, 8
-# the store's latency, and the core's stages behind it
-MARGIN = 4 + 80
+# the store's latency, as its implementation states it, and the core's
+# stages behind it
+MARGIN = composite.find("np2hw.hdl.frames:frame_store").obj[
+    "implementations"]["bram"]["facts"]["latency"] + 80
 
 
 def _design():
