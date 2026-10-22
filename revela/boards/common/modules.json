@@ -213,6 +213,10 @@
     },
     "CTX_BITS": {
      "description": "The width of the ISP's output context, carried whole to the direct branch: the design reads it from the ISP's output port."
+    },
+    "HOLD_A": {
+     "default": 0,
+     "description": "1 where the stream can wait -- a frame store's, paced by its consumer: the direct branch holds it rather than tear."
     }
    },
    "constraints": [

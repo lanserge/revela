@@ -323,7 +323,8 @@
      "block": "revela.boards.common.modules:tee_shim",
      "build": {
       "DATA_BITS": "isp_out_bits",
-      "CTX_BITS": "isp.isp_out.context_bits"
+      "CTX_BITS": "isp.isp_out.context_bits",
+      "HOLD_A": "1 if 'mem' in isp.outputs else 0"
      }
     },
     "isp_dir": {

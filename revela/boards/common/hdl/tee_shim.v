@@ -16,7 +16,10 @@
 // would be a block RAM's worth of bits held for every beat.
 module tee_shim #(
     parameter DATA_BITS = 24,
-    parameter CTX_BITS = 32
+    parameter CTX_BITS = 32,
+    // 1 where the stream can wait -- a frame store's, paced by its
+    // consumer: the direct branch then holds it rather than tear
+    parameter HOLD_A = 0
 ) (
     (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 clk CLK", X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in_stream:a:b, ASSOCIATED_RESET rst" *)
     input  wire        clk,
@@ -96,7 +99,7 @@ module tee_shim #(
         .m_data(sk_data), .m_valid(sk_valid), .m_ready(sk_ready));
 
     wire        bt_valid, bt_ready;
-    np2hw_tee #(.W(TW)) u_tee (
+    np2hw_tee #(.W(TW), .HOLD_A(HOLD_A)) u_tee (
         .clk(clk), .rst(rst),
         .in_valid(sk_valid), .in_ready(sk_ready),
         .in_data(sk_data), .in_sof(sk_data[DATA_BITS + 2]),

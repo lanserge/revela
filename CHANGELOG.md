@@ -24,7 +24,9 @@ Pre-1.0, so the block API and the map format can still change. See
   processor's memory port, after the capture's, its frames in the top 16 MB
   the board's kernel is told it does not have (`mem=496M`), reset by the
   board alone, and the raster free-running, for its pictures come from the
-  frames kept. An ISP holding more than models has each composite of
+  frames kept -- the display's branch of the tee holding them until the
+  raster takes them (`tee_shim`'s `HOLD_A`), where a sensor's stream is
+  never held. An ISP holding more than models has each composite of
   models inside it proved and packed, as the ISP builds it.
 - **Each frame's context rides the ISP's stream.** The entry packs the
   header's facts into the stream's context, np2hw's `ctx` member, at the

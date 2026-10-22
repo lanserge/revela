@@ -305,6 +305,16 @@ def test_the_time_of_flight_board_keeps_its_frames_in_memory(capture, port):
     assert not joined(f"{store}.mem_rst", "rst_isp.rst")
     assert joined(f"{store}.clk", f"mem.{port}_ACLK")
     assert joined("fabric.free_run.q", "fabric.scanout.param_follow")
+    # its pictures wait for the raster: the display's branch holds them
+    assert design.instances["fabric.isp_tee"].build["HOLD_A"] == 1
+
+
+def test_a_sensors_stream_is_never_held():
+    """The camera's ISP keeps no frames: its stream is the sensor's, which
+    cannot wait, so the tee never stalls it."""
+    from np2hw.design.composite import load
+    design = load("revela.boards.pynq_z2.pynq_demo", build={})
+    assert design.instances["fabric.isp_tee"].build["HOLD_A"] == 0
 
 
 
