@@ -66,6 +66,14 @@ def isp_ref(build: dict | None = None) -> str:
     return choices(build)["pipeline"]
 
 
+def isp_parts(build: dict | None = None) -> list:
+    """What of the ISP is proved from its models, by path inside it: none
+    where the ISP is models alone -- it is proved whole -- else each
+    composite of models built whole inside it, as the ISP sets it."""
+    from np2hw.design.composite import load
+    return sorted(load(isp_ref(build)).pipelines)
+
+
 def isp_name(build: dict | None = None) -> str:
     """The ISP's name: its generated modules and pack are named after it."""
     from np2hw.design.composite import block_name

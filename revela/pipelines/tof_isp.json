@@ -35,7 +35,8 @@
       },
       "inputs": [
         {"name": "clk"},
-        {"name": "rst", "description": "Active high."},
+        {"name": "rst", "description": "Active high: the stream's, whenever it starts over."},
+        {"name": "mem_rst", "when": "implementation == 'axi'", "description": "Active high: the memory's, the one reset of the store's master on it."},
         {"name": "in", "description": "The sensor's phase frames, one reference phase a frame, as they come, each frame's size and count in its context."},
         {"name": "s_axil", "description": "The core's registers."},
         {"name": "s_axil_aclk"},
@@ -76,6 +77,7 @@
       },
       "connections": [
         ["clk", "store.clk"], ["rst", "store.rst"],
+        {"from": "mem_rst", "to": "store.mem_rst", "when": "implementation == 'axi'"},
         ["clk", "core.clk"], ["rst", "core.rst"],
         ["s_axil", "core.s_axil"], ["s_axil_aclk", "core.s_axil_aclk"],
         ["s_axil_aresetn", "core.s_axil_aresetn"],

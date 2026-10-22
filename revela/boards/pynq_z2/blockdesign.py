@@ -247,7 +247,9 @@ def main(argv=None) -> int:
     p = design.parameters
     print(f"generated {target} -- {len(design.instances)} cells, "
           f"{p['sample_bits']}-bit into the ISP, {p['isp_out_bits']}-bit "
-          f"out, {p['out_khz'] / 1000:g} MHz raster, genlocked"
+          f"out, {p['out_khz'] / 1000:g} MHz raster, "
+          # where the ISP keeps frames, the raster runs at its own pace
+          + ("free-running" if p["frame_store"] else "genlocked")
           + (", capture" if design.parameters["capture"] else "")
           + f"; GPIO layout 0x{layout_id:08X}")
     return 0

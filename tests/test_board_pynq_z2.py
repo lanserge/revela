@@ -274,9 +274,37 @@ def test_every_bus_answers_whatever_the_cable_does():
     the netlist to the processor or a constant: none to the cable."""
     from np2hw.design.ancestry import audit
     from np2hw.design.composite import load
-    for build in ({}, {"capture": 1}):
+    for build in ({}, {"capture": 1}, {"pipeline": TOF},
+                  {"pipeline": TOF, "capture": 1}):
         assert audit(load("revela.boards.pynq_z2.pynq_demo",
                           build=build)) == [], build
+
+
+TOF = "@revela.boards.pynq_z2.tof:revela_tof_isp"
+
+
+@pytest.mark.parametrize("capture, port", [(0, "S01"), (1, "S02")])
+def test_the_time_of_flight_board_keeps_its_frames_in_memory(capture, port):
+    """The ToF ISP's frame store on the processor's memory port, after the
+    capture's where there is one, its master reset by the board alone; and
+    the raster free, for its pictures come from the frames kept."""
+    from np2hw.design.composite import load
+    design = load("revela.boards.pynq_z2.pynq_demo",
+                  build={"pipeline": TOF, "capture": capture})
+    assert design.parameters["frame_store"]
+    assert design.instances["mem"].build["NUM_SI"] == 2 + capture
+    nets = [set(net["pins"]) for net in design.netlist["nets"]]
+
+    def joined(a, b):
+        return any({a, b} <= n for n in nets)
+    store = "fabric.isp.isp.store"
+    assert (f"{store}.mem", f"mem.{port}_AXI") in design.edges or any(
+        b["from"] == f"{store}.mem" and b["to"] == f"mem.{port}_AXI"
+        for b in design.netlist["bundles"])
+    assert joined(f"{store}.mem_rst", "rst_bus.rst")
+    assert not joined(f"{store}.mem_rst", "rst_isp.rst")
+    assert joined(f"{store}.clk", f"mem.{port}_ACLK")
+    assert joined("fabric.free_run.q", "fabric.scanout.param_follow")
 
 
 

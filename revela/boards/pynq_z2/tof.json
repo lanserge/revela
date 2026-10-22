@@ -1,23 +1,38 @@
 {
   "blocks": {
     "revela_tof_core": {
-      "description": "The board's time-of-flight pipeline: the ToF ISP -- the four most recent reference phases to phase and amplitude, phase to depth in millimetres -- then a depth view a television shows, red near through green to blue far. The frame count rides the bayerlink header as stream context, and each frame's place in the sensor's capture loop is read from it.",
+      "description": "The board's time-of-flight core: the ToF pipeline -- the four latest reference phases to phase and amplitude, phase to depth in millimetres -- then a depth view a television shows, red near through green to blue far. Of model blocks alone, it is the unit the board's ISP proves and builds whole, behind the frame store that hands it the four latest frames side by side.",
       "vocabulary": "revela.blocks.pipe:VOCABULARY",
       "parameters": {
         "clock_mhz": {
           "default": 155,
           "description": "The clock the datapath is CUT for, above the clock it runs at: generation margin makes the cut placement deterministic. Whatever builds this ISP sets it."
+        },
+        "bit_depth": {
+          "description": "The word each signed sample rides in."
+        },
+        "max_width": {
+          "description": "Widest frame served."
+        },
+        "max_height": {
+          "description": "Tallest frame served."
+        },
+        "frames": {
+          "description": "Frames the stream brings side by side, from the frame store."
+        },
+        "headroom": {
+          "description": "Bits of each sample's word above its sign, always zero: the sensor's."
         }
       },
       "inputs": [
         {
-          "name": "isp_in",
-          "description": "One reference phase a frame from the bayerlink receiver: signed correlations riding unsigned under a common offset, each frame's count in its header."
+          "name": "in",
+          "description": "The four latest phase frames side by side, from the frame store, each frame's count the newest's."
         }
       ],
       "outputs": [
         {
-          "name": "isp_out",
+          "name": "out",
           "description": "The depth view: three 8-bit channels in one word, R low, G mid, B high. The word's width is TRACED, not declared."
         }
       ],
@@ -25,12 +40,13 @@
         "tof": {
           "block": "revela.pipelines.tof_core",
           "build": {
-            "bit_depth": 16,
-            "max_width": 240,
-            "max_height": 180,
-            "headroom": 1
+            "bit_depth": "bit_depth",
+            "max_width": "max_width",
+            "max_height": "max_height",
+            "frames": "frames",
+            "headroom": "headroom"
           },
-          "description": "Phase frames in, depth out: what any four-phase ToF sensor on this board needs. Built for the reference sensor's whole frame, 240x180 of its samples -- eleven bits of two's complement in the link's twelve-bit word, widened to sixteen, so one bit of headroom above each sign; its phase history keeps three of them."
+          "description": "Phase frames in, depth out: what any four-phase ToF sensor on this board needs."
         },
         "view": {
           "block": "revela.blocks.depthview",
@@ -39,7 +55,7 @@
       },
       "connections": [
         [
-          "isp_in",
+          "in",
           "tof.in"
         ],
         [
@@ -48,7 +64,114 @@
         ],
         [
           "view.out",
+          "out"
+        ]
+      ]
+    },
+    "revela_tof_isp": {
+      "description": "The board's time-of-flight ISP, in its ISP slot: the reference sensor's phase frames as they come -- a burst of four, then a wait -- kept by a frame store in external memory, the top 16 MB the board's Linux leaves alone, and the four latest handed to the core at the television's pace. Built for the sensor's whole frame, 240x180 of eleven-bit samples in the link's twelve-bit word, widened to sixteen.",
+      "parameters": {
+        "clock_mhz": {
+          "default": 155,
+          "description": "The clock the core's datapath is cut for; whatever builds this ISP sets it."
+        }
+      },
+      "inputs": [
+        {
+          "name": "isp_in",
+          "bits": 16,
+          "max_width": 240,
+          "max_height": 180,
+          "context": [
+            "width",
+            "height",
+            "frame_seq"
+          ],
+          "description": "One reference phase a frame from the bayerlink receiver, each frame's size and count in its header."
+        },
+        {
+          "name": "clk"
+        },
+        {
+          "name": "rst"
+        },
+        {
+          "name": "mem_rst",
+          "description": "Active high: the memory's reset, the one reset of the frame store's master on it -- the board's, never the link's."
+        },
+        {
+          "name": "s_axil"
+        },
+        {
+          "name": "s_axil_aclk"
+        },
+        {
+          "name": "s_axil_aresetn"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "isp_out",
+          "description": "The depth view, as the television's raster takes it, each frame's context with it."
+        },
+        {
+          "name": "mem",
+          "description": "The memory the frames live in."
+        }
+      ],
+      "nodes": {
+        "isp": {
+          "block": "revela.pipelines.tof_isp",
+          "build": {
+            "pipeline": "@revela.boards.pynq_z2.tof:revela_tof_core",
+            "implementation": "'axi'",
+            "base": 520093696,
+            "slots": 16,
+            "bit_depth": 16,
+            "max_width": 240,
+            "max_height": 180,
+            "headroom": 1,
+            "core.clock_mhz": "clock_mhz"
+          },
+          "description": "The frame store, its frames from 0x1F000000 -- the 16 MB the board's kernel is told it does not have (mem=496M) -- then the core."
+        }
+      },
+      "connections": [
+        [
+          "isp_in",
+          "isp.in"
+        ],
+        [
+          "clk",
+          "isp.clk"
+        ],
+        [
+          "rst",
+          "isp.rst"
+        ],
+        [
+          "mem_rst",
+          "isp.mem_rst"
+        ],
+        [
+          "s_axil",
+          "isp.s_axil"
+        ],
+        [
+          "s_axil_aclk",
+          "isp.s_axil_aclk"
+        ],
+        [
+          "s_axil_aresetn",
+          "isp.s_axil_aresetn"
+        ],
+        [
+          "isp.out",
           "isp_out"
+        ],
+        [
+          "isp.mem",
+          "mem"
         ]
       ]
     }

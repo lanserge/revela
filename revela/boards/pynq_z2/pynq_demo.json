@@ -23,6 +23,10 @@
      "default": 0,
      "description": "Build the link-judge path: byte-exact frames to DDR, so the ARM can convict a cable or a lane map."
     },
+    "frame_store": {
+     "default": "'mem' in fabric.outputs",
+     "description": "Whether the ISP keeps frames in memory: read off the fabric, never set -- what decides it is the pipeline built."
+    },
     "rx_fifo": {
      "default": 256,
      "description": "The receiver's sample FIFO depth, pinned: a different depth is a different design."
@@ -545,9 +549,9 @@
     },
     "mem": {
      "block": "revela.boards.zynq7.ip:axi_interconnect",
-     "description": "The DMAs' writes onto the processor's memory port.",
+     "description": "The DMAs' writes, and a frame store's, onto the processor's memory port.",
      "build": {
-      "NUM_SI": "2 if capture else 1",
+      "NUM_SI": "1 + (1 if capture else 0) + (1 if frame_store else 0)",
       "NUM_MI": 1
      }
     },
@@ -1075,6 +1079,12 @@
      "mem.M00_AXI",
      "ps7.S_AXI_HP0"
     ],
+    {"from": "fabric.mem", "to": "mem.S01_AXI", "when": "frame_store and not capture"},
+    {"from": "ps7.FCLK_CLK0", "to": "mem.S01_ACLK", "when": "frame_store and not capture"},
+    {"from": "rst_bus.rst_n", "to": "mem.S01_ARESETN", "when": "frame_store and not capture"},
+    {"from": "fabric.mem", "to": "mem.S02_AXI", "when": "frame_store and capture"},
+    {"from": "ps7.FCLK_CLK0", "to": "mem.S02_ACLK", "when": "frame_store and capture"},
+    {"from": "rst_bus.rst_n", "to": "mem.S02_ARESETN", "when": "frame_store and capture"},
     [
      "ps7.FCLK_CLK0",
      "ps7.S_AXI_HP0_ACLK"

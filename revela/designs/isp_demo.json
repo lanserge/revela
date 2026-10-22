@@ -244,6 +244,11 @@
      "name": "cable_board",
      "description": "The cable's bus, at the board's window: for a register file of the board's own.",
      "when": "board_window"
+    },
+    {
+     "name": "mem",
+     "description": "The memory the ISP keeps frames in, where its ISP keeps any: a frame store's, onto the processor's memory port.",
+     "when": "'mem' in isp.outputs"
     }
    ],
    "nodes": {
@@ -304,6 +309,15 @@
      "build": {
       "clock_mhz": "isp_mhz"
      }
+    },
+    "free_run": {
+     "block": "np2hw.hdl.glue:const",
+     "build": {
+      "WIDTH": 1,
+      "VALUE": 0
+     },
+     "when": "'mem' in isp.outputs",
+     "description": "The raster's follow, held off where the ISP keeps frames: its pictures come at the raster's own pace, from the frames kept, so there is no stream to lock to and the raster runs free at its own mode's rate."
     },
     "isp_tee": {
      "block": "revela.boards.common.modules:tee_shim",
@@ -535,7 +549,7 @@
      "entry_in_ready"
     ],
     [
-     "isp.isp_out_valid",
+     "isp_tee.in_valid",
      "isp_out_valid"
     ],
     [
@@ -642,10 +656,16 @@
      "raster_ps_done",
      "scanout.ps_done"
     ],
-    [
-     "isp_tee.en_a",
-     "scanout.param_follow"
-    ],
+    {
+     "from": "isp_tee.en_a",
+     "to": "scanout.param_follow",
+     "when": "'mem' not in isp.outputs"
+    },
+    {
+     "from": "free_run.q",
+     "to": "scanout.param_follow",
+     "when": "'mem' in isp.outputs"
+    },
     [
      "blrx.out",
      "rx_out"
@@ -786,7 +806,17 @@
     [
      "sink",
      "scanout.sink"
-    ]
+    ],
+    {
+     "from": "isp.mem",
+     "to": "mem",
+     "when": "'mem' in isp.outputs"
+    },
+    {
+     "from": "bus_rst",
+     "to": "isp.mem_rst",
+     "when": "'mem_rst' in isp.inputs"
+    }
    ]
   }
  }

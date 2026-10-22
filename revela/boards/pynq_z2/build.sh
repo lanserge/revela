@@ -23,7 +23,7 @@
 # records them beside the bitstream (out/build.json), so a bitstream
 # corresponds to the design plus what it says it was built with:
 #
-#   ... build.sh pipeline=@revela.boards.pynq_z2.tof:revela_tof_core
+#   ... build.sh pipeline=@revela.boards.pynq_z2.tof:revela_tof_isp
 #
 # Needs: vivado on PATH; python3 with revela, np2hw, bayerlink and
 # bayerlink_fpga importable; and the two vendor trees, found at
@@ -92,7 +92,18 @@ echo "== ISP proved (its RTL against its models, word for word), and its pack"
 # design loads it. This proves the same composite at the same clock first
 # and writes its deliverable -- the FuseSoC pack, register map and docs --
 # beside the build, so a pack that does not verify stops the build here.
-python3 -m np2hw pipeline generate "$ISP" --out "$OUT/isp" --clock-mhz "$ISP_MHZ"
+# An ISP holding more than models -- a frame store before its core -- has
+# each composite of models inside it proved, as the ISP builds it; what is
+# around them is np2hw's, held to its own models by np2hw's tests.
+PARTS=$(python3 -c "import sys; from revela.boards.pynq_z2 import isp_parts, variant; print(' '.join(isp_parts(variant(sys.argv[1]))))" "$OUT")
+if [ -z "$PARTS" ]; then
+    python3 -m np2hw pipeline generate "$ISP" --out "$OUT/isp" --clock-mhz "$ISP_MHZ"
+else
+    for part in $PARTS; do
+        python3 -m np2hw pipeline generate "$ISP" --node "$part" \
+            --out "$OUT/isp/$part" --clock-mhz "$ISP_MHZ"
+    done
+fi
 
 echo "== block design (generated from pynq_demo: the ISP and every generated leaf built with it)"
 # Loading the design builds the ISP inside it; the ISP's widths reach the

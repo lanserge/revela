@@ -19,7 +19,13 @@ Pre-1.0, so the block API and the map format can still change. See
   power-of-two shift. `build.sh` takes a variant's settings of the design's
   parameters on its command line and records them beside the bitstream
   (`out/build.json`): `build.sh
-  pipeline=@revela.boards.pynq_z2.tof:revela_tof_core`.
+  pipeline=@revela.boards.pynq_z2.tof:revela_tof_isp`, the board's ISP slot
+  holding `tof_isp` around that core: its frame store's master on the
+  processor's memory port, after the capture's, its frames in the top 16 MB
+  the board's kernel is told it does not have (`mem=496M`), reset by the
+  board alone, and the raster free-running, for its pictures come from the
+  frames kept. An ISP holding more than models has each composite of
+  models inside it proved and packed, as the ISP builds it.
 - **Each frame's context rides the ISP's stream.** The entry packs the
   header's facts into the stream's context, np2hw's `ctx` member, at the
   bits the ISP's input lays them out at -- the design reads where each

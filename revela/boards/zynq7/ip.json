@@ -2,7 +2,7 @@
   "blocks": {
     "axi_interconnect": {
       "description": "AMD's AXI interconnect, for the memory side: masters onto the processor's memory port, bursts and widths converted.",
-      "facts": {"clocks": {"S00_AXI": ["S00_ACLK", "S00_ARESETN"], "S01_AXI": ["S01_ACLK", "S01_ARESETN"], "M00_AXI": ["M00_ACLK", "M00_ARESETN"]}},
+      "facts": {"clocks": {"S00_AXI": ["S00_ACLK", "S00_ARESETN"], "S01_AXI": ["S01_ACLK", "S01_ARESETN"], "S02_AXI": ["S02_ACLK", "S02_ARESETN"], "M00_AXI": ["M00_ACLK", "M00_ARESETN"]}},
       "vivado": {
         "ip": "xilinx.com:ip:axi_interconnect",
         "integrator": true
