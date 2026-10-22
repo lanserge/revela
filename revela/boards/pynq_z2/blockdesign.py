@@ -183,16 +183,30 @@ def main(argv=None) -> int:
         entry = {"base": window["base"], "size": window["size"]}
         if "offsets" in facts:
             entry.update(registers=facts["offsets"], id=facts["id"])
-        if path.rpartition(".")[2] == "isp":
+        if in_isp(path):
             # the clock the ISP takes a sample a cycle on: how fast a
             # source may hand it samples, traced to the fabric clock
             # that drives it
-            entry["clock_khz"] = isp_khz()
+            entry["clock_khz"] = isp_khz(path)
         return entry
-    def isp_khz():
+    # The ISP is the design's ISP slot, whatever sits inside it: the
+    # register window within it -- the slot itself for a pipeline of
+    # models, a node deeper for one built around a frame store -- is the
+    # far end's "isp", by what it is, not by how its path is spelled.
+    ISP = "fabric.isp"
+    def in_isp(path):
+        return path == ISP or path.startswith(ISP + ".")
+    def far_name(path):
+        return "isp" if in_isp(path) else path.rpartition(".")[2]
+    isp_windows = [p for p in address_map(design, CABLE) if in_isp(p)]
+    if len(isp_windows) != 1:
+        raise SystemExit(f"blockdesign: the ISP has {len(isp_windows)} "
+                         f"register windows on the cable ({isp_windows}); "
+                         "the far end addresses one")
+    def isp_khz(path):
         from revela.boards.zynq7 import fabric_clocks
         net = next(n["pins"] for n in design.netlist["nets"]
-                   if "fabric.isp.clk" in n["pins"])
+                   if f"{path}.clk" in n["pins"])
         fclk = [p for p in net if p.startswith("ps7.FCLK_CLK")]
         if len(fclk) != 1:
             raise ValueError(f"the ISP's clock is driven by {fclk}, not one "
@@ -226,7 +240,7 @@ def main(argv=None) -> int:
                   if p.endswith(".scanout"))
     counters = {k: int(raster.build[k]) for k in ("XB", "YB")}
     (out / "generated" / "cable_map.json").write_text(json.dumps(
-        {path.rpartition(".")[2]: dict(far(path, w), **(
+        {far_name(path): dict(far(path, w), **(
             {"counter_bits": [counters["XB"], counters["YB"]],
              # the display's clocks, row by row of its clock select, with
              # the fine steps each row's pixel is: a raster at any other

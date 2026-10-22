@@ -34,7 +34,10 @@ Pre-1.0, so the block API and the map format can still change. See
   The serializer's clock manager starts on the recipe the firmware loads
   for the reset clock, never one the clocking wizard chooses: the
   wizard's fractional pick at 74.25 MHz was a second recipe for one
-  clock. **27 MHz's fine steps a pixel move from 1400 to 2240**, which
+  clock. The cable map names the ISP's register window "isp" by its
+  being inside the ISP slot, wherever it sits -- a ToF ISP's is a node
+  deeper -- so the firmware is cut for any ISP, and sets the display's
+  mode at run time on the ToF board as on the camera's. **27 MHz's fine steps a pixel move from 1400 to 2240**, which
   the cable map publishes. An ISP holding more than models has each composite of
   models inside it proved and packed, as the ISP builds it.
 - **Each frame's context rides the ISP's stream.** The entry packs the

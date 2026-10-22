@@ -431,3 +431,21 @@ def test_every_display_clock_is_in_the_raster_clock_constraints():
         clock = source.replace(".", "_")
         # in all three groups: against the board, each other, the serializer
         assert xdc.count(clock) >= 3, f"{clock} is not constrained"
+
+
+def test_the_far_end_finds_the_isp_wherever_it_sits(tmp_path):
+    """The cable map names the ISP's register window "isp" by its being
+    inside the ISP slot: a pipeline of models is the slot itself, one
+    built around a frame store sits a node deeper. The firmware is cut
+    from that name, with the clock the ISP takes its samples on."""
+    from revela.boards.pynq_z2 import blockdesign
+    out = tmp_path / "out"
+    (out / "generated").mkdir(parents=True)
+    (out / "generated" / "build.json").write_text(json.dumps({"pipeline": TOF}))
+    (out / "generated" / "paths.tcl").write_text(
+        "set p_board_files {x}\nset p_vivado_library {y}\n")
+    assert blockdesign.main(["--out", str(out)]) == 0
+    cable = json.loads((out / "generated" / "cable_map.json").read_text())
+    assert "isp" in cable and "core" not in cable
+    fabric = json.loads((out / "generated" / "clocks.json").read_text())
+    assert cable["isp"]["clock_khz"] == round(fabric["fclk0_mhz"] * 1000)
