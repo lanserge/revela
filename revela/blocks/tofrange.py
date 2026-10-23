@@ -14,20 +14,49 @@ How far is one turn of phase
 -----------------------------
 
 The emitter's modulation frequency sets the unambiguous range: light returning
-from beyond it wraps and is reported as something nearer. Distance is therefore
-linear in phase::
+from beyond it wraps and is reported as something nearer. Phase is a circle,
+and so is distance -- one turn is ``span`` millimetres -- so distance is the
+phase measured from the point on the circle where the distance is zero::
 
-    radial = (phase * span >> PHASE_BITS) + offset
+    radial = ((phase - zero) mod 1 turn) * span >> PHASE_BITS
 
-``span`` is that unambiguous range in millimetres and ``offset`` is the fixed
-delay of the emitter, the sensor and the readout path together. Both are
-measured, not derived: a target at known distances, and a straight line through
-the results. On the sensor this was developed against, three tape-measured
-points from 500 to 2150 mm fitted to within 4.5 mm, and a line fitted to only
-the two nearest predicted the furthest -- never seen by the fit -- to 21 mm.
+``zero`` is that point: the phase the fixed delay of the emitter, the sensor and
+the readout path together puts at 0 mm. ``span`` is the unambiguous range in
+millimetres. Both are measured, not derived: a target at known distances, and a
+straight line through the results. On the sensor this was developed against,
+three tape-measured points from 500 to 2150 mm fitted to within 4.5 mm, and a
+line fitted to only the two nearest predicted the furthest -- never seen by the
+fit -- to 21 mm.
 
-``offset`` is signed and ``span`` may be written negative, because a sensor is
-free to run its phase in either direction and one of them does.
+The circle is cut at ``zero``, in the phase's own arithmetic: the difference
+wraps in its PHASE_BITS, which is the modulo a turn needs, for nothing. Every
+distance the sensor can tell apart, 0 up to one span, comes out as itself, and
+none is negative. Cut anywhere else -- at phase 0, scaling first and adding a
+delay in millimetres after -- the turn lands across zero distance, and a part
+of the range comes out negative: on this sensor the top metre of its four.
+
+Measurements scatter on both sides of the cut, though, and at the near end
+that matters: a hand at the lens reads a little below zero distance, and
+the turn would wrap it to the far end. ``guard`` is how far below zero a
+reading may land and still be the near thing it is -- the last ``guard``
+steps of the turn before ``zero`` -- and those read as 1 mm, the nearest
+distance there is. Everything is decided in phase, where the turn wraps for
+nothing: the reading is in the guard band exactly when adding ``guard`` to
+it carries out of its 16 bits. Only then is it scaled, once, to
+millimetres::
+
+    turn   = (phase - zero) mod 1 turn
+    near   = carry out of (turn + guard)
+    radial = turn * span >> PHASE_BITS,  the depth 1 mm where near
+
+so the window is 0 up to ``(1 - guard / 1 turn) * span``. ``guard`` is the
+sensor's, measured: on the reference module a hand at the lens read 21 to
+24 mm below zero, steadily -- bright pixels are quiet ones -- and the
+default, a 32nd of a turn, is about five times that.
+
+``span`` may be written negative, because a sensor is free to run its phase in
+either direction and one of them does: the phase is then measured from ``zero``
+the other way round.
 
 Radial is not depth
 -------------------
@@ -98,8 +127,8 @@ from revela.blocks import ispblock
 from revela.blocks.tofquad import PHASE_BITS
 from np2hw.blocks.params import Param
 
-#: Millimetres. Wide enough for a span of several metres and an offset that may
-#: exceed it, signed so the phase may run either way.
+#: Millimetres. Wide enough for a span of several metres, signed so the phase
+#: may run either way.
 RANGE_BITS = 20
 
 #: Fractional bits on cos(theta). 14 puts its quantisation at about 0.25 mm at
@@ -136,7 +165,7 @@ MASK = (1 << 16) - 1
 
 
 @ispblock(
-    version=(1, 0),
+    version=(2, 0),
     description="ToF phase to perpendicular depth in millimetres, invalid zeroed.",
     inputs=(StreamPort("in",
                        "Two channels from tofquad: [0] phase, [1] amplitude."),),
@@ -163,14 +192,26 @@ MASK = (1 << 16) - 1
             ),
         ),
         Param(
-            name="offset",
-            bits=RANGE_BITS,
-            signed=True,
-            default=3071,
+            name="zero",
+            bits=PHASE_BITS,
+            default=48814,              # round(3071 * 2**16 / 4123)
             description=(
-                "Millimetres added after the span: the fixed delay of emitter, "
-                "sensor and readout together. Signed, and on a real sensor "
-                "large -- a third of the span is ordinary"
+                "The phase at which the distance is zero, where 1 << 16 is "
+                "one turn: where the fixed delay of emitter, sensor and "
+                "readout together puts 0 mm. The circle of phase is cut "
+                "there, so every distance up to one span comes out as itself"
+            ),
+        ),
+        Param(
+            name="guard",
+            bits=PHASE_BITS,
+            default=2048,               # a 32nd of a turn: 129 mm here
+            description=(
+                "How far below zero distance a reading may land and still be "
+                "the near thing it is, in phase steps before zero: those read "
+                "as 1 mm, the nearest distance, and the window ends this much "
+                "short of one span. Measured on the sensor -- how far its near "
+                "readings fall short of zero"
             ),
         ),
         Param(
@@ -220,7 +261,7 @@ MASK = (1 << 16) - 1
     ],
 )
 def tofrange(pixel, p, bit_depth: int):
-    """THE model. Span and offset for the metres, intrinsics for the geometry.
+    """THE model. Span and zero for the metres, intrinsics for the geometry.
 
     Ordinary NumPy -- run it on a phase image and it returns depth -- and also
     what np2hw traces. Nothing here is a float and nothing is transcendental:
@@ -228,15 +269,24 @@ def tofrange(pixel, p, bit_depth: int):
     as a tone curve.
     """
     s = pixel.astype(np.int64)
-    ph = s[..., 0]
+    ph = s[..., 0] & MASK
     # A 16-bit field masked to 16 bits: no value changes, but the tracer
     # then holds it as an expression it can subtract a register from.
     amp = s[..., 1] & MASK
     zero = ph * 0
 
-    # Linear in phase. The shift is the divide by a full turn, and it is a
+    # The phase from the point of zero distance, in the direction the sensor
+    # runs it, wrapping in its own bits: the turn cut where the distance is
+    # zero. Then linear: the shift is the divide by a full turn, and it is a
     # shift because PHASE_BITS was chosen a power of two for exactly this.
-    radial = ((ph * p.span) >> PHASE_BITS) + p.offset
+    backwards = p.span < 0
+    turn = np.where(backwards, p.zero - ph, ph - p.zero) & MASK
+    # The guard band, the last steps before zero: a reading just short of
+    # zero distance, which adding the guard carries out of the turn. It is
+    # the nearest distance there is -- set below, once the depth is depth,
+    # so no foreshortening rounds it to the zero that means "unmeasured".
+    near = ((turn + p.guard) >> PHASE_BITS) > 0
+    radial = (turn * np.where(backwards, -p.span, p.span)) >> PHASE_BITS
 
     # Where the pixel is: the row and column every core already counts, so
     # the position costs nothing.
@@ -254,15 +304,12 @@ def tofrange(pixel, p, bit_depth: int):
 
     cos_theta = _rsqrt(arg, zero)
     depth = (radial * cos_theta) >> COS_BITS
+    depth = np.where(near, zero + 1, depth)
 
     # Zero is the consumer's own word for "nobody measured this". The test
     # is written as a difference against zero: the tracer compares values
     # with constants, and this is the same comparison.
     depth = np.where((amp - p.amp_min) >= 0, depth, zero)
-    # A negative distance is not a distance: it means the offset and the span
-    # disagree with the light, and emitting it would let a point cloud grow
-    # geometry behind the camera.
-    depth = np.where(depth > 0, depth, zero)
     return np.stack([depth & MASK, amp], axis=-1)
 
 

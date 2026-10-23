@@ -45,9 +45,47 @@ def test_the_optical_centre_is_not_foreshortened():
     phase[..., 0] = 20000
     phase[..., 1] = 1000                          # well above amp_min
     out = tofrange.run(phase, {}, bit_depth=16)
-    radial = ((20000 * -4123) >> 16) + 3071
+    radial = (((48814 - 20000) & 0xFFFF) * 4123) >> 16
     assert out[90, 120, 0] == radial
     assert out[0, 0, 0] < radial                  # a corner is foreshortened
+
+
+def test_every_distance_in_one_turn_is_itself():
+    """The circle is cut where the distance is zero, a guard band before
+    it: across the whole turn the distance runs from 0 up to the window's
+    end, never negative, continuous where a cut at phase 0 would have put
+    the jump; the guard band reads as the nearest distance; and the only
+    jumps are its edges."""
+    defaults = {p.name: p.default for p in tofrange.params.params}
+    zero, span, guard = (defaults[k] for k in ("zero", "span", "guard"))
+    turn = 1 << 16
+    phase = np.zeros((1, turn, 2), dtype=np.int64)
+    phase[0, :, 0] = np.arange(turn)
+    phase[..., 1] = 1000
+    # no angle off the axis anywhere, so radial range is depth
+    out = tofrange.run(phase, {"inv_fx": 0, "inv_fy": 0}, bit_depth=16)[0, :, 0]
+    # walk the turn outwards from zero, the way the sensor runs it
+    step = -1 if span < 0 else 1
+    walk = out[(zero + step * np.arange(turn)) & 0xFFFF].astype(np.int64)
+    assert walk[0] == 0                       # zero distance itself
+    window, band = walk[:turn - guard], walk[turn - guard:]
+    assert (band == 1).all()                  # just short of zero: nearest
+    assert window.max() < abs(span) * (turn - guard) / turn + 1
+    assert (np.diff(window) >= 0).all() and (np.diff(window) <= 1).all()
+    assert (out >= 0).all()
+
+
+def test_a_hand_at_the_lens_reads_as_near():
+    """Readings a little below zero -- a hand at the lens read 21 to 24 mm
+    short -- are the nearest distance, not the far end of the turn."""
+    defaults = {p.name: p.default for p in tofrange.params.params}
+    zero, span = defaults["zero"], defaults["span"]
+    short = round(24 * (1 << 16) / abs(span))          # 24 mm, in phase
+    phase = np.zeros((180, 240, 2), dtype=np.int64)
+    phase[..., 0] = (zero + (short if span < 0 else -short)) & 0xFFFF
+    phase[..., 1] = 30000
+    out = tofrange.run(phase, {}, bit_depth=16)[..., 0]
+    assert (out == 1).all()
 
 
 def test_too_little_light_reads_as_no_measurement():
@@ -70,16 +108,17 @@ def test_verilog_is_bit_exact_with_the_model(tmp_path, rng):
     Trials with different registers in one elaboration, under randomised
     backpressure: the reset calibration; a principal point off the frame and
     reciprocal focal lengths large enough to push the curve's argument past
-    its table, so the clamp is exercised; a span and offset that drive part
-    of the frame negative, so the zeroing is; and an amplitude threshold in
-    the middle of the range, so both sides of the confidence gate are.
+    its table, so the clamp is exercised; a span running forwards and a
+    zero elsewhere on the circle, so both directions and the wrap are; and
+    an amplitude threshold in the middle of the range, so both sides of the
+    confidence gate are.
     """
     generated = tofrange.generate(SPEC, WIDTH, HEIGHT,
                                   module_name="revela_tofrange")
     settings = [
         {},
         {"cx": -30, "cy": 40, "inv_fx": 9000, "inv_fy": 7000},
-        {"span": 90000, "offset": -60000},
+        {"span": 90000, "zero": 12345, "guard": 9000},
         {"amp_min": 30000},
     ]
     # The testbench drives only the registers a trial names, so every trial

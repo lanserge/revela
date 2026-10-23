@@ -12,6 +12,17 @@ Pre-1.0, so the block API and the map format can still change. See
 
 ### Added
 
+- **`tofrange` measures the phase from where the distance is zero.**
+  Phase is a circle and so is distance: `zero` is the phase at which the
+  distance is zero, the phase is measured from it in its own 16 bits --
+  the modulo a turn needs, for nothing -- and only then scaled to
+  millimetres, so every distance the sensor tells apart, 0 up to one span,
+  comes out as itself. A reading may land a little short of zero -- a
+  hand at the lens reads 21 to 24 mm short -- so `guard`, a band of phase
+  before `zero` decided by the carry of `turn + guard`, reads as the
+  nearest distance rather than the far end of the turn. Both are the
+  sensor's, measured; `tofrange` is 2.0.
+
 - **A mono sensor, a loop of frames and driver controls are sensor
   facts.** The sensor schema takes `format.color: mono`, with the colour
   filter array, gain, exposure, black level and timing required only of a
