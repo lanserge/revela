@@ -609,3 +609,26 @@ def test_a_mode_brings_its_display_where_the_board_keeps_the_pictures(
     _, out = _run(held, line, "status")
     assert "R ok" in out, out
     assert not any(shown in l for l in out), out
+
+
+def test_a_value_set_is_committed_at_the_next_frame(tmp_path):
+    """The ISP's parameters are double-buffered, and nothing set by hand
+    needs a step of its own to be seen: what is set during a frame is
+    committed together at the next frame's tick -- several values that
+    belong together land in one frame. A frame with nothing set commits
+    nothing, and `commit` still commits at once, for a bench that wants
+    to know the ISP took it."""
+    exe, regmap, _ = _build(tmp_path)
+    addr = _addr(regmap)
+    commit = addr[regmap["control"]["commit_register"]][0]
+    keys = [k for k in addr if k != regmap["control"]["commit_register"]][:2]
+    init = f"init {FRAME_1080P30} {_display()} window.center=1"
+    before, _ = _run(exe, init)
+    writes, out = _run(exe, init, f"set {keys[0]} 3", f"set {keys[1]} 5")
+    assert writes[len(before):] == [(addr[keys[0]][0], 3),
+                                    (addr[keys[1]][0], 5), (commit, 1)]
+    writes, out = _run(exe, init, f"set {keys[0]} 3", "commit")
+    assert out[-1].startswith("R ok"), out
+    assert writes[len(before):] == [(addr[keys[0]][0], 3), (commit, 1)]
+    _, out = _run(exe, "commit")
+    assert out[-1].startswith("R err"), out

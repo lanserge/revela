@@ -35,6 +35,10 @@ static const struct revela_hal *H;
  * init names another */
 static struct revela_config cur = {.display = REVELA_BOOT_DISPLAY};
 static int map_ok;                      /* the ISP proved it is this build */
+/* a parameter set since the last commit: the ISP's parameters are
+ * double-buffered, so the next frame's tick commits what was set during
+ * this one, together */
+static int staged;
 static int configured;
 static char last_err[160] = "not initialised";
 
@@ -102,6 +106,7 @@ int revela_fw_param_set(const char *key, int64_t value) {
     if (!r) return refuse("set %s: no such parameter in this build", key);
     if (wr(r->addr, masked((uint32_t)value, r->bits)) < 0)
         return refuse("set %s: the ISP did not answer", key);
+    if (r >= REVELA_MAP && r < REVELA_MAP + REVELA_MAP_N) staged = 1;
     return 0;
 }
 
@@ -247,6 +252,7 @@ static void release(void) {
  * while a mode changes or a link comes up there may be no frame yet; the
  * values are in the registers and land with the first. */
 static void commit_batch(const char *what) {
+    staged = 0;
     say("revela: %s committed, %s", what,
         take(REVELA_COMMIT) == 0 ? "applied"
                                  : "pending, until the ISP's next frame");
@@ -527,10 +533,16 @@ static int loop_on(int i) {
 }
 
 void revela_fw_tick(const struct revela_tick *t) {
-    if (!configured) return;
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; configured && i < 3; i++)
         if (loops[i].up && loops[i].up->tick && loop_on(i))
             loops[i].up->tick(t);
+    /* what was set during the frame -- by a loop just now, or by hand
+     * since the last tick -- committed together, for the ISP to take at
+     * the frame's end: written, not waited for, inside the frame */
+    if (staged && map_ok) {
+        staged = 0;
+        wr(REVELA_COMMIT, 1);
+    }
 }
 
 /* ---- the actions ------------------------------------------------ */
@@ -720,6 +732,20 @@ int revela_fw_command(const char *line, char *reply, uint32_t cap) {
         else snprintf(reply, cap, "err %s", last_err);
         return rc;
     }
+    if (!strcmp(line, "commit")) {
+        /* what `set` staged, committed now rather than at the next
+         * frame's tick, and waited for: a bench's way to know the ISP
+         * took it */
+        if (!map_ok) {
+            snprintf(reply, cap, "err commit: the ISP has not proved its "
+                     "build");
+            return -1;
+        }
+        staged = 0;
+        snprintf(reply, cap, take(REVELA_COMMIT) == 0
+                 ? "ok applied" : "ok pending, until the ISP's next frame");
+        return 0;
+    }
     if (!strcmp(line, "status")) return revela_fw_status(reply, cap);
     if (!strcmp(line, "config")) {
         /* the current configuration as init would take it back */
@@ -756,6 +782,6 @@ int revela_fw_command(const char *line, char *reply, uint32_t cap) {
     }
     snprintf(reply, cap, "err unknown command; the firmware speaks: init "
              "<field>=<value>..., configure <field>=<value>..., set <param> "
-             "<value>, get <param>, status, config, modes");
+             "<value>, commit, get <param>, status, config, modes");
     return -1;
 }

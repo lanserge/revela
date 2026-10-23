@@ -12,6 +12,13 @@ Pre-1.0, so the block API and the map format can still change. See
 
 ### Added
 
+- **A parameter set by hand reaches the picture at the next frame.** The
+  ISP's parameters are double-buffered: what is set during a frame -- from
+  a bench, the panel or a loop -- is committed together at the next
+  frame's tick, written and not waited for, so values that belong
+  together land in one frame; `commit` commits at once and waits, for a
+  bench that wants to know the ISP took it.
+
 - **`tofrange` measures the phase from where the distance is zero.**
   Phase is a circle and so is distance: `zero` is the phase at which the
   distance is zero, the phase is measured from it in its own 16 bits --
