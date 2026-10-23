@@ -490,8 +490,8 @@ revela/          (np2hw holds the machinery: np2hw.blocks -- the framework,
                   onto the quadrature by its place in the capture loop
     tofrange.py   complete; phase to perpendicular depth, the lens as
                   registers over the raster's own counters (coords())
-    depthview.py  complete; depth to a red-green-blue ramp, red near, two
-                  segments blended by the position's low bits
+    depthview.py  complete; depth to a smooth rainbow, key colours by the
+                  position's high bits blended by its low bits
     demosaic/
       bilinear.py complete; CFA-position-selected taps on one shared window,
                   three channels out via np.stack -- the model never packs

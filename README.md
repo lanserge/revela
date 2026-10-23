@@ -252,8 +252,8 @@ phase and amplitude by CORDIC, from the last four frames of the stream's
 history, each frame's place in the capture loop bound to the frame count its
 header carries, then perpendicular depth in millimetres from the phase and the
 lens -- composed as `tof_core`, the pair is bit-exact with its generated
-Verilog, and `tof_isp` puts a frame store before them, proved with it. `depthview` makes depth a colour a display shows, red near through
-green to blue far.
+Verilog, and `tof_isp` puts a frame store before them, proved with it. `depthview` makes depth a smooth rainbow a display shows, red near to violet
+far, a colour every few millimetres.
 `pipe`, `stats`, the register map with its AXI4-Lite control plane, address
 allocation, build-time register overrides, the sensor schema and the
 composition layer are implemented. The remaining blocks (`lsc`, `defect`,

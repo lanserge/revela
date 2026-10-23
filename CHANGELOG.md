@@ -61,11 +61,14 @@ Pre-1.0, so the block API and the map format can still change. See
 
 - **The board builds a time-of-flight design.** `revela.boards.pynq_z2.tof:
   revela_tof_core` is `tof_core` then `depthview`, the new block that
-  makes depth a colour a display shows -- red near through green to blue
-  far, two segments blended by the position's low bits, its range a
-  power-of-two shift. `build.sh` takes a variant's settings of the design's
-  parameters on its command line and records them beside the bitstream
-  (`out/build.json`): `build.sh
+  makes depth a smooth rainbow a display shows -- red near through orange,
+  yellow, green, cyan and blue to violet far. The position along the range
+  picks a segment between two of nine key colours by its high bits and
+  blends between them by its low bits -- twelve bits of millimetres over
+  0 to 4.095 m, none dropped; one read of an eight-word table, both ends
+  of a segment in each word. `start` and `shift` set the range. `build.sh` takes a
+  variant's settings of the design's parameters on its command line and
+  records them beside the bitstream (`out/build.json`): `build.sh
   pipeline=@revela.boards.pynq_z2.tof:revela_tof_isp`, the board's ISP slot
   holding `tof_isp` around that core: its frame store's master on the
   processor's memory port, after the capture's, its frames in the top 16 MB

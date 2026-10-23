@@ -1,7 +1,7 @@
 {
   "blocks": {
     "revela_tof_core": {
-      "description": "The board's time-of-flight core: the ToF pipeline -- the four latest reference phases to phase and amplitude, phase to depth in millimetres -- then a depth view a television shows, red near through green to blue far. Of model blocks alone, it is the unit the board's ISP proves and builds whole, behind the frame store that hands it the four latest frames side by side.",
+      "description": "The board's time-of-flight core: the ToF pipeline -- the four latest reference phases to phase and amplitude, phase to depth in millimetres -- then a depth view a television shows, a rainbow red near to violet far. Of model blocks alone, it is the unit the board's ISP proves and builds whole, behind the frame store that hands it the four latest frames side by side.",
       "vocabulary": "revela.blocks.pipe:VOCABULARY",
       "parameters": {
         "clock_mhz": {
@@ -50,7 +50,7 @@
         },
         "view": {
           "block": "revela.blocks.depthview",
-          "description": "Depth as a colour, red near through green to blue far, black where nothing was measured: this design's output encoding for HDMI. Its range resets to 4.1 m."
+          "description": "Depth as a smooth rainbow across a range, red near through orange, yellow, green, cyan and blue to violet far, every millimetre of the depth feeding the blend; black where nothing was measured. This design's output encoding for HDMI. Its range resets to the sensor's whole window, 0-4.1 m."
         }
       },
       "connections": [
