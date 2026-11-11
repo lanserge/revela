@@ -264,10 +264,11 @@ documented gap is a sponsorable goal — the
 [`sponsorable` label](https://github.com/lanserge/revela/issues?q=label%3Asponsorable)
 carries the full slate, scoped and ready to fund.
 
-`stats` has a model and a register map but no generated RTL: accumulation over a
-region is a reduction, which np2hw does not trace yet. It is the one block that
-does not currently satisfy rule 3, and that is stated rather than papered over
-with a test that only exercises the NumPy side.
+`stats` has a model and a register map but no generated RTL: np2hw traces a
+fold -- each pixel into the entry its key names -- and the model is not yet
+written as one. It is the one block that does not currently satisfy rule 3,
+and that is stated rather than papered over with a test that only exercises
+the NumPy side.
 
 ## Licence
 

@@ -201,10 +201,6 @@ Consequences worth stating, because each one is something a host can rely on:
   wrote −100 and read back 65436 has been told a different thing from what it
   wrote, and it is the register file that chose the width.
 
-Statistics windows are declared and allocated but have no hardware behind them
-yet: `stats` is the one block np2hw cannot trace, so there is nothing writing a
-window to double-buffer. The region is in the map; the RAM is not in the RTL.
-
 ## Pipeline descriptions
 
 A pipeline's structure is a NETLIST in JSON: a composite, validated against
@@ -227,11 +223,11 @@ hardware failure rather than a tidiness rule:
 
 - an undriven block input is a stream that never arrives;
 - two drivers on one input is a short;
-- a cycle cannot be scheduled in a feed-forward pipeline;
-- a fork to two consumers that BOTH apply backpressure needs an element that
-  buffers one side while the other stalls. No such element exists yet, so the
-  fork is refused rather than emitted as something that deadlocks the first
-  time one branch stalls -- a bug that only appears under load.
+- a cycle cannot be scheduled in a feed-forward pipeline.
+
+A stream into two consumers that BOTH apply backpressure is a fork, which the
+composer places (`np2hw_fork`): each takes every beat, and the beat moves on
+once both have.
 
 The checks themselves live in np2hw (`np2hw.netlist`), because they are laws of
 np2hw's streaming handshake and a copy of them here would be free to disagree
@@ -478,7 +474,7 @@ revela/          (np2hw holds the machinery: np2hw.blocks -- the framework,
                   TWO blocks (gamma.py also reads as rgb_gamma.py to the
                   drift test): single-channel, and per-RGB-channel over one
                   shared knot table via the channels view
-    stats.py      model + register map; RTL pending np2hw reductions
+    stats.py      model + register map; RTL pending its model as a fold
     ccm.py        complete; first 3-channel block, seatless until demosaic
     crop.py       complete; NumPy's own slice on four registers -- the first
                   block whose frame out is not the frame in, so every block
@@ -532,8 +528,8 @@ experiments/      exploratory work, NOT part of the library, float allowed
 ## Current status and known gaps
 
 - `blacklevel` is complete end to end.
-- `stats` has a model and register map but **no generated RTL**: accumulation
-  over a region is a reduction, which np2hw does not trace yet. It is the one
+- `stats` has a model and register map but **no generated RTL**: np2hw traces a
+  fold, and the model is not yet written as one. It is the one
   block that does not satisfy rule 3, and that is stated rather than hidden
   behind a test that only exercises the NumPy side. **Do not "fix" this by
   writing Verilog by hand.**
