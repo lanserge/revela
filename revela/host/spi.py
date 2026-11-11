@@ -18,7 +18,7 @@ Reads are two transfers, or one with a turnaround, depending on how many wires
 the board actually routed.
 
 The one thing that matters for this transport: ``read_block`` MUST be overridden
-with an auto-incrementing burst. A statistics window is 1280 words; at one
+with an auto-incrementing burst. A statistics readout is 1280 words; at one
 address phase per word over a 10 MHz link that is well over a frame time, and
 the control loop falls behind the sensor. With auto-increment the address is
 sent once and the window streams.

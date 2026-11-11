@@ -139,12 +139,14 @@ kept apart deliberately:
 `ParamSet`, an ID-and-version word, and it is allocated through the same path as
 everything else. It sits at base 0 by convention, not by a branch in the code.
 
-**Statistics** go in a **separate address region with different structure**: a
-memory-mapped RAM window for bulk reads, not scattered CSR words.
-**Double-buffered per frame** — the host reads frame N while frame N+1
-accumulates — and **NOT** commit-on-vsync like config params. That is the
-opposite mechanism, solving the opposite problem: config protects the hardware
-from a half-written host, statistics protect the host from a torn read.
+**Statistics** are a frame of their own, not scattered CSR words: a block
+folds the frame into its result, which leaves as a stream, and software reads
+it through np2hw's readout -- a memory written by the stream and read over the
+bus, **two frames deep**, so the host reads frame N while frame N+1 is written,
+the frame count saying when a read must be repeated. **NOT** commit-on-vsync
+like config params: that is the opposite mechanism, solving the opposite
+problem -- config protects the hardware from a half-written host, statistics
+protect the host from a torn read.
 
 **Every block has an ID-and-version word at local offset 0**, so the host can
 verify the loaded bitstream matches the software before the first pixel moves.
@@ -613,10 +615,9 @@ width, and revela reads them instead of keeping its own table.
 - `compose()` type-checks every net before emitting a line: a source and sink
   must agree on width and framing. Connecting a 10-bit Bayer stream to a block
   built for 12-bit RGB used to elaborate happily.
-- Next: a **buffered fork** -- a fan-out to two consumers that both apply
-  backpressure is refused today rather than emitted as something that
-  deadlocks under load -- and statistics RAM windows behind the region the
-  allocator already reserves for them.
+- A fan-out to two consumers that both apply backpressure is a **fork**
+  (`np2hw_fork`): each takes every beat, and the beat moves on once both have
+  -- statistics beside the datapath they measure, say.
 - `demosaic/bilinear` is complete: the first phase-selected STENCIL block
   (np2hw traces `out[r::2, c::2] = taps[r::2, c::2]` to one shared window
   with a positional tap-combination mux) and the first three-channel

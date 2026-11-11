@@ -13,9 +13,9 @@ Structure, and why it is not a pile of CSRs
 A 16x16 grid with five words per zone is 1280 words. Exposing that as
 individually addressed configuration registers would be absurd -- the host wants
 to read the whole thing in one burst, and it wants a COHERENT snapshot. So the
-statistics live in their own address region as a memory-mapped RAM window, and
-the window is DOUBLE-BUFFERED: the host reads frame N while frame N+1
-accumulates into the other buffer, and the buffers swap at end of frame.
+result is a frame of its own, a record a zone, and leaves as a stream: wired into
+np2hw's readout (``np2hw.readout``), software reads each frame published while
+the next is written, the frame count saying when a read must be repeated.
 
 This is deliberately the opposite mechanism to configuration. Config uses shadow
 registers committed at the frame boundary, because the host is writing and the
@@ -53,12 +53,12 @@ Generation status
 -----------------
 
 The model below is the specification, and it is written at the hardware's
-arithmetic. The Verilog is NOT yet generated: np2hw traces stencils and pointwise
-operations, and accumulation over a region is a reduction, which it does not
-trace yet. Until it does, this block has a model and a register map but no
-bit-exact test, and it is the one block in revela that does not satisfy rule 3.
-That is stated here rather than hidden behind a passing test that only exercises
-the NumPy side.
+arithmetic. The Verilog is NOT yet generated: np2hw traces a fold -- each pixel
+into the entry its key names -- and this model accumulates into arrays the trace
+does not see, over a window worked out in Python. Until it is written as a fold,
+this block has a model and a register map but no bit-exact test, and it is the
+one block in revela that does not satisfy rule 3. That is stated here rather
+than hidden behind a passing test that only exercises the NumPy side.
 """
 from __future__ import annotations
 
@@ -66,7 +66,7 @@ import numpy as np
 
 from np2hw.blocks import StreamPort
 from revela.blocks import ispblock
-from np2hw.blocks.params import Param, StatsWindow
+from np2hw.blocks.params import Param
 from revela.blocks.cfa import phase_input
 
 # Build-time grid maximum. The RAM is sized for this; the zone SIZE is a runtime
@@ -156,16 +156,6 @@ STATS_DECLARATION = dict(
               description="Bottom edge of the metered window, exclusive"),
     ],
     even_frame=True,
-    stats=[
-        StatsWindow(
-            name="zones",
-            words=ZONES_X * ZONES_Y * len(STATS_LAYOUT),
-            layout=STATS_LAYOUT,
-            description="Per-zone accumulators, row-major, one record per zone. "
-                        "Double-buffered: this window is the frame that has completed, "
-                        "while the next frame accumulates into the other buffer",
-        ),
-    ],
 )
 
 # Rec.601 luma weights (54, 183, 18 of 255), PRE-SCALED by CFA_SAMPLE_DIVISOR so

@@ -11,7 +11,7 @@ frame is not a consideration.
 Intended framing, one request datagram and one reply:
 
     byte 0      opcode: 0 = read, 1 = write
-    byte 1      word count, so a whole statistics window is one exchange
+    byte 1      word count, so a whole statistics readout is one exchange
     bytes 2:3   sequence number, echoed in the reply
     bytes 4:7   address
     bytes 8:    payload, little-endian 32-bit words

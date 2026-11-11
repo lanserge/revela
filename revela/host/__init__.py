@@ -27,8 +27,6 @@ import json
 from abc import ABC, abstractmethod
 from pathlib import Path
 
-import numpy as np
-
 
 class Transport(ABC):
     """A way to reach the device's register space.
@@ -50,9 +48,8 @@ class Transport(ABC):
         """Read a contiguous run of registers.
 
         The default is a loop; a transport with burst support should override
-        it. Statistics windows are read through this, and a 1280-word window
-        read one round trip at a time over a slow link is the difference between
-        keeping up with the frame rate and not.
+        it: a long run read one round trip at a time over a slow link is the
+        difference between keeping up with the frame rate and not.
         """
         return [self.read32(address + 4 * i) for i in range(words)]
 
@@ -166,72 +163,15 @@ class Register:
                 f"{self.q_format} = {self.get()}>")
 
 
-class StatsWindowAccessor:
-    """A double-buffered statistics RAM window.
-
-    Read in bulk and returned as a 2-D ``(records, fields)`` array, which is the
-    memory's own shape and matches what :func:`revela.blocks.stats.stats`
-    produces -- so comparing hardware against the model is an array comparison
-    with no reindexing in between.
-    """
-
-    __slots__ = ("_spec", "_transport", "_path")
-
-    def __init__(self, spec: dict, transport: Transport, path: str):
-        self._spec = spec
-        self._transport = transport
-        self._path = path
-
-    @property
-    def base(self) -> int:
-        return self._spec["base"]
-
-    @property
-    def layout(self) -> tuple[str, ...]:
-        return tuple(self._spec["layout"])
-
-    def read(self, buffer: int = 0) -> np.ndarray:
-        """Read one buffer as ``(records, fields)``.
-
-        Args:
-            buffer: which of the two buffers to read. 0 is the completed frame,
-                which is what a control loop wants; 1 is the one currently
-                accumulating and is only useful for debugging.
-        """
-        if buffer not in (0, 1):
-            raise ValueError(f"{self._path}: buffer must be 0 or 1, got {buffer}")
-        address = self.base + buffer * self._spec["buffer_bytes"]
-        words = self._transport.read_block(address, self._spec["words"])
-        return np.array(words, dtype=np.uint32).reshape(
-            self._spec["records"], self._spec["record_words"])
-
-    def field(self, name: str, buffer: int = 0) -> np.ndarray:
-        try:
-            column = self.layout.index(name)
-        except ValueError:
-            raise KeyError(
-                f"{self._path} has no field {name!r}; it holds {list(self.layout)}"
-            ) from None
-        return self.read(buffer)[:, column]
-
-    def __repr__(self) -> str:
-        return (f"<StatsWindow {self._path} @ 0x{self.base:04x} "
-                f"{self._spec['records']} records of {list(self.layout)}>")
-
-
 class Block:
-    """One block instance: its registers, its statistics windows, its identity."""
+    """One block instance: its registers and its identity."""
 
     def __init__(self, spec: dict, transport: Transport):
         object.__setattr__(self, "_spec", spec)
         object.__setattr__(self, "_transport", transport)
         registers = {r["name"]: Register(r, transport, f"{spec['path']}.{r['name']}")
                      for r in spec["registers"]}
-        windows = {w["name"]: StatsWindowAccessor(w, transport,
-                                                  f"{spec['path']}.{w['name']}")
-                   for w in spec["statistics"]}
         object.__setattr__(self, "_registers", registers)
-        object.__setattr__(self, "_windows", windows)
 
     # -- identity -------------------------------------------------------------- #
 
@@ -263,13 +203,10 @@ class Block:
         registers = object.__getattribute__(self, "_registers")
         if name in registers:
             return registers[name].get()
-        windows = object.__getattribute__(self, "_windows")
-        if name in windows:
-            return windows[name]
         spec = object.__getattribute__(self, "_spec")
         raise AttributeError(
-            f"{spec['path']} has no register or window {name!r}; it has "
-            f"{sorted(registers)} and {sorted(windows)}")
+            f"{spec['path']} has no register {name!r}; it has "
+            f"{sorted(registers)}")
 
     def __setattr__(self, name: str, value) -> None:
         registers = object.__getattribute__(self, "_registers")
@@ -293,7 +230,7 @@ class Block:
         return {name: reg.get() for name, reg in self._registers.items()}
 
     def __dir__(self):
-        return sorted(set(super().__dir__()) | set(self._registers) | set(self._windows))
+        return sorted(set(super().__dir__()) | set(self._registers))
 
     def __repr__(self) -> str:
         return (f"<Block {self.path} @ 0x{self.base:04x} "

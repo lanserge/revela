@@ -138,6 +138,14 @@ Pre-1.0, so the block API and the map format can still change. See
 
 ### Changed
 
+- **Statistics are a stream, read through np2hw's readout.** A block folds
+  its frame into a result that leaves as a stream; software reads it
+  through the readout leaf a design wires it into, not a window in the
+  block's register region. The ISP's register window is therefore what its
+  registers need -- one page, 12 address bits, where it was 32 KB -- and a
+  board's bus places it, and its neighbours, again; their addresses come,
+  as always, from the published address map.
+
 - **A block knows only its own inputs; the design connects them.** A model
   is `(pixel, p, bit_depth)`. blacklevel, whitebalance, the demosaics and
   stats declare `bayer_phase` as a scalar input (`revela.blocks.cfa`) and
@@ -324,6 +332,13 @@ Pre-1.0, so the block API and the map format can still change. See
 - **A GPIO is a described block** (`revela.boards.common.gpio`, filled by
   AMD's AXI GPIO), held to its description by `vendor_check` like the
   DMAs, its register port stating its window.
+
+### Removed
+
+- **Statistics windows in the register map, and the host's accessor for
+  them** (`revela.host.StatsWindowAccessor`, `dev.<path>.stats.<window>`):
+  statistics leave as a stream and are read through the readout. The
+  `stats` block keeps its model and its registers.
 
 ### Fixed
 

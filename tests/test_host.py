@@ -166,56 +166,6 @@ def test_reset_defaults_writes_every_declared_default(device, register_map):
 
 
 # --------------------------------------------------------------------------- #
-# Statistics windows
-# --------------------------------------------------------------------------- #
-
-def test_statistics_read_back_in_the_models_shape(device, register_map):
-    """The host's array and the model's array must be the same shape.
-
-    They are compared directly when checking hardware against the model, so a
-    reshape or a transpose between them would be a silent source of confusion.
-    """
-    window = device.left.stats.zones
-    read = window.read()
-
-    assert read.ndim == 2
-    assert read.shape[1] == len(stats.STATS_LAYOUT)
-    assert window.layout == stats.STATS_LAYOUT
-
-    model_output = stats.stats(
-        np.zeros((32, 32), dtype=np.uint16),
-        stats.stats.params.bind(stats.default_registers(
-            stats.ZONES_X, stats.ZONES_Y, (0, 0, 32, 32))))
-    assert read.shape == model_output.shape
-
-
-def test_the_two_buffers_are_at_different_addresses(device):
-    """Double buffering: the host reads frame N while N+1 accumulates."""
-    window = device.left.stats.zones
-    transport = device._transport
-
-    before = len(transport.storage)
-    window.read(0)
-    window.read(1)
-    assert before == len(transport.storage)      # reads must not create entries
-
-    spec = window._spec
-    assert spec["buffer_bytes"] * 2 == spec["size_bytes"]
-
-
-def test_statistics_field_lookup_is_by_name(device):
-    column = device.left.stats.zones.field("count")
-    assert column.shape == (stats.ZONES_X * stats.ZONES_Y,)
-
-    with pytest.raises(KeyError, match="sum_r"):
-        device.left.stats.zones.field("sum_infrared")
-
-
-def test_stats_windows_of_the_two_eyes_do_not_alias(device):
-    assert device.left.stats.zones.base != device.right.stats.zones.base
-
-
-# --------------------------------------------------------------------------- #
 # Transports
 # --------------------------------------------------------------------------- #
 
