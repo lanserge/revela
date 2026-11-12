@@ -64,11 +64,8 @@ def main() -> int:
     print()
     print("address map")
     for stage in compose.stages(pipeline):
-        windows = ", ".join(f"{name} @ 0x{base:04x}"
-                            for name, base in stage.instance.stats_bases.items())
         print(f"  0x{stage.instance.base:04x}  {stage.path:<22} "
-              f"{len(stage.paramset):>2} registers"
-              + (f"   stats: {windows}" if windows else ""))
+              f"{len(stage.paramset):>2} registers")
 
     if args.profile is not None:
         profile = profiles.resolve(args.profile)

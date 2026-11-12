@@ -196,9 +196,6 @@ jobs:
       - name: Designs build as composites
         run: pytest tests/test_composite.py tests/test_netlist.py tests/test_pipelines.py -v
 
-      - name: Register map allocation
-        run: pytest tests/test_address_allocation.py -v
-
       - name: Models and host API
         run: |
           pytest -v -m "not verilog" \
@@ -206,8 +203,7 @@ jobs:
             --ignore=tests/test_sensors.py \
             --ignore=tests/test_composite.py \
             --ignore=tests/test_netlist.py \
-            --ignore=tests/test_pipelines.py \
-            --ignore=tests/test_address_allocation.py
+            --ignore=tests/test_pipelines.py
 
       - name: Generated Verilog is bit-exact with the NumPy models
         run: pytest -v -m verilog
@@ -227,7 +223,7 @@ jobs:
             python - "$library" <<'PY'
           import json, sys
           from pathlib import Path
-          from revela.designs import profile
+          from np2hw.design import profile
           library = Path(sys.argv[1])
           for name in json.loads(library.read_text())["profiles"]:
               resolved = profile.resolve(
@@ -241,11 +237,11 @@ jobs:
         # Independent of the cocotb tests: proves the emitted RTL is well formed
         # on its own terms, which is what somebody licensing this will do first.
         run: |
-          # Three warning classes are tolerated, named explicitly rather than
+          # Four warning classes are tolerated, named explicitly rather than
           # with a blanket -Wno-fatal, so that a reviewer can see exactly what is
-          # excused and everything else still fails the build. All three come
+          # excused and everything else still fails the build. All four come
           # from np2hw's generated core, not from revela's own emission, and all
-          # three are output-quality items filed against np2hw:
+          # four are output-quality items in np2hw:
           #
           #   WIDTHEXPAND  a narrower accumulator widened into a wider adder.
           #                Correct, but Verilator wants the extension written out.
@@ -254,10 +250,12 @@ jobs:
           #   UNSIGNED     `erow >= 0` on an unsigned counter is constant-true.
           #                Dead comparison emitted when the kernel has no vertical
           #                or horizontal extent.
+          #   CMPCONST     a frame size read from the context, clamped to the
+          #                range its field already holds: `n > 65535` on 16 bits.
           # Elaborated from the CONTROL top, so the register file and its decode
           # are linted too -- that is the module a board actually instantiates.
           verilator --lint-only --top-module revela_stereo_ctrl \
-            -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-UNSIGNED \
+            -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-UNSIGNED -Wno-CMPCONST \
             build/revela_stereo/revela_stereo.v
 
       - name: Upload generated output
@@ -295,16 +293,18 @@ jobs:
           cd /tmp
           /tmp/clean/bin/python -c "
           import revela
-          from revela import designs, sensors
-          from revela.designs import composite, profile
+          from revela import sensors
+          from np2hw import pipeline as pipelines
+          from np2hw.design import composite, profile
+          from np2hw.pipeline import compose
 
           print('revela', revela.__version__)
           assert sensors.available(), 'sensor descriptions missing from the wheel'
           assert sensors.load('imx219')['name'] == 'imx219'
-          assert composite.schema()['\$defs'], 'composite schema missing from the wheel'
-          pipeline = designs.load('revela.pipelines.stereo:revela_stereo')
-          assert pipeline.generate().verilog
+          assert sensors.load('arducam_tof')['name'] == 'arducam_tof'
+          assert composite.schema()['\$defs'], 'composite schema missing'
+          pipeline = pipelines.load('revela.pipelines.stereo:revela_stereo')
           assert profile.flatten(profile.resolve('revela.sensors.ov5647.profile:ov5647'),
-                                 pipeline.register_map())
+                                 compose.register_map(pipeline))
           print('wheel is self-contained')
           "
