@@ -8,7 +8,13 @@ widths** an integrator wires to.
 Pre-1.0, so the block API and the map format can still change. See
 `docs/RELEASING.md` for which version numbers must be bumped when.
 
-## Unreleased
+## 0.4.0
+
+Needs np2hw 0.7.0: every core takes each frame's size from its
+stream's context. New here: a time-of-flight ISP -- four phase frames
+in, depth out -- with its blocks, its PYNQ-Z2 board design and the
+Arducam ToF module described as a sensor. The board designs install
+with `pip install revela[boards]`.
 
 ### Added
 

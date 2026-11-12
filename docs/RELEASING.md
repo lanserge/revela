@@ -1,8 +1,6 @@
 # Releasing
 
-Four packages publish to PyPI, and bayerlink-fpga is a package that
-publishes once its own publish workflow exists. They are separate
-releases, but **the order is not free**: a package cannot be uploaded before the packages it depends on
+Five packages publish to PyPI. They are separate releases, but **the order is not free**: a package cannot be uploaded before the packages it depends on
 exist on the index at the version it asks for.
 
 ## The order, and where it comes from
@@ -13,16 +11,15 @@ Read it off the dependency graph rather than remembering it:
 | --- | --- | --- |
 | `bayerlink` | numpy | first — nothing internal |
 | `np2hw` | numpy; `bayerlink` only as an extra | first — nothing internal required |
-| `revela` | `np2hw>=0.6.1` | after np2hw |
-| `picam2hdmi` | `bayerlink>=0.5.0` | after bayerlink |
-| `bayerlink-fpga` | `np2hw>=0.6.1`, `bayerlink>=0.5.0` | after np2hw and bayerlink |
+| `revela` | `np2hw>=0.7.0`; `bayerlink-fpga>=0.3.0` as the `boards` extra | after np2hw, and after bayerlink-fpga |
+| `picam2hdmi` | `bayerlink>=0.6.0` | after bayerlink |
+| `bayerlink-fpga` | `np2hw>=0.7.0`, `bayerlink>=0.5.0` | after np2hw and bayerlink |
 
-A workable sequence is therefore **bayerlink → np2hw → revela →
-picam2hdmi**, with bayerlink-fpga anywhere after np2hw and bayerlink.
-bayerlink and np2hw are independent of each other and may go in either
-order. revela's board design (`revela/boards/pynq_z2`) instantiates
-bayerlink-fpga's receiver, so a release of revela whose board build is to
-install from PyPI needs bayerlink-fpga published first.
+A workable sequence is therefore **bayerlink → np2hw → bayerlink-fpga
+→ revela → picam2hdmi**. bayerlink and np2hw are independent of each
+other and may go in either order. revela's board designs
+(`revela/boards`) instantiate bayerlink-fpga's receiver, which the
+`boards` extra installs, so bayerlink-fpga publishes before revela.
 
 ## Why a direct reference is refused
 

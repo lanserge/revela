@@ -20,8 +20,8 @@ it reads the pipeline's published contract and never restates it.
 ## Build
 
 ```sh
-pip install -e ../bayerlink-fpga -e .      # from the checkouts; np2hw and
-                                           # bayerlink come with them
+pip install "revela[boards]"               # or, from the checkouts:
+                                           # pip install -e ../bayerlink-fpga -e .
 git clone --depth 1 https://github.com/Digilent/vivado-library.git
 git clone --depth 1 https://github.com/xupsh/pynq-supported-board-file.git board-files
 sh "$(python3 -c 'import revela.boards.pynq_z2 as b; print(b.HERE)')/build.sh"

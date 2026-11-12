@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "revela"
-version = "0.3.1"
+version = "0.4.0"
 description = "An image signal processing pipeline written in NumPy, from which synthesisable Verilog is generated"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -41,8 +41,11 @@ dependencies = [
     # TypeError on the first block a pipeline builds, so this floor is
     # the difference between a package that works and one that imports.
     # 0.6.0 carried the same API but was withdrawn before it was
-    # announced, and a withdrawn version resolves for nobody.
-    "np2hw>=0.6.1",
+    # announced, and a withdrawn version resolves for nobody. 0.7.0 is
+    # the floor now: every core takes its frame's size from the stream's
+    # context, which the designs here carry, and an np2hw before it builds
+    # none of them; the time-of-flight blocks read the stream's history.
+    "np2hw>=0.7.0",
 ]
 
 [project.optional-dependencies]
@@ -54,6 +57,12 @@ dev = [
     # Elaborates the emitted SystemRDL and compares it against the JSON map;
     # MIT, unlike the PeakRDL exporters, which are tools an integrator runs.
     "systemrdl-compiler>=1.29",
+]
+
+# The board designs (revela/boards) instantiate the bayerlink receiver;
+# the ISP itself does not need it.
+boards = [
+    "bayerlink-fpga>=0.3.0",
 ]
 
 [project.urls]
