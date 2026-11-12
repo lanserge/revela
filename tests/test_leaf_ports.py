@@ -21,6 +21,8 @@ from np2hw.design.interfaces import expand
 
 pytestmark = pytest.mark.skipif(shutil.which("verilator") is None,
                                 reason="needs verilator")
+# the board design reaches the receiver's front end: the boards extra
+pytest.importorskip("bayerlink_fpga")
 
 DESIGN = "revela.boards.pynq_z2.pynq_demo:pynq_demo"
 PRIMITIVES = (Path(__file__).resolve().parents[1] / "revela" / "boards"

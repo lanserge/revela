@@ -19,6 +19,9 @@ import pytest
 
 from revela.boards import pynq_z2
 
+# the board's designs reach the receiver and its front end: the boards extra
+pytest.importorskip("bayerlink_fpga")
+
 BUILD = pynq_z2.HERE / "build.sh"
 
 

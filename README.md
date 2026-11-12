@@ -100,9 +100,8 @@ naming because the pieces are designed to fit:
 | piece | what it does |
 | --- | --- |
 | [bayerlink](https://github.com/bayerlink/bayerlink) | the wire format: raw Bayer over an ordinary video link, self-described by a header line — geometry, CFA phase and depth travel with the frame |
-| [`np2hw.video_in`](https://github.com/lanserge/np2hw) | the receiver: decodes that link and aligns sample depth on the way in, so downstream the depth is a build fact |
+| [bayerlink-fpga](https://github.com/bayerlink/bayerlink-fpga) | the receiver: decodes that link on an FPGA, behind its TMDS front ends, and aligns sample depth on the way in, so downstream the depth is a build fact |
 | **revela** | the ISP: this project |
-| [bayerlink-fpga](https://github.com/bayerlink/bayerlink-fpga) | that receiver on real FPGAs, with its TMDS front ends |
 | [`revela/boards/pynq_z2`](revela/boards/pynq_z2) | all of them on a PYNQ-Z2, with the board glue — the worked example |
 | [picam2hdmi](https://github.com/bayerlink/picam2hdmi) | a source at the other end: a Raspberry Pi, genlocked, any libcamera sensor |
 
